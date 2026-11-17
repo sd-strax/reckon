@@ -40,8 +40,11 @@ and the other accounts under the name are never seen.
 ## Decision
 
 - **Type 19 is a Windows signal.** It is read as type 2 (Windows Account)
-  is. A name with a domain, a SID or an "@" becomes `windows-domain`. A bare
-  name becomes the weak `windows` account, where a bare-login seed already
+  is, by its number or by its name in `account.type`. Both are read after
+  the identity-provider and Unix checks, as type 2 already was, so an
+  identity provider's sign-in with no SID stays `cloud`. Otherwise a name
+  with a domain, a SID or an "@" becomes `windows-domain`, and a bare name
+  becomes the weak `windows` account, where a bare-login seed already
   resolves.
 - **An "@" name is typed only on a signal that says what it is.** The step
   that typed a principal name from a source naming no operating system as
@@ -54,11 +57,17 @@ and the other accounts under the name are never seen.
   the stored accounts whose login, principal name or identifier equals the
   token (`evidence.Store.FindAccounts`).
   - One account, counting an account and its aliases as one, is the root.
+    Within the alias set, the root is the account keyed on its id, else
+    the first match.
   - Several: the analyst picks one from the list the server already returns
     (`known_accounts`).
   - None: the seed names the weak `login` account, the one a record with no
     signal produces. The existing "no account in the record" answer still
     comes first, and "start anyway" roots there.
+
+  A read that fails after matches were found never hides them: one match
+  is the root, and several are listed. The seed stays fail-open, as the
+  other seed checks are.
 
   A seed of `DOMAIN\sam` or of a bare login is unchanged. A seed by
   `account_ref`, and a person seed, are unchanged.
@@ -87,6 +96,10 @@ and the other accounts under the name are never seen.
 - A principal name from a source with no signal no longer merges with a
   Windows domain account of the same name. The two join only when a record
   names both, or through the person they belong to (§7.3).
+- A directory record still keys its principal name as a directory account
+  (`design/03-capability-layer.md §4.19`). So a directory's account and an
+  unplaced event's weak login under one name are two accounts, and an "@"
+  seed lists both.
 - An "@" seed sees every stored account under the name, so a stored Windows
   account no longer hides a stored cloud or weak account.
 - On an empty store an "@" seed roots on the weak login. Records that arrive

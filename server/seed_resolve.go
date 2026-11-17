@@ -203,14 +203,19 @@ func entityKindOf(token, chosen string) string {
 }
 
 // accountSeedAccount is the account an account seed's token names, by the
-// account rule (adr/0324) read from the token's shape: "DOMAIN\sam" and
-// "user@domain" are domain accounts keyed on that login (a principal name is
-// a domain account's, never a cloud sign-in's, unless the record says so);
-// a bare login is the weak windows account. A placeholder names none.
+// account rule (adr/0324, adr/0366) read from the token's shape:
+// "DOMAIN\sam" is a domain account keyed on that login, and a bare login is
+// the weak windows account. A principal name "user@domain" says nothing of
+// its type, so the token names the weak login account on it, the one a
+// record with no signal mints. The caller then looks the name up in the
+// record (principalNameSeed). A placeholder names none.
 func accountSeedAccount(res *identity.Resolver, token string) identity.STIXID {
-	typ := identity.AccountWindowsDomain
-	if !strings.ContainsAny(token, `\@`) {
-		typ = identity.AccountWindows
+	typ := identity.AccountWindows
+	switch {
+	case strings.Contains(token, `\`):
+		typ = identity.AccountWindowsDomain
+	case strings.Contains(token, "@"):
+		typ = identity.AccountLogin
 	}
 	if d, n, ok := strings.Cut(token, `\`); ok && (identity.PlaceholderLogin(n) || strings.TrimSpace(d) == "") {
 		return ""
@@ -317,44 +322,70 @@ func (b *Backend) resolveAccountRefSeed(r *http.Request, ref, typed string) (see
 	}, http.StatusOK, nil
 }
 
-// preferSignInAccount settles an account seed on a principal name the record
-// holds only as an identity provider's sign-in (adr/0324): when the domain
-// account the token mints is not persisted and every account the record holds
-// under the name is a cloud one of one alias set, the seed roots on the
-// set's strong account, the one keyed on the provider's id. Two or more sets,
-// or another kind, leave the seed as it was, for unknownAccount to list.
-func (b *Backend) preferSignInAccount(r *http.Request, s seedResolution) seedResolution {
-	if b.cfg.Evidence == nil || !strings.HasPrefix(s.Seed.EntityRef, identity.TypeUserAccount+"--") || !strings.Contains(s.Seed.EntityIdentifier, "@") {
-		return s
+// principalNameSeed roots an account seed on a principal name on the
+// account the record holds under that name (adr/0366). The token's own
+// account is the weak login (accountSeedAccount), since the token alone does
+// not say whether the name is a domain account, a cloud sign-in or neither.
+// The record's accounts whose login, principal name or identifier is the
+// token (FindAccounts) decide, an alias set counting as one account:
+//
+//   - one match: the seed roots on it;
+//   - several, all in one alias set: the seed roots on the set's root
+//     (setRoot);
+//   - several in more than one alias set: the seed stays on the weak login
+//     and several lists one entry per set, its root, for the caller to report
+//     so the analyst picks one. When the alias sets cannot be read, several
+//     lists every match: a failed read never hides an account the record
+//     returned;
+//   - none: the seed stays on the weak login, and unknownAccount reports it.
+//
+// check is false when the record cannot answer: no evidence store, or a
+// failed FindAccounts. The seed then stays on the weak login with no report.
+// A seed on any other token is returned as it is, with check true.
+func (b *Backend) principalNameSeed(r *http.Request, s seedResolution) (out seedResolution, several []evidence.AccountMatch, check bool) {
+	name := s.Seed.EntityIdentifier
+	if !strings.HasPrefix(s.Seed.EntityRef, identity.TypeUserAccount+"--") || !strings.Contains(name, "@") || strings.Contains(name, `\`) {
+		return s, nil, true
 	}
-	if _, err := b.cfg.Evidence.Object(r.Context(), s.Seed.EntityRef); !errors.Is(err, evidence.ErrNotFound) {
-		return s
+	if b.cfg.Evidence == nil {
+		return s, nil, false
 	}
-	// Every match: "one alias set" is decided over all of them.
-	matches, err := b.cfg.Evidence.FindAccounts(r.Context(), s.Seed.EntityIdentifier, 0)
-	if err != nil || len(matches) == 0 {
-		return s
-	}
-	// The matches as accounts: one alias set is one account, the sign-in
-	// name's account aliased to the one keyed on the provider's id.
-	set, err := b.cfg.Evidence.AliasSet(r.Context(), matches[0].Ref)
+	// Every match: "one account" is decided over all of them.
+	matches, err := b.cfg.Evidence.FindAccounts(r.Context(), name, 0)
 	if err != nil {
-		return s
+		return s, nil, false
 	}
-	strong := ""
-	for _, m := range matches {
-		if m.Type != identity.AccountCloud || !slices.Contains(set, m.Ref) {
-			return s // another kind, or a second account: unknownAccount lists them
+	switch len(matches) {
+	case 0:
+		return s, nil, true
+	case 1:
+		s.Seed.EntityRef = matches[0].Ref
+		return s, nil, true
+	}
+	groups, err := bySet(r.Context(), b.cfg.Evidence, matches, func(m evidence.AccountMatch) string { return m.Ref })
+	if err != nil {
+		return s, matches, true
+	}
+	if len(groups) == 1 {
+		s.Seed.EntityRef = setRoot(groups[0]).Ref
+		return s, nil, true
+	}
+	for _, g := range groups {
+		several = append(several, setRoot(g))
+	}
+	return s, several, true
+}
+
+// setRoot is the account an alias set's matches answer as: the first keyed
+// on its identifier (identity.KeyedOnUserID), such as the SID or the
+// provider id a login aliases to, else the first.
+func setRoot(group []evidence.AccountMatch) evidence.AccountMatch {
+	for _, m := range group {
+		if identity.KeyedOnUserID(m.Type, m.UserID) {
+			return m
 		}
-		if strong == "" && m.UserID != "" {
-			strong = m.Ref
-		}
 	}
-	if strong == "" {
-		strong = matches[0].Ref
-	}
-	s.Seed.EntityRef = strong
-	return s
+	return group[0]
 }
 
 // unknownAccount is unknownHost's sibling for an account seed (adr/0324): the
@@ -362,6 +393,8 @@ func (b *Backend) preferSignInAccount(r *http.Request, s seedResolution) seedRes
 // it. The report lists the persisted accounts the token does name (a
 // different type or spelling of the same login), so the analyst can seed on
 // one of them; with no evidence store nothing can vouch and the seed stands.
+// It is reached on every principal-name seed whose name lookup ran
+// (principalNameSeed). It stays silent when the seed's root is stored.
 func (b *Backend) unknownAccount(r *http.Request, s seedResolution) (bool, string, []evidence.AccountMatch) {
 	if !strings.HasPrefix(s.Seed.EntityRef, identity.TypeUserAccount+"--") || b.cfg.Evidence == nil {
 		return false, "", nil
@@ -381,6 +414,17 @@ func (b *Backend) unknownAccount(r *http.Request, s seedResolution) (bool, strin
 	}
 	shown, _ := capped(matches)
 	return true, msg, shown
+}
+
+// writeUnknownAccount answers an account seed the record does not settle:
+// 422 with the message and the accounts listed (known_accounts), so the
+// analyst can seed on one by its ref (account_ref).
+func writeUnknownAccount(w http.ResponseWriter, msg string, matches []evidence.AccountMatch) {
+	known := make([]map[string]string, 0, len(matches))
+	for _, m := range matches {
+		known = append(known, map[string]string{"ref": m.Ref, "account_type": m.Type, "account_login": m.Login})
+	}
+	writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": msg, "unknown_entity": true, "known_accounts": known})
 }
 
 // unknownHost asks the tenant's host inventory whether a host seed exists

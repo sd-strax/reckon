@@ -552,11 +552,16 @@ func TestHostAliasEmission(t *testing.T) {
 // STIX 2.1 through the one serializer, observes a record it extracts nothing
 // from as an artifact, and refuses a broken record. The opaque default moved
 // to 2, so a typed normalizer that takes over a class it held starts above 2.
+//
+// adr/0366 moved every normalizer that types a user object's account
+// (accountType): process, authentication, file, scheduled_job, account,
+// email_file, email_url and detection. An "@" name with no Windows signal is
+// no longer a domain account, and account type 19 is read as Windows.
 func TestNormalizerVersions(t *testing.T) {
 	reg := testRegistry()
 	for _, c := range []struct{ class, version int }{
-		{1007, 6}, {3002, 7}, {4001, 4}, {4003, 3}, {1001, 6}, {201001, 6}, {201002, 6}, {1006, 6}, {1005, 4},
-		{3001, 6}, {3005, 6}, {3006, 6}, {4009, 5}, {4011, 6}, {4012, 6}, {2004, 8}, {2005, 3},
+		{1007, 7}, {3002, 8}, {4001, 4}, {4003, 3}, {1001, 7}, {201001, 6}, {201002, 6}, {1006, 7}, {1005, 4},
+		{3001, 7}, {3005, 7}, {3006, 7}, {4009, 5}, {4011, 7}, {4012, 7}, {2004, 9}, {2005, 3},
 		{5001, 4}, {6003, 4}, {5023, 5}, {5003, 4}, {0, 2},
 	} {
 		n, ok := reg.byClass[c.class]

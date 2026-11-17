@@ -240,10 +240,62 @@ func TestAccountShapingTypes(t *testing.T) {
 			t.Errorf("account = %+v", s)
 		}
 	})
-	t.Run("an @ with no source signal is no cloud account", func(t *testing.T) {
-		_, s := one(t, map[string]any{"device": map[string]any{"hostname": "WS1"}, "actor": map[string]any{"user": map[string]any{"name": "jdoe@contoso.example"}}})
-		if s.Properties["account_type"] != identity.AccountWindowsDomain {
+	// adr/0366: an "@" alone says neither cloud nor Windows. With no signal
+	// it is the weak login on the name, never scoped by the host it acted on.
+	t.Run("an @ with no source signal is the weak login, not host-scoped", func(t *testing.T) {
+		_, s := one(t, map[string]any{"device": map[string]any{"hostname": "WS1"}, "actor": map[string]any{"user": map[string]any{"name": "JDoe@contoso.example"}}})
+		if s.Properties["account_type"] != identity.AccountLogin || s.ID != ids.Account(identity.AccountIdentity{Type: identity.AccountLogin, Login: "jdoe@contoso.example"}) {
+			t.Errorf("account = %+v; want the weak login on the principal name", s)
+		}
+	})
+	t.Run("a uid_alt principal name with no source signal keys the weak login", func(t *testing.T) {
+		_, s := one(t, map[string]any{"device": map[string]any{"hostname": "WS1"}, "actor": map[string]any{"user": map[string]any{"name": "jdoe", "uid_alt": "jdoe@contoso.example"}}})
+		if s.Properties["account_type"] != identity.AccountLogin || s.ID != ids.Account(identity.AccountIdentity{Type: identity.AccountLogin, Login: "jdoe@contoso.example"}) {
+			t.Errorf("account = %+v; want the weak login on the principal name", s)
+		}
+	})
+	t.Run("an @ on a Windows device is a domain account", func(t *testing.T) {
+		_, s := one(t, map[string]any{"device": map[string]any{"hostname": "WS1", "os": map[string]any{"type_id": 100}}, "actor": map[string]any{"user": map[string]any{"name": "jdoe@contoso.example"}}})
+		if s.Properties["account_type"] != identity.AccountWindowsDomain || s.ID != ids.Account(identity.AccountIdentity{Type: identity.AccountWindowsDomain, Login: "jdoe@contoso.example"}) {
 			t.Errorf("account = %+v; want the principal name as a domain account", s)
+		}
+	})
+	t.Run("an @ from an identity provider is a cloud account", func(t *testing.T) {
+		_, s := one(t, map[string]any{"metadata": map[string]any{"product": map[string]any{"name": "Okta"}}, "device": map[string]any{"hostname": "WS1"}, "actor": map[string]any{"user": map[string]any{"name": "jdoe@contoso.example"}}})
+		if s.Properties["account_type"] != identity.AccountCloud {
+			t.Errorf("account = %+v; want a cloud account", s)
+		}
+	})
+	// adr/0366: account type 19 (ActiveDirectory Account) is read as 2.
+	ad := func(user map[string]any) map[string]any {
+		user["account"] = map[string]any{"type_id": 19}
+		return map[string]any{"actor": map[string]any{"user": user}}
+	}
+	t.Run("type 19 with a bare name is the weak windows account", func(t *testing.T) {
+		_, s := one(t, ad(map[string]any{"name": "jdoe"}))
+		if s.Properties["account_type"] != identity.AccountWindows || s.ID != ids.Account(identity.AccountIdentity{Type: identity.AccountWindows, Login: "jdoe"}) {
+			t.Errorf("account = %+v; want the weak windows account", s)
+		}
+	})
+	// The caption in account.type alone is the same signal as the id.
+	for _, caption := range []string{"ActiveDirectory Account", "Windows Account"} {
+		t.Run("caption "+caption+" with a bare name is the weak windows account", func(t *testing.T) {
+			_, s := one(t, map[string]any{"actor": map[string]any{"user": map[string]any{"name": "jdoe", "account": map[string]any{"type": caption}}}})
+			if s.Properties["account_type"] != identity.AccountWindows || s.ID != ids.Account(identity.AccountIdentity{Type: identity.AccountWindows, Login: "jdoe"}) {
+				t.Errorf("account = %+v; want the weak windows account", s)
+			}
+		})
+	}
+	t.Run("type 19 with a domain is a domain account", func(t *testing.T) {
+		_, s := one(t, ad(map[string]any{"name": "jdoe", "domain": "CONTOSO"}))
+		if s.Properties["account_type"] != identity.AccountWindowsDomain || s.ID != ids.Account(identity.AccountIdentity{Type: identity.AccountWindowsDomain, Login: `contoso\jdoe`}) {
+			t.Errorf("account = %+v; want the domain account", s)
+		}
+	})
+	t.Run("type 19 with a SID is a domain account", func(t *testing.T) {
+		_, s := one(t, ad(map[string]any{"name": "jdoe", "uid": "S-1-5-21-9"}))
+		if s.Properties["account_type"] != identity.AccountWindowsDomain || s.ID != ids.Account(identity.AccountIdentity{Type: identity.AccountWindowsDomain, UserID: "S-1-5-21-9"}) {
+			t.Errorf("account = %+v; want the SID account", s)
 		}
 	})
 	t.Run("the machine's own domain is windows-local", func(t *testing.T) {

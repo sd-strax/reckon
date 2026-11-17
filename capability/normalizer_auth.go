@@ -23,7 +23,9 @@ func (*authNormalizer) ClassUID() int { return 3002 }
 // 7: STIX 2.1 output through the one serializer, an artifact for a record
 // naming nothing, and a broken record is a normalize error; addresses in
 // canonical text, adr/0357
-func (*authNormalizer) Version() int { return 7 }
+// 8: an account typed Windows only on a Windows signal, account type 19
+// read as one, adr/0366
+func (*authNormalizer) Version() int { return 8 }
 
 func (n *authNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload

@@ -2,6 +2,7 @@ package server
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/sd-strax/reckon/aggregate"
 	"github.com/sd-strax/reckon/authz"
+	"github.com/sd-strax/reckon/evidence"
 )
 
 // InvestigationView is the JSON shape returned to clients.
@@ -301,6 +303,11 @@ func (b *Backend) createInvestigation(w http.ResponseWriter, r *http.Request) {
 		}
 	case req.SeedInput != nil && req.Seed == nil:
 		var resolved seedResolution
+		// several is what a principal-name seed's name matches in the
+		// record when it is more than one account; nameChecked is false
+		// when the record could not be asked (principalNameSeed).
+		var several []evidence.AccountMatch
+		nameChecked := true
 		entitySeed := req.SeedInput.Kind == aggregate.SeedEntity ||
 			(req.SeedInput.Kind == "" && classifySeedKind(req.SeedInput.Value) == aggregate.SeedEntity)
 		if ref := strings.TrimSpace(req.SeedInput.AccountRef); ref != "" {
@@ -328,7 +335,7 @@ func (b *Backend) createInvestigation(w http.ResponseWriter, r *http.Request) {
 				writeJSONError(w, http.StatusBadRequest, "resolve seed: "+err.Error())
 				return
 			}
-			resolved = b.preferSignInAccount(r, res)
+			resolved, several, nameChecked = b.principalNameSeed(r, res)
 		}
 		// Report an entity nothing knows about rather than root on it (#159).
 		// An account seeded by its ref is persisted by definition.
@@ -337,13 +344,20 @@ func (b *Backend) createInvestigation(w http.ResponseWriter, r *http.Request) {
 				writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": msg, "unknown_entity": true})
 				return
 			}
-			if unknown, msg, matches := b.unknownAccount(r, resolved); unknown {
-				known := make([]map[string]string, 0, len(matches))
-				for _, m := range matches {
-					known = append(known, map[string]string{"ref": m.Ref, "account_type": m.Type, "account_login": m.Login})
-				}
-				writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": msg, "unknown_entity": true, "known_accounts": known})
+			// A principal name the record holds as several accounts is
+			// reported here: the seed's own account may be one of them, so
+			// unknownAccount would stay silent (adr/0366).
+			if len(several) > 0 {
+				msg := fmt.Sprintf("%q names %d accounts in the record reckon holds — seed on one, or start anyway", resolved.Seed.EntityIdentifier, len(several))
+				shown, _ := capped(several)
+				writeUnknownAccount(w, msg, shown)
 				return
+			}
+			if nameChecked {
+				if unknown, msg, matches := b.unknownAccount(r, resolved); unknown {
+					writeUnknownAccount(w, msg, matches)
+					return
+				}
 			}
 		}
 		seed := resolved.Seed

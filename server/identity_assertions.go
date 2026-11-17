@@ -255,8 +255,29 @@ func (b *Backend) personsByHint(ctx context.Context, hint string) ([]string, err
 // among the matches in the set, so the answer does not depend on which
 // member the hint happened to name. It runs before the 0/1/many decision.
 func oneBySet[T any](ctx context.Context, store evidenceStore, matches []T, ref func(T) string) ([]T, error) {
+	groups, err := bySet(ctx, store, matches, ref)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]T, 0, len(groups))
+	for _, g := range groups {
+		least := g[0]
+		for _, o := range g[1:] {
+			if ref(o) < ref(least) {
+				least = o
+			}
+		}
+		out = append(out, least)
+	}
+	return out, nil
+}
+
+// bySet groups the matches by alias set, one group per set in the order the
+// sets are first met. A group holds the matches in that set in their order,
+// the one that opened it first.
+func bySet[T any](ctx context.Context, store evidenceStore, matches []T, ref func(T) string) ([][]T, error) {
 	covered := map[string]bool{}
-	out := []T{}
+	var out [][]T
 	for _, m := range matches {
 		if covered[ref(m)] {
 			continue
@@ -269,13 +290,13 @@ func oneBySet[T any](ctx context.Context, store evidenceStore, matches []T, ref 
 		for _, s := range set {
 			covered[s] = true
 		}
-		least := m
+		group := []T{m}
 		for _, o := range matches {
-			if ref(o) < ref(least) && slices.Contains(set, ref(o)) {
-				least = o
+			if ref(o) != ref(m) && slices.Contains(set, ref(o)) {
+				group = append(group, o)
 			}
 		}
-		out = append(out, least)
+		out = append(out, group)
 	}
 	return out, nil
 }
