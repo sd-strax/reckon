@@ -214,12 +214,13 @@ func TestWithdrawOwner(t *testing.T) {
 
 // TestSeedEntityKind (adr/0324): a token with a backslash or an "@" seeds an
 // account by default, minted by the account rule; a chosen kind overrides
-// the default; a bare name stays a host.
+// the default; a bare name stays a host. An "@" token mints the weak login,
+// since the name alone says no type; the record settles it (adr/0366).
 func TestSeedEntityKind(t *testing.T) {
 	res := identity.NewResolver(uuid.New())
 	for token, want := range map[string]identity.STIXID{
 		`CONTOSO\jdoe`:         res.Account(identity.AccountIdentity{Type: identity.AccountWindowsDomain, Login: `contoso\jdoe`}),
-		"jdoe@contoso.example": res.Account(identity.AccountIdentity{Type: identity.AccountWindowsDomain, Login: "jdoe@contoso.example"}),
+		"jdoe@contoso.example": res.Account(identity.AccountIdentity{Type: identity.AccountLogin, Login: "jdoe@contoso.example"}),
 		"WIN-FILE01":           res.Host(identity.HostIdentity{Hostname: "win-file01"}),
 	} {
 		got, err := resolveSeedInputAs(res, token, "", "")
@@ -305,6 +306,135 @@ func TestCreateInvestigation_UnknownAccount(t *testing.T) {
 	store.objects[known] = evidence.Object{Ref: known, Type: identity.TypeUserAccount}
 	if code, body := send(t, b, "POST", "/api/investigations", mintToken(t, nil), `{"seed_input":{"value":"CONTOSO\\jdoe"}}`); code != http.StatusCreated {
 		t.Errorf("known account: %d %s", code, body)
+	}
+}
+
+// TestCreateInvestigation_PrincipalNameSeed (adr/0366): an "@" account seed
+// roots on the account the record holds under the name, of whatever type,
+// counting an alias set as one account. Several accounts are listed for the
+// analyst, even when one of them is the domain account the token used to
+// mint. None is the "no account" report, and "start anyway" roots on the
+// weak login. With no evidence store, or a failed read, the seed is the weak
+// login with no report.
+func TestCreateInvestigation_PrincipalNameSeed(t *testing.T) {
+	const name = "jdoe@contoso.example"
+	ids := identity.NewResolver(uuid.MustParse(testTenantNamespace))
+	weak := string(ids.Account(identity.AccountIdentity{Type: identity.AccountLogin, Login: name}))
+	domain := string(ids.Account(identity.AccountIdentity{Type: identity.AccountWindowsDomain, Login: name}))
+	seed := func(t *testing.T, b *Backend, cmds *fakeCommands, body string) (int, string, string) {
+		t.Helper()
+		cmds.cmd = nil
+		code, resp := send(t, b, "POST", "/api/investigations", mintToken(t, nil), body)
+		ref := ""
+		if cmd, ok := cmds.cmd.(aggregate.CreateInvestigation); ok && cmd.Seed != nil {
+			ref = cmd.Seed.EntityRef
+		}
+		return code, resp, ref
+	}
+	plain := `{"seed_input":{"value":"` + name + `"}}`
+	anyway := `{"seed_input":{"value":"` + name + `","allow_unknown":true}}`
+
+	for _, typ := range []string{identity.AccountWindowsDomain, identity.AccountCloud, identity.AccountLogin} {
+		b, store, acct, _, _ := accountBackend(t)
+		cmds := &fakeCommands{}
+		b.cfg.Handler = cmds
+		store.accountsByName = map[string][]evidence.AccountMatch{name: {{Ref: acct, Type: typ, Login: name}}}
+		if code, body, ref := seed(t, b, cmds, plain); code != http.StatusCreated || ref != acct {
+			t.Errorf("one %s account: %d %s, seed %s; want the seed on %s", typ, code, body, ref, acct)
+		}
+	}
+
+	b, store, acct, other, _ := accountBackend(t)
+	cmds := &fakeCommands{}
+	b.cfg.Handler = cmds
+	// One alias set of an older weak login and a SID-keyed domain account:
+	// the SID account. The weak login carries the record's id too, but it is
+	// keyed on its login (identity.KeyedOnUserID).
+	store.accountsByName = map[string][]evidence.AccountMatch{name: {
+		{Ref: acct, Type: identity.AccountLogin, Login: name, UserID: "8f6a0b5c-1d2e-4f3a-9b8c-7d6e5f4a3b2c"},
+		{Ref: other, Type: identity.AccountWindowsDomain, Login: name, UserID: "S-1-5-21-7-1101"},
+	}}
+	store.aliases = []string{acct, other}
+	if code, body, ref := seed(t, b, cmds, plain); code != http.StatusCreated || ref != other {
+		t.Errorf("one alias set: %d %s, seed %s; want the SID-keyed %s", code, body, ref, other)
+	}
+	store.aliases = nil
+
+	// The alias sets cannot be read. One match is still the root; two are
+	// listed, every match, never dropped for the weak login.
+	store.aliasErr = fmt.Errorf("store is down")
+	store.accountsByName = map[string][]evidence.AccountMatch{name: {{Ref: acct, Type: identity.AccountCloud, Login: name}}}
+	if code, body, ref := seed(t, b, cmds, plain); code != http.StatusCreated || ref != acct {
+		t.Errorf("one match, alias read failed: %d %s, seed %s; want the seed on %s", code, body, ref, acct)
+	}
+	store.accountsByName[name] = append(store.accountsByName[name], evidence.AccountMatch{Ref: other, Type: identity.AccountLogin, Login: name})
+	if code, body, ref := seed(t, b, cmds, plain); code != http.StatusUnprocessableEntity || ref != "" || !strings.Contains(body, acct) || !strings.Contains(body, other) {
+		t.Errorf("two matches, alias read failed: %d %s, seed %s; want 422 listing both", code, body, ref)
+	}
+	store.aliasErr = nil
+
+	// A SID account, its principal-name alias and an unrelated weak login
+	// are two accounts: one entry per alias set, the set's root, and the
+	// count says two.
+	upn := "user-account--" + uuid.NewString()
+	lone := "user-account--" + uuid.NewString()
+	store.accountsByName[name] = []evidence.AccountMatch{
+		{Ref: upn, Type: identity.AccountWindowsDomain, Login: name},
+		{Ref: other, Type: identity.AccountWindowsDomain, Login: `contoso\jdoe`, UserID: "S-1-5-21-7-1101"},
+		{Ref: lone, Type: identity.AccountLogin, Login: name},
+	}
+	store.aliasSets = map[string][]string{upn: {upn, other}, other: {upn, other}}
+	code, body, ref := seed(t, b, cmds, plain)
+	var sets struct {
+		Known []map[string]string `json:"known_accounts"`
+	}
+	if code != http.StatusUnprocessableEntity || ref != "" || json.Unmarshal([]byte(body), &sets) != nil || !strings.Contains(body, "names 2 accounts") ||
+		len(sets.Known) != 2 || sets.Known[0]["ref"] != other || sets.Known[1]["ref"] != lone {
+		t.Errorf("two alias sets: %d %s, seed %s; want 422 naming 2 accounts, %s and %s", code, body, ref, other, lone)
+	}
+	store.aliasSets = nil
+
+	// A stored domain account and a stored weak login, apart, under the
+	// name: the list, though the domain account is the one the token minted
+	// before and is stored.
+	store.objects[domain] = evidence.Object{Ref: domain, Type: identity.TypeUserAccount}
+	store.objects[weak] = evidence.Object{Ref: weak, Type: identity.TypeUserAccount}
+	store.accountsByName[name] = []evidence.AccountMatch{
+		{Ref: domain, Type: identity.AccountWindowsDomain, Login: name},
+		{Ref: weak, Type: identity.AccountLogin, Login: name},
+	}
+	code, body, ref = seed(t, b, cmds, plain)
+	var report struct {
+		Unknown bool                `json:"unknown_entity"`
+		Known   []map[string]string `json:"known_accounts"`
+	}
+	if code != http.StatusUnprocessableEntity || ref != "" || json.Unmarshal([]byte(body), &report) != nil || !report.Unknown ||
+		len(report.Known) != 2 || report.Known[0]["ref"] != domain || report.Known[1]["ref"] != weak || report.Known[1]["account_type"] != identity.AccountLogin {
+		t.Errorf("two accounts apart: %d %s, seed %s; want 422 listing both", code, body, ref)
+	}
+	if code, body, ref := seed(t, b, cmds, anyway); code != http.StatusCreated || ref != weak {
+		t.Errorf("two accounts apart, start anyway: %d %s, seed %s; want the weak login %s", code, body, ref, weak)
+	}
+
+	// None under the name: the "no account" report, then the weak login.
+	delete(store.objects, weak)
+	store.accountsByName = map[string][]evidence.AccountMatch{}
+	if code, body, ref := seed(t, b, cmds, plain); code != http.StatusUnprocessableEntity || ref != "" || !strings.Contains(body, "no account") || !strings.Contains(body, `"unknown_entity":true`) {
+		t.Errorf("none: %d %s, seed %s; want the no-account 422", code, body, ref)
+	}
+	if code, body, ref := seed(t, b, cmds, anyway); code != http.StatusCreated || ref != weak {
+		t.Errorf("none, start anyway: %d %s, seed %s; want the weak login %s", code, body, ref, weak)
+	}
+
+	// The record cannot answer: the weak login, no report.
+	store.err = fmt.Errorf("store is down")
+	if code, body, ref := seed(t, b, cmds, plain); code != http.StatusCreated || ref != weak {
+		t.Errorf("failed read: %d %s, seed %s; want the weak login %s", code, body, ref, weak)
+	}
+	store.err = nil
+	b.cfg.Evidence = nil
+	if code, body, ref := seed(t, b, cmds, plain); code != http.StatusCreated || ref != weak {
+		t.Errorf("no evidence store: %d %s, seed %s; want the weak login %s", code, body, ref, weak)
 	}
 }
 

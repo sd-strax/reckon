@@ -16,7 +16,9 @@ func (*processNormalizer) ClassUID() int { return 1007 }
 // naming nothing, and a broken record is a normalize error; the start time
 // stored, pids only when given, file hashes, names and sizes STIX can hold,
 // adr/0357
-func (*processNormalizer) Version() int { return 6 }
+// 7: an account typed Windows only on a Windows signal, account type 19
+// read as one, adr/0366
+func (*processNormalizer) Version() int { return 7 }
 
 func (n *processNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	b := newBuilder(n.r, evt, "process_activity", n.Version())

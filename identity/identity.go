@@ -229,8 +229,11 @@ const (
 	AccountUnix          = "unix"
 	AccountLocal         = "local"
 	// AccountLogin is the weak account a bare login mints when its source names
-	// no OS and no host: keyed on the login alone, it joins nothing by itself
-	// (the account analogue of the host's device-id tier, adr/0324).
+	// no OS and no host. A principal name mints it, with or without a host,
+	// when the record carries no signal for its type: no SID, domain, account
+	// type, Windows or Unix device OS, or identity-provider source (adr/0366).
+	// Keyed on the login alone, it joins nothing by itself (the account
+	// analogue of the host's device-id tier, adr/0324).
 	AccountLogin = "login"
 	AccountLDAP  = "ldap"
 	AccountCloud = "cloud"
@@ -261,7 +264,10 @@ type AccountIdentity struct {
 //     no part of a login key.
 //   - windows: the bare login, lowercased: the weak account a Windows source
 //     mints when it names no domain and no SID. login: the same key, the weak
-//     account of a bare login whose source names no OS and no host.
+//     account of a bare login whose source names no OS and no host, or of a
+//     principal name whose record carries no signal for its type (no SID,
+//     domain, account type, Windows or Unix device OS, or identity-provider
+//     source).
 //   - windows-local: scoped by HostRef: a well-known principal by its SID
 //     (WellKnownLocalSID), any other by the login's sam (the part after a
 //     backslash), lowercased.
@@ -336,6 +342,33 @@ func (r *Resolver) Account(a AccountIdentity) STIXID {
 		return ""
 	}
 	return key(login, uid)
+}
+
+// KeyedOnUserID reports whether Account keys an account of type typ on its
+// identifier uid. It answers for the account types Account names. A cloud
+// or LDAP account with an id is keyed on it. A windows-domain account is
+// keyed on its id when the id is a SID. A windows-local account is keyed on
+// its id when the id is a well-known local SID (WellKnownLocalSID). Every
+// other named type is keyed on its login. A normalizer stores the record's
+// id on a login-keyed account too, so an id being present proves nothing.
+// A placeholder id (PlaceholderUserID) is no id. Control-plane principals
+// and other types Account does not name are outside this rule and answer
+// false. Account keys them on the login and the id together, which is the
+// id alone when their normalizer passes no login.
+func KeyedOnUserID(typ, uid string) bool {
+	uid = strings.TrimSpace(uid)
+	if uid == "" || PlaceholderUserID(uid) {
+		return false
+	}
+	switch strings.TrimSpace(typ) {
+	case AccountCloud, AccountLDAP:
+		return true
+	case AccountWindowsDomain:
+		return IsSID(uid)
+	case AccountWindowsLocal:
+		return WellKnownLocalSID(uid)
+	}
+	return false
 }
 
 // Person resolves a person: a STIX identity with identity_class individual

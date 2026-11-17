@@ -470,8 +470,8 @@ func (r *renderer) userIn(m map[string]any, prefix string) slot {
 // never matched by uid, since its user_id may name someone else. Only when
 // the uid matches no account does the uid_alt bind, to the one account whose
 // uid_alt equals it folded for case, or, for an "@" uid_alt, the one
-// windows-domain account whose account_login or principal_name does
-// (accountUIDAltEquals). An id that matches several accounts binds nothing,
+// windows-domain account whose account_login or principal_name does, or the
+// one weak login account whose account_login does (accountUIDAltEquals). An id that matches several accounts binds nothing,
 // and the case an account stores an id in never breaks the tie: a missed
 // link is better than a wrong one. An id is trimmed, and a placeholder
 // (identity.PlaceholderUserID) is no id. The text is domain\name when both are present, else the name. With no name
@@ -526,20 +526,28 @@ func (r *renderer) accountTarget(read func(key string) any) (slot, string) {
 
 // accountUIDAltEquals reports whether the user-account props hold the
 // uid_alt want, folded for case: identity.Account never keys on a uid_alt.
-// When want holds "@" it is a principal name, on which the normalizer mints
-// a windows-domain account, so a windows-domain account whose account_login
-// or principal_name equals it, folded for case, matches too. No other type
-// is matched by its login. STIX has no uid_alt or principal_name on a
-// user-account, so the account stores both in its reckon-account extension
-// (adr/0357).
+// When want holds "@" it is a principal name. The normalizer mints a
+// windows-domain account on it when the record names Windows, and the weak
+// login account on it when the record names nothing (adr/0366). So a
+// windows-domain account whose account_login or principal_name equals it,
+// or a login account whose account_login does, folded for case, matches
+// too. No other type is matched by its login. STIX has no uid_alt or
+// principal_name on a user-account, so the account stores both in its
+// reckon-account extension (adr/0357).
 func accountUIDAltEquals(props map[string]any, want string) bool {
 	if foldEquals(stix.AccountUIDAlt.String(props), want) {
 		return true
 	}
-	if !strings.Contains(want, "@") || accountType(props) != identity.AccountWindowsDomain {
+	if !strings.Contains(want, "@") {
 		return false
 	}
-	return propFoldEquals(props, "account_login", want) || foldEquals(stix.AccountPrincipalName.String(props), want)
+	switch accountType(props) {
+	case identity.AccountWindowsDomain:
+		return propFoldEquals(props, "account_login", want) || foldEquals(stix.AccountPrincipalName.String(props), want)
+	case identity.AccountLogin:
+		return propFoldEquals(props, "account_login", want)
+	}
+	return false
 }
 
 // accountUIDEquals reports whether the user-account props are keyed on a
@@ -562,25 +570,10 @@ func accountUIDEquals(props map[string]any, want string) bool {
 }
 
 // accountKeyedOnUserID reports whether identity.Account keys the account the
-// props describe on its user_id: a cloud or LDAP account with an id, a
-// windows-domain account whose id is a SID, and a windows-local account
-// whose id is a well-known local SID (identity.WellKnownLocalSID). Every
-// other account, of those types or of any other or no type, is keyed on its
-// login or on its login and id together, so its user_id alone names no one.
+// props describe on its user_id, by the one rule identity.KeyedOnUserID
+// holds over the account's type and id.
 func accountKeyedOnUserID(props map[string]any) bool {
-	uid := strings.TrimSpace(toString(props["user_id"]))
-	if uid == "" || identity.PlaceholderUserID(uid) {
-		return false
-	}
-	switch accountType(props) {
-	case identity.AccountCloud, identity.AccountLDAP:
-		return true
-	case identity.AccountWindowsDomain:
-		return identity.IsSID(uid)
-	case identity.AccountWindowsLocal:
-		return identity.WellKnownLocalSID(uid)
-	}
-	return false
+	return identity.KeyedOnUserID(accountType(props), toString(props["user_id"]))
 }
 
 // accountType is the user-account props' account_type, trimmed as

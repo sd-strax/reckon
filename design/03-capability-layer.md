@@ -2250,6 +2250,15 @@ repeats, per `account_type` (adr/0324):
   `aliases` from it to the SID's account: the source said in that record
   that this login is this SID. A principal name from a directory source is a
   directory account, not a cloud sign-in.
+  A record is a Windows record when its uid is a SID, it names a domain, its
+  device's operating system is Windows, or its account type, by number or
+  by name, is Windows Account (2) or ActiveDirectory Account (19). The
+  account type is read after the sign-in and Unix checks, so an identity
+  provider's sign-in with type 2 or 19 and no SID stays `cloud`. On an
+  activity record, a principal name is a `windows-domain` account only on a
+  Windows record. An "@" alone does not say Windows (adr/0366). A directory
+  record is read by its own rule (§4.19), which keys its principal name as
+  a directory account.
 - `windows`: a login with no domain and no SID from a Windows source is a
   weak account keyed on the bare login; it joins a domain account only when
   a record names both.
@@ -2272,6 +2281,11 @@ repeats, per `account_type` (adr/0324):
   nothing by itself and the event keeps its actor. A global key for a
   host-scoped login would make one account of every machine's same-named
   local account, which is why `local` and `unix` need the host.
+  A principal name from an activity record that is not a Windows, Unix,
+  LDAP or sign-in record is also a `login` account. It is keyed on the principal
+  name, lowercased. It is never scoped by the host, even when the record
+  names one, because a principal name names a domain and not a machine
+  (adr/0366).
 - `cloud`: the identity provider's sign-in account, keyed on the provider's
   user id when the record carries it, else the sign-in name lowercased. A
   record is a sign-in record when its account type says so, or when its

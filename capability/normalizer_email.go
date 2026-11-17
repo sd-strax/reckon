@@ -207,7 +207,9 @@ func (*emailURLNormalizer) ClassUID() int { return 4012 }
 // 6: STIX 2.1 output through the one serializer, an artifact for a record
 // naming nothing, and a broken record is a normalize error; URLs that are
 // URIs, adr/0357
-func (*emailURLNormalizer) Version() int { return 6 }
+// 7: an account typed Windows only on a Windows signal, account type 19
+// read as one, adr/0366
+func (*emailURLNormalizer) Version() int { return 7 }
 
 func (n *emailURLNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
@@ -241,7 +243,9 @@ func (*emailFileNormalizer) ClassUID() int { return 4011 }
 // 6: STIX 2.1 output through the one serializer, an artifact for a record
 // naming nothing, and a broken record is a normalize error; file hashes and
 // names STIX can hold, adr/0357
-func (*emailFileNormalizer) Version() int { return 6 }
+// 7: an account typed Windows only on a Windows signal, account type 19
+// read as one, adr/0366
+func (*emailFileNormalizer) Version() int { return 7 }
 
 func (n *emailFileNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload

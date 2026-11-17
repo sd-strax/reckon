@@ -1720,16 +1720,16 @@ func TestRender_GroupMemberPlaceholderName(t *testing.T) {
 // by its id. The uid binds an account keyed on a user_id equal to it, here a
 // windows-domain account keyed on a SID. The uid_alt binds an account whose
 // uid_alt equals it, or, for an "@" uid_alt, a windows-domain account whose
-// login or principal name does. A cloud account whose user_id equals the
+// login or principal name does, or a login account whose login does. A cloud account whose user_id equals the
 // uid_alt is not bound: the uid_alt is never read against a user_id.
 func TestRender_AccountTargetBindsByID(t *testing.T) {
 	render := func(users string, ents ...Entity) View {
 		return Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":` + users + `}`)}, ents)
 	}
-	// The member {name: jdoe, uid_alt: jdoe@contoso.com} mints a
-	// windows-domain account keyed on the principal name, with these
-	// properties (accountProps). Its login is the principal name, so the
-	// name "jdoe" binds nothing and the uid_alt binds it.
+	// The windows-domain entity is built by hand to test binding by id. It
+	// is not what normalizing this payload would mint, which names no
+	// Windows signal. Its login is the principal name, so the name "jdoe"
+	// binds nothing and the uid_alt binds it.
 	const member = `[{"name":"jdoe","uid_alt":"jdoe@contoso.com"}]`
 	byAlt := ent("user-account--a1", map[string]any{"account_login": "jdoe@contoso.com", "user_id": "", "account_type": "windows-domain",
 		"principal_name": "jdoe@contoso.com", "uid_alt": "jdoe@contoso.com"})
@@ -1935,7 +1935,8 @@ func TestRender_AccountTargetAmbiguousUIDStops(t *testing.T) {
 
 // TestRender_AccountTargetUIDAltPrincipalName: an "@" uid_alt also equals an
 // account's account_login or principal_name, folded for case, since the
-// normalizer mints a windows-domain account on that principal name. Beside
+// normalizer mints a windows-domain account on that principal name when the
+// record names Windows. Beside
 // an LDAP account holding it as uid_alt the target is unbound; alone, the
 // windows-domain account binds.
 func TestRender_AccountTargetUIDAltPrincipalName(t *testing.T) {
@@ -2031,11 +2032,30 @@ func TestRender_AccountTargetUIDSkipsUntyped(t *testing.T) {
 	}
 }
 
-// TestRender_AccountTargetUIDAltLoginWindowsDomainOnly: an "@" uid_alt is
-// matched against a login or principal name only on a windows-domain
+// TestRender_AccountTargetUIDAltWeakLogin (adr/0366): a principal name from a
+// record that names no OS mints the weak login account keyed on it. An "@"
+// uid_alt binds that account by its account_login, folded for case. A login
+// account is not matched by a principal_name alone, since it is keyed on its
+// login.
+func TestRender_AccountTargetUIDAltWeakLogin(t *testing.T) {
+	const user = `{"name":"-","uid_alt":"Alice@Contoso.com"}`
+	weak := ent("user-account--w1", map[string]any{"account_login": "alice@contoso.com", "user_id": "", "account_type": "login",
+		"principal_name": "alice@contoso.com", "weak": true})
+	if s := accountChangeTarget(user, weak); s.Ref != "user-account--w1" {
+		t.Errorf("login account: target slot = %+v; want bound to user-account--w1", s)
+	}
+	other := ent("user-account--w2", map[string]any{"account_login": "alice", "user_id": "", "account_type": "login",
+		"principal_name": "alice@contoso.com", "weak": true})
+	if s := accountChangeTarget(user, other); s.Ref != "" {
+		t.Errorf("login account by principal_name only: target slot = %+v; want unbound", s)
+	}
+}
+
+// TestRender_AccountTargetUIDAltLoginOtherTypes: an "@" uid_alt is matched
+// against a login or principal name only on a windows-domain or login
 // account. A target named only by that uid_alt does not link to a cloud,
 // LDAP or unix account whose login or principal name equals it.
-func TestRender_AccountTargetUIDAltLoginWindowsDomainOnly(t *testing.T) {
+func TestRender_AccountTargetUIDAltLoginOtherTypes(t *testing.T) {
 	const user = `{"name":"-","uid_alt":"alice@contoso.com"}`
 	for _, typ := range []string{"cloud", "ldap", "unix", ""} {
 		props := map[string]any{"account_login": "alice@contoso.com", "user_id": "", "principal_name": "alice@contoso.com"}

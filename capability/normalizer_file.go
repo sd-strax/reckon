@@ -15,7 +15,9 @@ func (*fileActivityNormalizer) ClassUID() int { return 1001 }
 // 6: STIX 2.1 output through the one serializer, an artifact for a record
 // naming nothing, and a broken record is a normalize error; file hashes,
 // names and sizes STIX can hold, adr/0357
-func (*fileActivityNormalizer) Version() int { return 6 }
+// 7: an account typed Windows only on a Windows signal, account type 19
+// read as one, adr/0366
+func (*fileActivityNormalizer) Version() int { return 7 }
 
 func (n *fileActivityNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
