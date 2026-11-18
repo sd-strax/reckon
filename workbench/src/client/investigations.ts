@@ -4,8 +4,8 @@
 // analyst's own act on the human token. Answers are decoded through the wire
 // shapes (adr/0244).
 import type { BackendHttp } from "./http";
-import * as shapes from "../wire/backendShapes";
-import type { RawInvestigation } from "../wire/backendShapes";
+import * as shapes from "../wire/backendShapes.generated";
+import type { InvestigationView as RawInvestigation } from "../wire/backendShapes.generated";
 import type { ArtifactLocation, Hypothesis, InvestigationDetail, InvestigationSummary, NarrativeAuthor, NarrativeView, PinRow, Seed, ThreadEntry, ToolCallRecord } from "../viewTypes";
 import type { Decoded } from "../wire/decode";
 
@@ -89,12 +89,12 @@ export class InvestigationsClient {
    * them. The model's draft goes through the sidecar, not here.
    */
   async recordNarrative(id: string, body: string): Promise<NarrativeView> {
-    return narrativeView(await this.http.post(`/api/investigations/${encodeURIComponent(id)}/narrative`, { body }, shapes.narrative));
+    return narrativeView(await this.http.post(`/api/investigations/${encodeURIComponent(id)}/narrative`, { body } satisfies shapes.NarrativeRequestBody, shapes.narrative));
   }
 
   /** POST /api/investigations — seed a new investigation. Analyst role. */
   async create(title: string, seed?: Seed): Promise<InvestigationDetail> {
-    const body: Record<string, unknown> = { title };
+    const body: shapes.CreateInvestigationRequest = { title };
     if (seed) {
       body.seed = {
         type: seed.type,
@@ -120,8 +120,11 @@ export class InvestigationsClient {
    * seeds on a persisted account the server listed, by its ref.
    */
   async createFromInput(value: string, kind: string, title?: string, allowUnknown?: boolean, entityKind?: string, accountRef?: string): Promise<InvestigationDetail> {
-    const body: Record<string, unknown> = { seed_input: { value, kind, allow_unknown: allowUnknown || undefined, entity_kind: entityKind || undefined, account_ref: accountRef || undefined } };
-    if (title) body.title = title;
+    // No title is an empty one, which Go reads the same: the server derives it.
+    const body: shapes.CreateInvestigationRequest = {
+      title: title ?? "",
+      seed_input: { value, kind, allow_unknown: allowUnknown || undefined, entity_kind: entityKind || undefined, account_ref: accountRef || undefined },
+    };
     return mapCreated(await this.http.post("/api/investigations", body, shapes.created));
   }
 
@@ -130,7 +133,7 @@ export class InvestigationsClient {
    * curation; the aggregate bars an AI delegate. Returns the applied title.
    */
   async rename(id: string, title: string): Promise<string> {
-    const r = await this.http.post(`/api/investigations/${encodeURIComponent(id)}/rename`, { title }, shapes.renamed);
+    const r = await this.http.post(`/api/investigations/${encodeURIComponent(id)}/rename`, { title } satisfies shapes.RenameRequestBody, shapes.renamed);
     return r.title;
   }
 
@@ -152,7 +155,7 @@ export class InvestigationsClient {
         reason: body.reason,
         report_ref: body.reportRef,
         summary: body.summary,
-      },
+      } satisfies shapes.LifecycleRequestBody,
       shapes.lifecycle,
     );
     return { status: r.status, exportWorkflowId: r.export_workflow_id };
@@ -167,7 +170,7 @@ export class InvestigationsClient {
   async requestCaseNote(id: string, body?: string): Promise<{ actionId: string; status: string }> {
     const r = await this.http.post(
       `/api/investigations/${encodeURIComponent(id)}/case_note`,
-      body ? { body } : {},
+      (body ? { body } : {}) satisfies shapes.CaseNoteRequest,
       shapes.actionRequested,
     );
     return { actionId: r.action_id, status: r.status };
@@ -279,7 +282,7 @@ export class InvestigationsClient {
       interpretation_type: "evidence-pin",
       input_refs: refs,
       rationale: finding,
-    });
+    } satisfies shapes.RecordInterpretationBody);
   }
 
   /**
@@ -294,7 +297,7 @@ export class InvestigationsClient {
       interpretation_type: "hypothesis",
       hypothesis: handle ? { statement, handle } : { statement },
       rationale: statement,
-    });
+    } satisfies shapes.RecordInterpretationBody);
   }
 
   /**
@@ -319,7 +322,7 @@ export class InvestigationsClient {
       rationale: restated
         ? "adopted from the workbench with a restatement — taking ownership of this line of inquiry"
         : "acknowledged from the workbench — taking ownership of this line of inquiry",
-    });
+    } satisfies shapes.RecordInterpretationBody);
   }
 
   /**
@@ -339,7 +342,7 @@ export class InvestigationsClient {
       ...(opts.restatement ? { restatement: opts.restatement } : {}),
       ...(opts.handle ? { handle: opts.handle } : {}),
       rationale: opts.restatement ? "restated from the workbench" : "renamed from the workbench",
-    });
+    } satisfies shapes.RecordInterpretationBody);
   }
 
   /**
@@ -353,7 +356,7 @@ export class InvestigationsClient {
       hypothesis_ref: hypothesisRef,
       abandoned: true,
       rationale: reason,
-    });
+    } satisfies shapes.RecordInterpretationBody);
   }
 
   /**
@@ -381,7 +384,7 @@ export class InvestigationsClient {
         ...(testKind === "manual" ? { test_kind: "manual" } : {}),
       },
       rationale: testKind === "manual" ? "analyst-authored test — a person tests it" : "analyst-authored test",
-    });
+    } satisfies shapes.RecordInterpretationBody);
   }
 
   /**
@@ -411,7 +414,7 @@ export class InvestigationsClient {
         ...(attestation.reference ? { reference: attestation.reference, hash_reference: attestation.hashReference || undefined } : {}),
         ...(attestation.artifact ? { artifact: attestation.artifact } : {}),
       },
-    });
+    } satisfies shapes.RecordInterpretationBody);
   }
 
   /**
@@ -426,7 +429,7 @@ export class InvestigationsClient {
       prediction_ref: predictionRef,
       prediction_status: "WITHDRAWN",
       rationale: reason,
-    });
+    } satisfies shapes.RecordInterpretationBody);
   }
 
   /** Record/revise the verdict of record (01 §Verdict). Human token. */
@@ -442,7 +445,7 @@ export class InvestigationsClient {
       verdict: { disposition },
       input_refs: refs,
       rationale,
-    });
+    } satisfies shapes.RecordInterpretationBody);
   }
 
   /**
@@ -460,7 +463,7 @@ export class InvestigationsClient {
     transcript?: { transcriptId?: string; turnId?: string; body: string };
     toolCalls?: ToolCallRecord[];
   }): Promise<{ interpretationId: string }> {
-    const body = {
+    const body: shapes.RecordInterpretationBody = {
       investigation_ref: rec.investigationRef,
       interpretation_type: rec.interpretationType,
       rationale: rec.rationale,
@@ -479,7 +482,7 @@ export class InvestigationsClient {
   async supersedeInterpretation(interpretationId: string, investigationId: string, reason: string): Promise<void> {
     await this.http.post(
       `/api/interpretations/${encodeURIComponent(interpretationId)}/supersede`,
-      { investigation_ref: investigationId, reason },
+      { investigation_ref: investigationId, reason } satisfies shapes.SupersedeBody,
     );
   }
 

@@ -17,7 +17,8 @@ const (
 // TestWireFixtures keeps the sample of each result and notification the
 // workbench decodes, and the two versions it checks (adr/0244). It also
 // keeps the generated TypeScript for the same types, the params and the
-// versions (adr/0278): make wire-fixtures writes both.
+// protocol version (adr/0278): make wire-fixtures writes both. The API
+// version is generated with the backend's shapes.
 func TestWireFixtures(t *testing.T) {
 	dir := sidecarFixtures
 	wirefixture.Check[initializeResult](t, dir, "initialize")
@@ -51,7 +52,6 @@ func TestWireFixtures(t *testing.T) {
 func sidecarGenerator() *wirets.Generator {
 	g := wirets.New("internal/sidecar")
 	g.Const("PROTOCOL_VERSION", ProtocolVersion)
-	g.Const("API_VERSION", apiversion.Current)
 
 	// What the sidecar sends: results, notifications, and getToken's params
 	// (the one request the sidecar makes of the workbench).

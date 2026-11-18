@@ -3,7 +3,7 @@
 // and the read-tool dispatch target. Answers are decoded through the wire
 // shapes (adr/0244).
 import type { BackendHttp } from "./http";
-import * as shapes from "../wire/backendShapes";
+import * as shapes from "../wire/backendShapes.generated";
 import type { Capability, CapabilityResult, ConfigField, Enablement } from "../viewTypes";
 
 export class CapabilitiesClient {
@@ -69,7 +69,7 @@ export class CapabilitiesClient {
    * no sidecar tool reaches this path — the tool gap is the guarantee.
    */
   async applyEnablement(adapter: string, enabled: boolean, config: Record<string, string>): Promise<void> {
-    await this.http.post(`/api/enablement/adapters/${encodeURIComponent(adapter)}`, { enabled, config });
+    await this.http.post(`/api/enablement/adapters/${encodeURIComponent(adapter)}`, { enabled, config } satisfies shapes.ApplyEnablementBody);
   }
 
   /**
@@ -79,7 +79,7 @@ export class CapabilitiesClient {
    */
   async invoke(
     verb: string,
-    body: { entity?: unknown; window?: { from: string; to: string }; extra?: Record<string, unknown>; investigation_ref?: string },
+    body: shapes.CapabilityInvokeBody,
   ): Promise<CapabilityResult> {
     const r = await this.http.post(`/api/capability/${encodeURIComponent(verb)}`, body, shapes.capabilityInvoke);
     return {

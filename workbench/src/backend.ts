@@ -20,9 +20,8 @@ import { InvestigationsClient } from "./client/investigations";
 import { KnowledgeClient } from "./client/knowledge";
 import { SingleFlight } from "./singleFlight";
 import type { AuthConfig, BackendStatus, Me } from "./viewTypes";
-import * as shapes from "./wire/backendShapes";
+import * as shapes from "./wire/backendShapes.generated";
 import { decode, DecodeError } from "./wire/decode";
-import { API_VERSION } from "./wire/sidecarShapes.generated";
 
 // The view types live in viewTypes.ts (types only); re-exported so host modules keep one import.
 export type * from "./viewTypes";
@@ -40,7 +39,7 @@ export type { KnowledgeClient } from "./client/knowledge";
  * (apiversion.Current, adr/0278). A backend outside this set is a hard,
  * diagnosable incompatibility — never a silent best-effort call.
  */
-export const SUPPORTED_API_VERSIONS: readonly number[] = [API_VERSION];
+export const SUPPORTED_API_VERSIONS: readonly number[] = [shapes.API_VERSION];
 
 /** How long a compatible /status is taken as read before it is asked again. */
 const COMPATIBLE_FOR_MS = 30_000;

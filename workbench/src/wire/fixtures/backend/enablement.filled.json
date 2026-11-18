@@ -9,8 +9,8 @@
       "config_schema": {
         "properties": {
           "x": {
+            "type": "x",
             "description": "x",
-            "type": "string",
             "x-secret": true
           }
         },

@@ -324,6 +324,7 @@ describe("an account's and a person's identity in the inspector reads (adr/0324)
     const conflict = new BackendRequestError("POST /api/entities/x/aliases → 409: \"j.doe\" names 2 accounts; name one by other_ref", 409, {
       error: "\"j.doe\" names 2 accounts; name one by other_ref",
       accounts: [{ ref: "user-account--2", account_type: "windows-domain", account_login: "contoso\\j.doe" }, { ref: "user-account--3", account_type: "cloud", account_login: "j.doe@contoso.example" }],
+      more: 0,
     });
     const observed = new BackendRequestError("POST /api/identity/e/withdraw → 409: a directory's record; assert that the account is not this person's instead", 409, {
       error: "a directory's record; assert that the account is not this person's instead",

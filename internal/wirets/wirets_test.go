@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type color string
@@ -113,10 +115,10 @@ func TestGenerate_Rules(t *testing.T) {
 		"  by_color: Partial<Record<Color, number>>;", "  by_color: recordOf(color, num),",
 		// An int64 is a number.
 		"  count: number;", "  count: num,",
-		// Raw payloads are opaque.
+		// Raw payloads are opaque, and a map[string]any is an object of them.
 		"  raw: unknown;", "  raw: anything,",
 		"  any: unknown;", "  any: anything,",
-		"  opaque: unknown;", "  opaque: anything,",
+		"  opaque: Record<string, unknown>;", "  opaque: record(anything),",
 		// A time.Time is a string.
 		"  when: string;", "  when: str,",
 		// A word type is a union, and its decoder refuses other words.
@@ -235,6 +237,38 @@ type (
 	caseWord struct{}
 )
 
+// TestGenerate_ReservedName exports a decoder registered under a reserved
+// word through a const named for its type.
+func TestGenerate_ReservedName(t *testing.T) {
+	src := generate(t, func(g *Generator) { g.Decoder("case", reflect.TypeFor[caseWord]()) })
+	requireLines(t, src, "const caseWord: Decoder<CaseWord> = object({});", "export { caseWord as case };")
+}
+
+type otherColor string
+
+func (otherColor) WireValues() []string { return []string{"GREEN"} }
+
+type colors struct {
+	ID    uuid.UUID  `json:"id"`
+	Color color      `json:"color"`
+	Other otherColor `json:"other"`
+}
+
+// TestGenerate_Name writes a type under the name it is given, and its decoder
+// under that name in camel case. A uuid.UUID is a string.
+func TestGenerate_Name(t *testing.T) {
+	src := generate(t, func(g *Generator) {
+		g.Name(reflect.TypeFor[otherColor](), "PaintColor")
+		g.Decoder("colors", reflect.TypeFor[colors]())
+	})
+	requireLines(t, src,
+		`export type PaintColor = "GREEN";`,
+		`const paintColor: Decoder<PaintColor> = oneOf("GREEN");`,
+		"  other: paintColor,",
+		"  id: string;", "  id: str,",
+	)
+}
+
 // TestGenerate_Refuses names the type and the reason for each refusal.
 func TestGenerate_Refuses(t *testing.T) {
 	cases := []struct {
@@ -268,13 +302,6 @@ func TestGenerate_Refuses(t *testing.T) {
 		})
 	}
 
-	t.Run("a reserved word as a decoder name", func(t *testing.T) {
-		g := New("x")
-		g.Decoder("case", reflect.TypeFor[caseWord]())
-		if _, err := g.Generate(); err == nil || !strings.Contains(err.Error(), "reserved word") {
-			t.Fatalf("err = %v", err)
-		}
-	})
 	t.Run("an unnamed type", func(t *testing.T) {
 		g := New("x")
 		g.Decoder("x", reflect.TypeFor[struct{}]())

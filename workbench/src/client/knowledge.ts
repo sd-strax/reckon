@@ -5,7 +5,7 @@
 import type { BackendHttp } from "./http";
 import type { LibraryItem } from "../protocol";
 import { relevanceOfBand, relevanceOfScore } from "../relevance";
-import * as shapes from "../wire/backendShapes";
+import * as shapes from "../wire/backendShapes.generated";
 import type { Decoded } from "../wire/decode";
 import type { CaseSummaryView, KnowledgeCitations, PastCaseFacets, PastCaseFilter, PastCaseRow, SOPDoc, SOPOutlineView, SOPRevisionRow, SOPSectionView } from "../viewTypes";
 
@@ -86,8 +86,9 @@ export class KnowledgeClient {
   /** Search both corpora (adr/0129): the substrate's recall, relevance in words. */
   async search(query: string): Promise<{ sops: LibraryItem[]; cases: LibraryItem[] }> {
     const [s, c] = await Promise.all([
-      this.http.post("/api/knowledge/recall_sops", { query, limit: 10 }, shapes.recallSOPs),
-      this.http.post("/api/knowledge/recall_similar_investigations", { query, limit: 10 }, shapes.recallSimilar),
+      // include_retired false is what Go reads when the key is left out.
+      this.http.post("/api/knowledge/recall_sops", { query, limit: 10, include_retired: false } satisfies shapes.RecallRequest, shapes.recallSOPs),
+      this.http.post("/api/knowledge/recall_similar_investigations", { query, limit: 10, include_retired: false } satisfies shapes.SimilarRequest, shapes.recallSimilar),
     ]);
     return {
       sops: s.results.filter((x) => x.sop_id).map((x) => ({ kind: "sop" as const, ref: x.sop_id, title: x.title || x.sop_id, relevance: relevanceOfScore(x.score) })),
@@ -165,7 +166,7 @@ export class KnowledgeClient {
    * Parsing stays server-side — one robust parser, never a TS reimplementation.
    */
   async importMarkdown(filename: string, content: string): Promise<{ title: string; outcome: string }> {
-    const r = await this.http.post("/api/sops/import_markdown", { filename, content }, shapes.sopImported);
+    const r = await this.http.post("/api/sops/import_markdown", { filename, content } satisfies shapes.SOPMarkdownBody, shapes.sopImported);
     return { title: r.title, outcome: r.outcome };
   }
 }

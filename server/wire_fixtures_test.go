@@ -12,19 +12,15 @@ import (
 const backendFixtures = "../workbench/src/wire/fixtures/backend"
 
 // TestWireFixtures keeps the sample of each response the workbench decodes
-// (adr/0244).
+// (adr/0244). It also keeps the generated TypeScript for the same types, the
+// request bodies and the version (adr/0278): make wire-fixtures writes both.
 func TestWireFixtures(t *testing.T) {
 	dir := backendFixtures
 	wirefixture.Check[StatusResponse](t, dir, "status")
 	wirefixture.Check[AuthConfigResponse](t, dir, "authConfig")
 	wirefixture.Check[MeResponse](t, dir, "me")
 	wirefixture.Check[CapabilitiesResponse](t, dir, "capabilities")
-	wirefixture.Check[EnablementResponse](t, dir, "enablement", func(r *EnablementResponse) {
-		r.Adapters[0].ConfigSchema = map[string]any{
-			"properties": map[string]any{"x": map[string]any{"type": "string", "description": "x", "x-secret": true}},
-			"required":   []string{"x"},
-		}
-	})
+	wirefixture.Check[EnablementResponse](t, dir, "enablement")
 	wirefixture.Check[CapabilityInvokeResponse](t, dir, "capabilityInvoke")
 	wirefixture.Check[RecordInterpretationResponse](t, dir, "interpretation")
 	wirefixture.Check[InvestigationsResponse](t, dir, "investigations")
@@ -115,6 +111,25 @@ func TestWireFixtures(t *testing.T) {
 	wirefixture.Check[SOPMarkdownImportResponse](t, dir, "sopImported")
 	wirefixture.Check[CaseListResponse](t, dir, "cases")
 	wirefixture.Check[CaseView](t, dir, "case")
+	// The error bodies the workbench reads by key, and the acknowledgements of
+	// the writes it makes.
+	wirefixture.Check[ErrorResponse](t, dir, "error")
+	wirefixture.Check[InternalErrorResponse](t, dir, "internalError")
+	wirefixture.Check[ForbiddenResponse](t, dir, "forbidden")
+	wirefixture.Check[UnknownEntityResponse](t, dir, "unknownEntity")
+	wirefixture.Check[UnknownAccountResponse](t, dir, "unknownAccount")
+	wirefixture.Check[InvestigationExistsResponse](t, dir, "investigationExists")
+	wirefixture.Check[PersonCandidatesResponse](t, dir, "personCandidates")
+	wirefixture.Check[AccountCandidatesResponse](t, dir, "accountCandidates")
+	wirefixture.Check[SupersedeResponse](t, dir, "superseded")
+	wirefixture.Check[CommsActResponse](t, dir, "commsAct")
+	wirefixture.Check[ApplyEnablementResponse](t, dir, "enablementChanged")
 	checkWireValues(t)
 	wirefixture.RequireWordsChecked(t)
+
+	src, err := backendGenerator().Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wirefixture.CheckFile(t, backendShapes, src)
 }
