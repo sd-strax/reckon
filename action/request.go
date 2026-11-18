@@ -75,6 +75,12 @@ func BuildRequestCommand(catalog *ActionCatalog, req ActionRequest, now time.Tim
 	if req.ReversalOfRef == uuid.Nil && len(req.EvidenceRefs) == 0 {
 		return aggregate.RequestAction{}, fmt.Errorf("action_type %q: at least one evidence_ref required — a containment must cite the evidence that grounds it (reversals excepted)", req.ActionType)
 	}
+	// Evidence names STIX objects. A raw event is cited through the
+	// observation made from it, and a bare event id is refused with an
+	// *aggregate.EventCitedError (adr/0364).
+	if err := aggregate.CheckCitedRefs("evidence_refs", req.EvidenceRefs); err != nil {
+		return aggregate.RequestAction{}, fmt.Errorf("action_type %q: %w", req.ActionType, err)
+	}
 
 	ttl := req.TTL
 	if ttl == 0 {

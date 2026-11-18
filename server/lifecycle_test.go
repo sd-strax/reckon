@@ -76,14 +76,14 @@ func verdictFixture(t *testing.T, invID uuid.UUID) {
 	}
 	if _, err := testHandler.Handle(context.Background(), env(), aggregate.RecordInterpretation{
 		InterpretationID: uuid.New(), InterpretationType: aggregate.InterpretationEvidencePin,
-		InputRefs: []string{"observed-data--x"}, Rationale: "load-bearing finding",
+		InputRefs: []string{"observed-data--0d000000-0000-4000-8000-000000000001"}, Rationale: "load-bearing finding",
 	}); err != nil {
 		t.Fatalf("pin: %v", err)
 	}
 	if _, err := testHandler.Handle(context.Background(), env(), aggregate.RecordInterpretation{
 		InterpretationID: uuid.New(), InterpretationType: aggregate.InterpretationVerdict,
 		Verdict:   &aggregate.VerdictNode{Disposition: aggregate.VerdictMalicious},
-		InputRefs: []string{"observed-data--x"}, Rationale: "confirmed",
+		InputRefs: []string{"observed-data--0d000000-0000-4000-8000-000000000001"}, Rationale: "confirmed",
 	}); err != nil {
 		t.Fatalf("verdict: %v", err)
 	}

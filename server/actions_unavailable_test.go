@@ -98,7 +98,7 @@ func TestRequestAction_UnavailableRefused(t *testing.T) {
 	targets := []aggregate.TargetSpec{{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-A"}}
 	for _, actionType := range []string{"ioc.block", "ticket.comment"} {
 		status, out := postRaw(t, b, "/api/actions", RequestActionBody{ActionType: actionType, Targets: targets, Rationale: "r",
-			EvidenceRefs: []string{"observed-data--od1"}, InvestigationRef: uuid.NewString()})
+			EvidenceRefs: []string{"observed-data--18ef927c-93bc-5470-b729-1b40841d3947"}, InvestigationRef: uuid.NewString()})
 		if status != http.StatusUnprocessableEntity {
 			t.Errorf("%s: status %d (%s); want 422", actionType, status, out)
 		}
@@ -133,7 +133,7 @@ func TestRequestAction_AvailableAndDegradedAccepted(t *testing.T) {
 	} {
 		resp, _ := postAction(t, b, mintToken(t, nil), RequestActionBody{
 			ActionType: c.actionType, Targets: []aggregate.TargetSpec{c.target}, Rationale: "r",
-			EvidenceRefs: []string{"observed-data--od1"}, InvestigationRef: invID.String(),
+			EvidenceRefs: []string{"observed-data--18ef927c-93bc-5470-b729-1b40841d3947"}, InvestigationRef: invID.String(),
 		})
 		if resp.StatusCode != c.want {
 			t.Errorf("%s: status %d; want %d", c.actionType, resp.StatusCode, c.want)
@@ -165,7 +165,7 @@ func TestRerequestAction_UnavailableRefused(t *testing.T) {
 	_, orig := postAction(t, b, mintToken(t, nil), RequestActionBody{
 		ActionType:       "ioc.block",
 		Targets:          []aggregate.TargetSpec{{EntityRef: "ipv4-addr--1", ResolvedIdentifier: "203.0.113.7"}},
-		EvidenceRefs:     []string{"observed-data--od1"},
+		EvidenceRefs:     []string{"observed-data--18ef927c-93bc-5470-b729-1b40841d3947"},
 		Rationale:        "block",
 		InvestigationRef: invID.String(),
 	})
@@ -221,7 +221,7 @@ func TestRequestAction_ScopeMismatchRefused(t *testing.T) {
 	b.cfg.ActionResolver = bindingResolver(nil) // email.quarantine is bound for org-b only
 	status, out := postRaw(t, b, "/api/actions", RequestActionBody{
 		ActionType: "email.quarantine", Targets: []aggregate.TargetSpec{{EntityRef: "email-message--1", ResolvedIdentifier: "<m@x>"}},
-		Rationale: "r", EvidenceRefs: []string{"observed-data--od1"}, InvestigationRef: invID.String(),
+		Rationale: "r", EvidenceRefs: []string{"observed-data--18ef927c-93bc-5470-b729-1b40841d3947"}, InvestigationRef: invID.String(),
 	})
 	if status != http.StatusUnprocessableEntity || !strings.Contains(out, unavailableActionMessage("email.quarantine")) {
 		t.Errorf("status %d (%s); want 422 as unavailable for this scope", status, out)

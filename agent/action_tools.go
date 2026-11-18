@@ -29,7 +29,7 @@ func actionToolName(actionType string) string {
 type actionShared struct {
 	Targets      []targetInput `json:"targets" required:"true" desc:"the distinct targets; blast radius drives the trust tier"`
 	Rationale    string        `json:"rationale" required:"true" desc:"why this action, now"`
-	EvidenceRefs []string      `json:"evidence_refs" required:"true" nonempty:"true" desc:"REQUIRED: the STIX/OCSF refs that ground this action — the observed_data_refs / entity_refs / reckon-hypothesis ids you observed. A containment or remediation with no cited evidence is invalid and the engine rejects it."`
+	EvidenceRefs []string      `json:"evidence_refs" required:"true" nonempty:"true" desc:"REQUIRED: the STIX refs that ground this action — the observed_data_refs / entity_refs / reckon-hypothesis ids you observed. A containment or remediation with no cited evidence is invalid and the engine rejects it."`
 	RetryOf      string        `json:"retry_of" desc:"when re-requesting a FAILED or EXPIRED action: that action's id (records the retry lineage); omit it otherwise"`
 }
 

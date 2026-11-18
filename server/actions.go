@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -366,6 +367,9 @@ func (b *Backend) dispatchActionRequest(w http.ResponseWriter, r *http.Request, 
 		RetryOf:          retryOf,
 	}, now)
 	if err != nil {
+		if b.writeEventCitedError(r.Context(), w, "request action", err) {
+			return
+		}
 		writeJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -532,14 +536,25 @@ func (b *Backend) rerequestAction(w http.ResponseWriter, r *http.Request, priorI
 		rationale = "Re-requested after expiry — re-affirmed as still warranted."
 	}
 
+	// A re-request restates the original's grounding. When the original
+	// cited raw events only, nothing of it may be cited now (adr/0364).
+	evidenceRefs := citableRefs(prior.EvidenceRefs)
+	if len(prior.EvidenceRefs) > 0 && len(evidenceRefs) == 0 {
+		writeJSONError(w, http.StatusUnprocessableEntity,
+			"re-request action: the original cites raw events only ("+strings.Join(prior.EvidenceRefs, ", ")+"), and a new request must cite the observations made from them; request the action anew, citing them")
+		return
+	}
+
 	// Reconstruct the request from the original's FROZEN fields — a faithful
 	// "same action, fresh clock", not a client reconstruction that could drift.
+	// The one change is the grounding: a raw event id the original cited is
+	// left out, since a new citation names a STIX object (adr/0364).
 	b.dispatchActionRequest(w, r, actorFromRequest(r, claims), claims.Subject,
 		RequestActionBody{
 			ActionType:       prior.ActionType,
 			Targets:          prior.Targets,
 			Parameters:       prior.Parameters,
-			EvidenceRefs:     prior.EvidenceRefs,
+			EvidenceRefs:     evidenceRefs,
 			Rationale:        rationale,
 			InvestigationRef: prior.AggregateID.String(),
 			RetryOf:          priorID.String(),

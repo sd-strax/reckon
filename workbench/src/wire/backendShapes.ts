@@ -432,6 +432,8 @@ export interface RawEvidence {
   kind: string;
   type: string;
   payload?: unknown;
+  /** On an observed-data ref: the raw events it was made from (adr/0364). */
+  source_event_ids?: string[];
   class_uid?: number;
   time?: string;
   recorded_at?: string;
@@ -448,6 +450,8 @@ export const evidence: Decoder<RawEvidence> = object({
   kind: str,
   type: str,
   payload: anything,
+  // On an observed-data ref: the raw events it was made from (adr/0364).
+  source_event_ids: optional(list(str)),
   class_uid: optional(num),
   time: optional(str),
   recorded_at: optional(str),

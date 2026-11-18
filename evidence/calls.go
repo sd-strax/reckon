@@ -14,6 +14,7 @@ import (
 
 	"github.com/sd-strax/reckon/capability"
 	"github.com/sd-strax/reckon/identity"
+	"github.com/sd-strax/reckon/module"
 	"github.com/sd-strax/reckon/stix"
 )
 
@@ -561,12 +562,16 @@ func (s *Store) attachEntities(ctx context.Context, rows []EventRow) error {
 	return nil
 }
 
-// Derived is what the record derived from one event: the objects its
-// observed-data name, as the record holds them, and the account minted for
-// each user object (EventRow.UserAccounts).
+// Derived is what the record derived from one event: the observations made
+// from it, the objects those observations name, as the record holds them, and
+// the account minted for each user object (EventRow.UserAccounts).
 type Derived struct {
-	Entities     []Object
-	UserAccounts map[string][]string
+	// ObservedDataRefs are the observations made from the event. An event
+	// the normalizer could not read has none, and so cannot be cited
+	// (adr/0364).
+	ObservedDataRefs []string
+	Entities         []Object
+	UserAccounts     map[string][]string
 }
 
 // EventDerived returns what the record derived from one event.
@@ -575,7 +580,126 @@ func (s *Store) EventDerived(ctx context.Context, eventID uuid.UUID) (Derived, e
 	if err := s.attachDerived(ctx, rows); err != nil {
 		return Derived{}, err
 	}
-	return Derived{Entities: rows[0].Entities, UserAccounts: rows[0].UserAccounts}, nil
+	return Derived{ObservedDataRefs: rows[0].ObservedDataRefs, Entities: rows[0].Entities, UserAccounts: rows[0].UserAccounts}, nil
+}
+
+// ObservationEvents returns the raw events one observation was made from, in
+// event time: the path back from a cited observation to its telemetry
+// (adr/0364). Each call stores its own records, so one event that several
+// calls returned is several records. They are one event under adr/0348's
+// rule (sameEventRecords), and the event is named once, by its first
+// retrieved record. A ref that is not an observed-data id is ErrMalformedRef;
+// an observation with no recorded event returns none.
+func (s *Store) ObservationEvents(ctx context.Context, ref string) ([]string, error) {
+	typ, _, _ := strings.Cut(ref, "--")
+	id, ok := refUUID(ref)
+	if !ok || typ != "observed-data" {
+		return nil, ErrMalformedRef
+	}
+	// The store is single-tenant (Persist writes module.SingleTenantUUID);
+	// the read is scoped to it as the identity reads are. Each record comes
+	// with its call and the observations made from it, which the same-event
+	// rule compares.
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT e.id, e.class_uid, e.time, e.recorded_at,
+			COALESCE((SELECT min(ce.call_id::text) FROM call_events ce WHERE ce.ocsf_event_id = e.id), e.id::text),
+			(SELECT string_agg(o2.observed_data_id::text, ',' ORDER BY o2.observed_data_id::text)
+				FROM observed_data_events o2 WHERE o2.ocsf_event_id = e.id)
+		FROM observed_data_events ode
+		JOIN stix_objects o ON o.id = ode.observed_data_id AND o.tenant_id = $2
+		JOIN ocsf_events e ON e.id = ode.ocsf_event_id AND e.tenant_id = $2
+		WHERE ode.observed_data_id = $1
+		ORDER BY e.time, e.recorded_at, e.id
+	`, id, module.SingleTenantUUID)
+	if err != nil {
+		return nil, fmt.Errorf("query observation events: %w", err)
+	}
+	defer rows.Close()
+	var recs []sameEventRecord
+	for rows.Next() {
+		var r sameEventRecord
+		var eventID uuid.UUID
+		var at time.Time
+		if err := rows.Scan(&eventID, &r.classUID, &at, &r.recordedAt, &r.call, &r.observations); err != nil {
+			return nil, fmt.Errorf("scan observation event: %w", err)
+		}
+		r.id, r.time = eventID.String(), at
+		recs = append(recs, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate observation events: %w", err)
+	}
+	return sameEventRecords(recs), nil
+}
+
+// sameEventRecord is one stored record of an event, with what adr/0348's
+// same-event rule compares.
+type sameEventRecord struct {
+	id           string
+	classUID     int
+	time         time.Time
+	recordedAt   time.Time
+	call         string
+	observations string // the observed-data ids made from it, sorted and joined
+}
+
+// sameEventRecords names each event once among records given in event time,
+// by its first retrieved record. The rule is adr/0348's, as the workbench's
+// timeline applies it (mergeSameEvents): records are the same event when
+// their class, their event time and their observations (as a set, non-empty)
+// are equal and they came from different calls. Within one call, records stay
+// separate, so the event is named as many times as the most copies any one
+// call returned.
+func sameEventRecords(recs []sameEventRecord) []string {
+	type bucket struct {
+		byCall map[string][]sameEventRecord
+		calls  []string
+	}
+	var order []string // a bucket key, or "#<id>" for a record that is its own event
+	buckets := map[string]*bucket{}
+	for _, r := range recs {
+		if r.observations == "" {
+			order = append(order, "#"+r.id)
+			continue
+		}
+		k := fmt.Sprintf("%d|%s|%s", r.classUID, r.time.UTC().Format(time.RFC3339Nano), r.observations)
+		b, ok := buckets[k]
+		if !ok {
+			b = &bucket{byCall: map[string][]sameEventRecord{}}
+			buckets[k] = b
+			order = append(order, k)
+		}
+		if _, seen := b.byCall[r.call]; !seen {
+			b.calls = append(b.calls, r.call)
+		}
+		b.byCall[r.call] = append(b.byCall[r.call], r)
+	}
+	var out []string
+	for _, k := range order {
+		if id, own := strings.CutPrefix(k, "#"); own {
+			out = append(out, id)
+			continue
+		}
+		b := buckets[k]
+		for _, c := range b.calls {
+			slices.SortStableFunc(b.byCall[c], func(x, y sameEventRecord) int { return x.recordedAt.Compare(y.recordedAt) })
+		}
+		// The calls in the order they first retrieved the event.
+		slices.SortStableFunc(b.calls, func(x, y string) int { return b.byCall[x][0].recordedAt.Compare(b.byCall[y][0].recordedAt) })
+		copies := 0
+		for _, c := range b.calls {
+			copies = max(copies, len(b.byCall[c]))
+		}
+		for n := range copies {
+			for _, c := range b.calls {
+				if n < len(b.byCall[c]) {
+					out = append(out, b.byCall[c][n].id)
+					break
+				}
+			}
+		}
+	}
+	return out
 }
 
 // eventEntityRefs returns the entity refs one event's observed-data name.

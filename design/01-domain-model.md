@@ -353,6 +353,8 @@ EvidenceRef = StixId | OcsfEventId
 
 A typed union — a reference to either a STIX object or a raw `OcsfEvent`. `Interpretation.input_refs` and `reckon-action.evidence_refs` are both `list<EvidenceRef>`. **Output references are always `StixId`** — Interpretations produce STIX-shaped nodes only, never OcsfEvents.
 
+**A citation names a STIX object** (`adr/0364`). A new prediction outcome's `test_result_refs`, a new pin's `input_refs` and a new action's `evidence_refs` hold STIX ids only, and the engine refuses a raw event id in them. Evidence is an observation: a raw event is cited through the observation made from it, and the observation leads back to the event. An event the normalizer could not read has no observation, so it cannot ground a claim. The union keeps `OcsfEventId` because a record made before `adr/0364` may cite a raw event, and that record is never rewritten.
+
 ### Schema
 
 ```
@@ -440,8 +442,9 @@ Referenced by all components.
 
 Pinning is **curation, not reasoning**: the analyst (or the agent) marks specific evidence as
 load-bearing for the investigation — "this finding matters." A pin is an Interpretation of
-type `evidence-pin`: `input_refs` cite the pinned evidence (`EvidenceRef` — STIX node or raw
-OcsfEvent), `rationale` carries the finding text as the pinner stated it. No new primitive:
+type `evidence-pin`: `input_refs` cite the pinned evidence (STIX nodes; a raw OcsfEvent is
+pinned through the observation made from it, and only a pin made before `adr/0364` cites a raw
+event), `rationale` carries the finding text as the pinner stated it. No new primitive:
 the pin *is* the reasoning act of citing, and the investigation's pinned-evidence surface is
 a projection over non-superseded `evidence-pin` Interpretations. Un-pinning is supersession,
 never deletion — what was once considered load-bearing remains visible in the thread.
@@ -553,7 +556,9 @@ reckon-prediction
   test_result_event_ids
                       list of raw OCSF event ids the outcome cites. A raw
                       event id is not a STIX id, so the stored object keeps
-                      it apart from test_result_refs (adr/0357)
+                      it apart from test_result_refs (adr/0357). Only an
+                      outcome recorded before adr/0364 has one: a new
+                      outcome cites the observation made from the event
   created, modified, created_by_ref (STIX standard)
 ```
 

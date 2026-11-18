@@ -7,6 +7,7 @@ import * as vscode from "vscode";
 import type { ActionRow, ArtifactLocation } from "./backend";
 import type { DocumentHost } from "./documentHost";
 import { errText } from "./util";
+import { citableRefs } from "./citable";
 
 export class ActionDecisions {
   constructor(private readonly host: DocumentHost) {}
@@ -110,13 +111,20 @@ export class ActionDecisions {
         void vscode.window.showErrorMessage("reckon: follow-up not requested — the original message's evidence could not be read");
         return;
       }
+      // A new request cites STIX objects only: a raw event id the original
+      // holds is left out (adr/0364).
+      const grounds = citableRefs(origin.evidenceRefs);
+      if (!grounds.length) {
+        void vscode.window.showErrorMessage("reckon: follow-up not requested — the original message cites raw events only, and a request cites the observations made from them");
+        return;
+      }
       if (!current()) return;
       const res = await this.host.client.actions.request({
         investigationRef: id,
         actionType: msg.actionType,
         targets: [{ resolvedIdentifier: msg.target }],
         parameters,
-        evidenceRefs: origin.evidenceRefs,
+        evidenceRefs: grounds,
         rationale: `follow-up on comms thread ${msg.threadId}`,
       });
       void vscode.window.showInformationMessage(
@@ -282,7 +290,9 @@ export class ActionDecisions {
         investigationRef: id,
         actionType: inverse,
         targets: original.targets.map((t) => ({ resolvedIdentifier: t })),
-        evidenceRefs: original.evidenceRefs,
+        // A reversal is grounded by the original action; of its evidence, only
+        // what a new citation may name is carried (adr/0364).
+        evidenceRefs: citableRefs(original.evidenceRefs),
         rationale: msg.rationale.trim() || `reversal of ${original.actionType} ${original.actionId}`,
         reversalOfRef: original.actionId,
       });

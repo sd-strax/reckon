@@ -73,6 +73,20 @@ export function eventOfRecord(merged: SameEvent[]): Map<string, SameEvent> {
 }
 
 /**
+ * Each ref a citation can name an event by to the event that stands for it: a
+ * record id, as an older citation names it, and each observation made from a
+ * record, as a new citation names it (adr/0364). An observation made from two
+ * events stands for the first.
+ */
+export function eventOfCitation(merged: SameEvent[]): Map<string, SameEvent> {
+  const m = eventOfRecord(merged);
+  for (const s of merged) {
+    for (const od of s.row.observedDataRefs ?? []) if (!m.has(od)) m.set(od, s);
+  }
+  return m;
+}
+
+/**
  * A group (adr/0095) over the merged rows: its members are the events its
  * records stand for, each once, so its count is events, not retrievals. The
  * count drops by the records that stood for an event already counted.

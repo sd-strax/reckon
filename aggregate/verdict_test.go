@@ -2,6 +2,7 @@ package aggregate
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -42,7 +43,7 @@ func pinCmd() RecordInterpretation {
 	return RecordInterpretation{
 		InterpretationID:   uuid.New(),
 		InterpretationType: InterpretationEvidencePin,
-		InputRefs:          []string{"observed-data--od1"},
+		InputRefs:          []string{"observed-data--0d000000-0000-4000-8000-000000000001"},
 		Rationale:          "first-seen ASN for this user",
 	}
 }
@@ -65,6 +66,28 @@ func TestEvidencePin_RequiresCitation(t *testing.T) {
 	cmd.InputRefs = nil
 	if _, err := applyCommand(env, cmd, activeState(env), testIDs()); err == nil {
 		t.Fatal("evidence-pin without input_refs accepted")
+	}
+}
+
+// TestEvidencePin_RefusesAnEvent: a pin names STIX objects. A bare event id
+// is refused with an EventCitedError naming input_refs and the event, and a
+// ref in neither form is refused too (adr/0364).
+func TestEvidencePin_RefusesAnEvent(t *testing.T) {
+	env := newTestEnvelope("alice")
+	if _, err := applyCommand(env, pinCmd(), activeState(env), testIDs()); err != nil {
+		t.Fatalf("a pin of an observation: %v", err)
+	}
+	event := uuid.NewString()
+	cmd := pinCmd()
+	cmd.InputRefs = append(cmd.InputRefs, event)
+	_, err := applyCommand(env, cmd, activeState(env), testIDs())
+	var cited *EventCitedError
+	if !errors.As(err, &cited) || cited.Field != "input_refs" || len(cited.Refs) != 1 || cited.Refs[0] != event {
+		t.Fatalf("a pin of an event: err = %v; want an EventCitedError naming input_refs and %s", err, event)
+	}
+	cmd.InputRefs = []string{"WS1"}
+	if _, err := applyCommand(env, cmd, activeState(env), testIDs()); err == nil || errors.As(err, &cited) {
+		t.Fatalf("a pin of %q: err = %v; want it refused as not a STIX id", cmd.InputRefs[0], err)
 	}
 }
 
