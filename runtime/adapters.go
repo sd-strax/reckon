@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"time"
 
@@ -61,7 +62,7 @@ func pluginWriteAdapters(host *adapterplugin.Host, ac action.TenantActionConfig)
 // the engine's built-in verbs. An adapter that fails to describe is skipped with
 // a warning: its verbs stay invisible (honest degradation), never a boot
 // failure (an integration must not take the engine down).
-func reconcileCatalog(host *adapterplugin.Host, tc capability.TenantConfig, catalog *capability.Catalog) {
+func reconcileCatalog(host *adapterplugin.Host, tc capability.TenantConfig, catalog *capability.Catalog, actionTools map[string]bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	for name, spec := range tc.Adapters {
@@ -78,20 +79,55 @@ func reconcileCatalog(host *adapterplugin.Host, tc capability.TenantConfig, cata
 			log.Printf("%s: adapter %q describe failed — its verbs stay unavailable: %v", branding.CLI, name, err)
 			continue
 		}
-		registerNewVerbs(catalog, desc.Verbs)
+		registerNewVerbs(catalog, name, desc.Verbs, actionTools)
 	}
 }
 
 // registerNewVerbs adds descriptors for verbs the catalog does not already
 // define. A verb the catalog knows keeps the engine's authoritative descriptor
-// (11 §4.2); only new adapter verbs are added.
-func registerNewVerbs(catalog *capability.Catalog, verbs []capability.CapabilityDescriptor) {
+// (11 §4.2); only new adapter verbs are added. A new verb the agent could not
+// offer as a tool is refused with a log line naming the adapter and the verb,
+// and the adapter's other verbs are still registered (adr/0382): its name is
+// not a valid tool name, is a built-in tool name, or is an action type's tool
+// name (actionTools).
+func registerNewVerbs(catalog *capability.Catalog, adapter string, verbs []capability.CapabilityDescriptor, actionTools map[string]bool) {
 	for _, v := range verbs {
-		if v.Verb == "" {
+		if _, known := catalog.Descriptor(v.Verb); known {
 			continue
 		}
-		if _, known := catalog.Descriptor(v.Verb); !known {
-			catalog.Register(v)
+		if actionTools[v.Verb] {
+			log.Printf("%s: adapter %q verb %q refused: it takes the tool name of an action type", branding.CLI, adapter, v.Verb)
+			continue
+		}
+		if err := catalog.Register(v); err != nil {
+			log.Printf("%s: adapter %q verb %q refused: %v", branding.CLI, adapter, v.Verb, err)
 		}
 	}
+}
+
+// actionToolNames is the set of the action catalog's tool names, which no verb
+// may take (adr/0382). The action catalog is built in code, so it is the same
+// catalog the backend serves.
+func actionToolNames() (map[string]bool, error) {
+	actions, err := action.DefaultActionCatalog()
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]bool{}
+	for _, n := range actions.ToolNames() {
+		out[n] = true
+	}
+	return out, nil
+}
+
+// checkBuiltinVerbs fails when a verb of the engine's own catalog takes an
+// action type's tool name (adr/0382). Built-in verbs are code, so the fault
+// stops backend startup.
+func checkBuiltinVerbs(catalog *capability.Catalog, actionTools map[string]bool) error {
+	for _, v := range catalog.Verbs() {
+		if actionTools[v] {
+			return fmt.Errorf("verb %q takes the tool name of an action type", v)
+		}
+	}
+	return nil
 }

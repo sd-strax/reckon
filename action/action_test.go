@@ -47,7 +47,7 @@ func target(id string) aggregate.TargetSpec {
 // --- descriptor / list_action_types -----------------------------------------
 
 func TestListActionTypesStatus(t *testing.T) {
-	catalog := DefaultActionCatalog()
+	catalog := defaultActionCatalog(t)
 	r := NewActionResolver(
 		map[string][]ActionBinding{
 			"host.isolate":    {{ActionType: "host.isolate", Adapter: "edr", Operation: "op", Priority: 100}},
@@ -79,7 +79,7 @@ func TestListActionTypesStatus(t *testing.T) {
 // usable; a binding of another scope is not usable for that request. The
 // usable-binding check never asks an adapter for its health (adr/0380).
 func TestUsableBinding(t *testing.T) {
-	catalog := DefaultActionCatalog()
+	catalog := defaultActionCatalog(t)
 	healthCalls := 0
 	down := &countingHealthAdapter{stubWriteAdapter: stubWriteAdapter{name: "down"}, calls: &healthCalls}
 	r := NewActionResolver(
@@ -178,7 +178,7 @@ func TestPlannedBinding(t *testing.T) {
 // --- request construction + blast-radius escalator ---------------------------
 
 func TestBuildRequestCommand(t *testing.T) {
-	catalog := DefaultActionCatalog()
+	catalog := defaultActionCatalog(t)
 	now := time.Date(2026, 4, 20, 14, 0, 0, 0, time.UTC)
 
 	cmd, err := BuildRequestCommand(catalog, ActionRequest{
@@ -208,7 +208,7 @@ func TestBuildRequestCommand(t *testing.T) {
 }
 
 func TestBlastRadiusEscalator(t *testing.T) {
-	catalog := DefaultActionCatalog()
+	catalog := defaultActionCatalog(t)
 	now := time.Now()
 
 	many := make([]aggregate.TargetSpec, DefaultBlastRadiusThreshold+1)
@@ -255,7 +255,7 @@ func TestBlastRadiusEscalator(t *testing.T) {
 }
 
 func TestBuildRequestCommandRejections(t *testing.T) {
-	catalog := DefaultActionCatalog()
+	catalog := defaultActionCatalog(t)
 	now := time.Now()
 	cases := map[string]ActionRequest{
 		"unknown type":   {ActionType: "nope", Targets: []aggregate.TargetSpec{target("x")}, Rationale: "r"},

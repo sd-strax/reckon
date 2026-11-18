@@ -15,16 +15,17 @@ import (
 // fields every request shares. Every action tool runs one handler, which
 // builds the same request_action body (08 §2) the engine has always received.
 
-// actionToolName is the tool name of an action type: "request_", then the
-// type with each "." written as "_". The name is never read back into a type:
-// each action tool carries its type, which Session.OfferedTools reports and
-// the eval's trial record keeps in its tool list.
+// actionToolName is the tool name of an action type (catalog.ActionToolName,
+// adr/0382). The name is never read back into a type: each action tool
+// carries its type, which Session.OfferedTools reports and the eval's trial
+// record keeps in its tool list.
 func actionToolName(actionType string) string {
-	return "request_" + strings.ReplaceAll(actionType, ".", "_")
+	return catalog.ActionToolName(actionType)
 }
 
 // actionShared is the fields every action tool carries beside its type's
-// inputs. It is the schema of those fields and their decoder.
+// inputs (catalog.ActionRequestFields). It is the schema of those fields and
+// their decoder.
 type actionShared struct {
 	Targets      []targetInput `json:"targets" required:"true" desc:"the distinct targets; blast radius drives the trust tier"`
 	Rationale    string        `json:"rationale" required:"true" desc:"why this action, now"`
@@ -41,23 +42,18 @@ func unavailable(a ActionType) bool {
 // actionTools builds one tool per action type of the catalog, unavailable
 // ones included, sorted by action type (adr/0380). An unavailable type stays
 // visible because other descriptions name it; the engine refuses its
-// requests.
-// It fails when a type declares an input that takes the name of a shared
-// field. Two types of one tool name fail in buildTools, which refuses any two
-// tools of one name.
-func actionTools(actionTypes []ActionType) ([]tool, error) {
+// requests. The backend refused any descriptor the agent could not offer when
+// it was registered (adr/0382); two tools of one name still fail in
+// buildTools, as a last guard.
+func actionTools(actionTypes []ActionType) []tool {
 	types := slices.Clone(actionTypes)
 	slices.SortStableFunc(types, func(a, b ActionType) int {
 		return strings.Compare(a.Descriptor.ActionType, b.Descriptor.ActionType)
 	})
 	tools := make([]tool, 0, len(types))
 	for _, a := range types {
-		def, err := actionToolDef(a)
-		if err != nil {
-			return nil, err
-		}
 		tools = append(tools, tool{
-			def:        def,
+			def:        actionToolDef(a),
 			kind:       ToolKindAction,
 			actionType: a.Descriptor.ActionType,
 			origin:     "#380",
@@ -66,7 +62,7 @@ func actionTools(actionTypes []ActionType) ([]tool, error) {
 			},
 		})
 	}
-	return tools, nil
+	return tools
 }
 
 // ParameterInputs is an action type's non-entity inputs: the keys of its
@@ -84,19 +80,11 @@ func ParameterInputs(a ActionType) []ActionInput {
 // actionToolDef renders one action type as a tool: the shared fields, then
 // the type's inputs as top-level properties, required as the descriptor
 // requires them.
-func actionToolDef(a ActionType) (ToolDef, error) {
+func actionToolDef(a ActionType) ToolDef {
 	schema := inputSchema[actionShared](nil)
 	props := schema["properties"].(map[string]any)
 	required, _ := schema["required"].([]string)
-	declared := map[string]bool{}
 	for _, in := range ParameterInputs(a) {
-		if actionSharedFields[in.Name] {
-			return ToolDef{}, fmt.Errorf("agent: action type %q declares input %q, the name of a field every action request carries", a.Descriptor.ActionType, in.Name)
-		}
-		if declared[in.Name] {
-			return ToolDef{}, fmt.Errorf("agent: action type %q declares input %q twice", a.Descriptor.ActionType, in.Name)
-		}
-		declared[in.Name] = true
 		p := verbScalarSchema(in.Type, strings.TrimSpace(in.Desc))
 		if p["description"] == "" {
 			delete(p, "description")
@@ -111,7 +99,7 @@ func actionToolDef(a ActionType) (ToolDef, error) {
 		Name:        actionToolName(a.Descriptor.ActionType),
 		Description: actionToolDescription(a),
 		InputSchema: schema,
-	}, nil
+	}
 }
 
 // actionToolDescription renders a tool's description from its descriptor and

@@ -39,7 +39,7 @@ func actionBackend(t *testing.T, policies ...action.Policy) *Backend {
 		t.Fatalf("NewGate2: %v", err)
 	}
 	b.cfg.Gate2 = g
-	b.cfg.ActionCatalog = action.DefaultActionCatalog()
+	b.cfg.ActionCatalog = defaultActionCatalog(t)
 	return b
 }
 
@@ -604,7 +604,7 @@ func TestListActionTypes(t *testing.T) {
 		t.Skip("integration test skipped in short mode")
 	}
 	b := newTestBackend(t)
-	b.cfg.ActionCatalog = action.DefaultActionCatalog()
+	b.cfg.ActionCatalog = defaultActionCatalog(t)
 	b.cfg.ActionResolver = action.NewActionResolver(nil, nil) // no bindings → all unavailable
 
 	srv := httptest.NewServer(b.buildRouter(b.verifier))
@@ -853,4 +853,15 @@ func TestRequestAction_RequesterAccountable(t *testing.T) {
 	if out.Status != "PENDING_MANUAL" {
 		t.Errorf("agent's ticket: status=%q mode=%q; want PENDING_MANUAL", out.Status, out.Mode)
 	}
+}
+
+// defaultActionCatalog is DefaultActionCatalog for a test: it fails the test
+// when the catalog is refused.
+func defaultActionCatalog(t testing.TB) *action.ActionCatalog {
+	t.Helper()
+	c, err := action.DefaultActionCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
 }

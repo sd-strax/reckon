@@ -92,11 +92,7 @@ func toolBytes(d ToolDef) []byte {
 
 // exampleActionTools is the action tools built from exampleCatalog.
 func exampleActionTools() []tool {
-	tools, err := actionTools(exampleCatalog())
-	if err != nil {
-		panic(fmt.Sprintf("agent: the example catalog does not build: %v", err))
-	}
-	return tools
+	return actionTools(exampleCatalog())
 }
 
 // exampleCatalog exercises the action-tool text a catalog brings: a type of

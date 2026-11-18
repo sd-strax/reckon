@@ -11,7 +11,7 @@ import (
 // health: available (healthy binding), degraded (binding but unhealthy),
 // unavailable (no binding).
 func TestListCapabilitiesStatus(t *testing.T) {
-	catalog := DefaultCatalog()
+	catalog := defaultCatalog(t)
 	res := newResolver(
 		map[string][]Binding{
 			// enumerate_logons: healthy adapter → available.
@@ -51,7 +51,7 @@ func TestListCapabilitiesStatus(t *testing.T) {
 // TestListCapabilitiesCoversCatalog: every catalog descriptor appears in the
 // output exactly once, even with no bindings at all.
 func TestListCapabilitiesCoversCatalog(t *testing.T) {
-	catalog := DefaultCatalog()
+	catalog := defaultCatalog(t)
 	res := newResolver(map[string][]Binding{}, map[string]Adapter{})
 	summaries := res.ListCapabilities(catalog)
 	if len(summaries) != len(catalog.Verbs()) {
@@ -66,7 +66,7 @@ func TestListCapabilitiesCoversCatalog(t *testing.T) {
 
 // TestAvailableVerbs returns only the healthy-binding verbs.
 func TestAvailableVerbs(t *testing.T) {
-	catalog := DefaultCatalog()
+	catalog := defaultCatalog(t)
 	res := newResolver(
 		map[string][]Binding{"enumerate_logons": {{Adapter: "fixture", Operation: "replay", Priority: 100}}},
 		map[string]Adapter{"fixture": healthyStub("fixture")},
@@ -94,7 +94,7 @@ func (d *degradedStub) Health() HealthStatus {
 func listOne(t *testing.T, bindings []Binding, adapters map[string]Adapter) CapabilitySummary {
 	t.Helper()
 	res := newResolver(map[string][]Binding{"enumerate_logons": bindings}, adapters)
-	for _, s := range res.ListCapabilities(DefaultCatalog()) {
+	for _, s := range res.ListCapabilities(defaultCatalog(t)) {
 		if s.Descriptor.Verb == "enumerate_logons" {
 			return s
 		}
@@ -235,16 +235,16 @@ func TestListCapabilities_FallbackNotProbed(t *testing.T) {
 		},
 		"get_host_context": {{Adapter: "primary", Operation: "context", Priority: 100}},
 	}, map[string]Adapter{"primary": primary, "fallback": fallback})
-	res.ListCapabilities(DefaultCatalog())
+	res.ListCapabilities(defaultCatalog(t))
 	if primary.probes != 1 || fallback.probes != 0 {
 		t.Errorf("listing probes: primary %d, fallback %d; want 1, 0", primary.probes, fallback.probes)
 	}
-	res.AvailableVerbs(DefaultCatalog())
+	res.AvailableVerbs(defaultCatalog(t))
 	if primary.probes != 2 || fallback.probes != 0 {
 		t.Errorf("AvailableVerbs probes: primary %d, fallback %d; want 2, 0", primary.probes, fallback.probes)
 	}
 	primary.degraded = []DegradedCapability{credFilter}
-	res.ListCapabilities(DefaultCatalog())
+	res.ListCapabilities(defaultCatalog(t))
 	if fallback.probes != 0 {
 		t.Errorf("fallback probes with a degraded primary = %d; want 0", fallback.probes)
 	}
