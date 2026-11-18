@@ -282,19 +282,20 @@ func eventRowView(row evidence.EventRow) EventRowView {
 		Coverage:         row.Coverage,
 		ObservedDataRefs: nonNilStrings(row.ObservedDataRefs),
 		EntityRefs:       nonNilStrings(row.EntityRefs),
-		View:             eventView(row.Event, row.Entities),
+		View:             eventView(row.Event, evidence.Derived{Entities: row.Entities, UserAccounts: row.UserAccounts}),
 	}
 }
 
-// eventView renders one event with the entities the record derived from it.
-func eventView(e evidence.Event, entities []evidence.Object) ocsfview.View {
+// eventView renders one event with the entities the record derived from it
+// and the account minted for each user object (adr/0398).
+func eventView(e evidence.Event, d evidence.Derived) ocsfview.View {
 	var payload map[string]any
 	_ = json.Unmarshal(e.Payload, &payload)
-	ents := make([]ocsfview.Entity, 0, len(entities))
-	for _, o := range entities {
+	ents := make([]ocsfview.Entity, 0, len(d.Entities))
+	for _, o := range d.Entities {
 		ents = append(ents, ocsfview.EntityFromObject(o.Ref, o.Type, o.Payload))
 	}
-	return ocsfview.Render(ocsfview.Event{ClassUID: e.ClassUID, ClassName: e.ClassName, Payload: payload}, ents)
+	return ocsfview.Render(ocsfview.Event{ClassUID: e.ClassUID, ClassName: e.ClassName, Payload: payload}, ents, d.UserAccounts)
 }
 
 // listInvestigationCalls serves GET /api/investigations/{id}/calls.

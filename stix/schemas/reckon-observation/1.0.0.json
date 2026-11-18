@@ -33,6 +33,18 @@
       "pattern": "^identity--[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
       "description": "The person a directory record describes. An identity is an SDO, so it cannot be in object_refs."
     },
+    "user_accounts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "string",
+          "pattern": "^user-account--[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        }
+      },
+      "description": "The strong accounts the normalizer minted for each user object, usually one, the one shown first. Keyed by the object's OCSF path with the record's own list indices, such as users[1]."
+    },
     "configuration": {
       "description": "A cloud resource's configuration, as the snapshot gives it: any JSON value, as OCSF types it."
     },

@@ -123,7 +123,7 @@ var numberTables = map[string]struct{ checked, exempt []string }{
 	},
 	"capability": {
 		// capability.TestEnumTablesMatchSchema
-		checked: []string{"userTypes", "accountTypes", "accountTypeIDs", "apiActivities", "inventoryActivities", "osTypes", "confidenceLevels"},
+		checked: []string{"userTypes", "apiActivities", "inventoryActivities", "osTypes", "confidenceLevels"},
 		// IANA protocol numbers: OCSF's protocol_num is a plain integer that
 		// refers to IANA's registry, not an OCSF enum (adr/0357).
 		exempt: []string{"ipProtocols"},
@@ -193,7 +193,11 @@ func TestAccountTypeKindsCoverTheEnum(t *testing.T) {
 	if !ok {
 		t.Fatal("OCSF has no account.type_id enum on a detection's evidence actor")
 	}
-	for _, problem := range ocsfschema.CheckCaptions(2004, "evidences[].actor.user.account.type_id", accountTypeCaptions()) {
+	captions := make(map[int]string, len(AccountTypeKinds))
+	for id, k := range AccountTypeKinds {
+		captions[id] = k.Caption
+	}
+	for _, problem := range ocsfschema.CheckCaptions(2004, "evidences[].actor.user.account.type_id", captions) {
 		t.Errorf("AccountTypeKinds: %s", problem)
 	}
 	for id, caption := range enum {

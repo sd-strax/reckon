@@ -27,7 +27,9 @@ func (*userInventoryNormalizer) ClassUID() int { return 5003 }
 // 4: STIX 2.1 output through the one serializer, an artifact for a record
 // naming nothing, and a broken record is a normalize error; the person out of
 // object_refs and named in person_ref, and only with a name, adr/0357
-func (*userInventoryNormalizer) Version() int { return 4 }
+// 5: the account minted for each user object recorded in user_accounts,
+// adr/0398
+func (*userInventoryNormalizer) Version() int { return 5 }
 
 // accountlessDirectories describe people, not sign-ins: a personnel system's
 // worker id names a person and no account.
@@ -90,7 +92,8 @@ func (n *userInventoryNormalizer) Normalize(evt OcsfEvent) (NormalizationResult,
 	principal := u.principalName()
 
 	var accounts []identity.STIXID
-	var member identity.STIXID // the account groups[] are memberships of
+	var member identity.STIXID   // the account groups[] are memberships of
+	var strong []identity.STIXID // each family's strong account
 	if !containsFold(accountlessDirectories, directory) {
 		// The domain account family: the SID, the principal name and
 		// domain\sam, strongest first, the lesser aliased to the strongest.
@@ -103,6 +106,9 @@ func (n *userInventoryNormalizer) Normalize(evt OcsfEvent) (NormalizationResult,
 		}
 		domIDs := b.account(dom, identity.AccountWindowsDomain, "", true)
 		accounts = append(accounts, domIDs...)
+		if len(domIDs) > 0 {
+			strong = append(strong, domIDs[0])
+		}
 		// The directory's own sign-in account, keyed on its id, with the
 		// sign-in name aliased to it; an on-premises directory has none
 		// beyond the domain account.
@@ -120,6 +126,13 @@ func (n *userInventoryNormalizer) Normalize(evt OcsfEvent) (NormalizationResult,
 	}
 	for _, a := range accounts {
 		b.addRefRel(RelBelongsTo, a, person)
+	}
+	// The record's one user object minted each strong account: the one its
+	// groups ride on first, the directory's own sign-in account, then the
+	// domain account (adr/0398).
+	b.recordAccount("user", member)
+	for _, a := range strong {
+		b.recordAccount("user", a)
 	}
 
 	// Group memberships ride the account, as account_change records them

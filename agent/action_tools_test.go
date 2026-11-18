@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/sd-strax/reckon/action"
+	"github.com/sd-strax/reckon/internal/catalog"
 )
 
 // builtInCatalog is the built-in action catalog as GET /api/action-types
@@ -18,7 +19,7 @@ import (
 // a tool.
 func builtInCatalog(t *testing.T) []ActionType {
 	t.Helper()
-	cat := action.DefaultActionCatalog()
+	cat := defaultActionCatalog(t)
 	var out []ActionType
 	for _, at := range cat.ActionTypes() {
 		d, _ := cat.Descriptor(at)
@@ -39,10 +40,7 @@ func builtInCatalog(t *testing.T) []ActionType {
 // actionToolsOf builds the action tools of a catalog, by name.
 func actionToolsOf(t *testing.T, catalog []ActionType) map[string]tool {
 	t.Helper()
-	tools, err := actionTools(catalog)
-	if err != nil {
-		t.Fatal(err)
-	}
+	tools := actionTools(catalog)
 	byName := map[string]tool{}
 	for _, tl := range tools {
 		byName[tl.def.Name] = tl
@@ -174,30 +172,34 @@ func TestRequestAction_UnavailableReachesTheEngine(t *testing.T) {
 	}
 }
 
-// TestActionTools_RefusesAnInputNamedAsASharedField: a type that declares an
-// input with a shared field's name would give the tool one property for two
-// things, so tool building fails.
-func TestActionTools_RefusesAnInputNamedAsASharedField(t *testing.T) {
-	var a ActionType
-	a.Status = "available"
-	a.Descriptor.ActionType = "x.act"
-	a.Descriptor.Inputs = []ActionInput{{Name: "rationale", Type: "string"}}
-	_, err := actionTools([]ActionType{a})
-	if err == nil || !strings.Contains(err.Error(), `"rationale", the name of a field every action request carries`) {
-		t.Fatalf("err = %v; want a shared-field clash naming the input", err)
+// TestActionShared_IsTheRequestFields (adr/0382): the fields every action tool
+// carries are the ones the backend keeps input names off, so a descriptor it
+// accepts never gives a tool one property for two things.
+func TestActionShared_IsTheRequestFields(t *testing.T) {
+	var got []string
+	for name := range actionSharedFields {
+		got = append(got, name)
+	}
+	want := catalog.ActionRequestFields()
+	slices.Sort(got)
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Errorf("action tool shared fields = %v; catalog.ActionRequestFields = %v", got, want)
 	}
 }
 
-// TestActionTools_RefusesARepeatedInput: a type that declares one input name
-// twice is reported as a repeat, not as a shared-field clash.
-func TestActionTools_RefusesARepeatedInput(t *testing.T) {
-	var a ActionType
-	a.Status = "available"
-	a.Descriptor.ActionType = "x.act"
-	a.Descriptor.Inputs = []ActionInput{{Name: "summary", Type: "string"}, {Name: "summary", Type: "string"}}
-	_, err := actionTools([]ActionType{a})
-	if err == nil || !strings.Contains(err.Error(), `"summary" twice`) {
-		t.Fatalf("err = %v; want a repeated-input refusal", err)
+// TestIntrinsicTools_AreTheBuiltinToolNames (adr/0382): the agent's built-in
+// tools are the names the backend refuses a verb for.
+func TestIntrinsicTools_AreTheBuiltinToolNames(t *testing.T) {
+	var got []string
+	for _, tl := range intrinsicTools() {
+		got = append(got, tl.def.Name)
+	}
+	want := catalog.BuiltinToolNames()
+	slices.Sort(got)
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Errorf("intrinsic tools = %v; catalog.BuiltinToolNames = %v", got, want)
 	}
 }
 
@@ -381,7 +383,7 @@ func TestRequestAction_UndeclaredKeyReachesTheEngine(t *testing.T) {
 
 func mustDescriptor(t *testing.T, actionType string) action.ActionDescriptor {
 	t.Helper()
-	d, ok := action.DefaultActionCatalog().Descriptor(actionType)
+	d, ok := defaultActionCatalog(t).Descriptor(actionType)
 	if !ok {
 		t.Fatalf("no descriptor for %s", actionType)
 	}
@@ -535,4 +537,15 @@ func TestResetContext_CatalogFailureKeepsTheActionTools(t *testing.T) {
 	if _, ok := s.toolsByName[isolateTool]; !ok {
 		t.Error("the reset dropped the action tools the session had")
 	}
+}
+
+// defaultActionCatalog is DefaultActionCatalog for a test: it fails the test
+// when the catalog is refused.
+func defaultActionCatalog(t testing.TB) *action.ActionCatalog {
+	t.Helper()
+	c, err := action.DefaultActionCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
 }

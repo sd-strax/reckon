@@ -289,3 +289,17 @@ func TestSession_LargeCapabilityResultIsPaged(t *testing.T) {
 		t.Errorf("first=%+v second=%+v", first, second)
 	}
 }
+
+// TestDigestUsersByTheOneRead (adr/0367): the digest counts users by their
+// login, as ocsf.ReadUser reads it. A placeholder name drops out, and
+// "CONTOSO\jdoe" and {name: jdoe, domain: CONTOSO} are one user.
+func TestDigestUsersByTheOneRead(t *testing.T) {
+	var events []json.RawMessage
+	for _, user := range []string{`{"name":"CONTOSO\\jdoe"}`, `{"name":"jdoe","domain":"CONTOSO"}`, `{"name":"-"}`} {
+		events = append(events, json.RawMessage(`{"class_name":"Process Activity","payload":{"actor":{"user":`+user+`}}}`))
+	}
+	d := digestEvents(events)
+	if d.ByUser.Distinct != 1 || len(d.ByUser.Top) != 1 || d.ByUser.Top[0] != (valueCount{Value: `CONTOSO\jdoe`, Count: 2}) {
+		t.Errorf("by_user = %+v; want CONTOSO\\jdoe on two events", d.ByUser)
+	}
+}

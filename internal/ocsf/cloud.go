@@ -179,28 +179,32 @@ var AccountTypeKinds = map[int]AccountTypeKind{
 	99: {Caption: "Other"},
 }
 
-// accountTypeCaptions is AccountTypeKinds as id → caption, the shape
-// CaptionID reads.
-func accountTypeCaptions() map[int]string {
-	out := make(map[int]string, len(AccountTypeKinds))
+// accountTypeByCaption is AccountTypeKinds as lowercased caption → id, built
+// once for AccountTypeID.
+var accountTypeByCaption = func() map[string]int {
+	out := make(map[string]int, len(AccountTypeKinds))
 	for id, k := range AccountTypeKinds {
-		out[id] = k.Caption
+		out[strings.ToLower(k.Caption)] = id
 	}
 	return out
-}
+}()
 
 // AccountTypeID is the account.type_id an OCSF account object gives: the id
 // when present, else the id OCSF gives the account.type caption, letter case
-// aside (CaptionID). A caption OCSF does not have reads as Other, and no
-// caption as Unknown.
+// aside. A caption OCSF does not have reads as Other, and no caption as
+// Unknown. It is the one rule for an account type (adr/0367).
 func AccountTypeID(id any, caption string) int {
 	if n, ok := WholeNumber(id); ok {
 		return n
 	}
-	if strings.TrimSpace(caption) == "" {
+	caption = strings.TrimSpace(caption)
+	if caption == "" {
 		return Unknown
 	}
-	return CaptionID(accountTypeCaptions(), strings.TrimSpace(caption))
+	if n, ok := accountTypeByCaption[strings.ToLower(caption)]; ok {
+		return n
+	}
+	return Other
 }
 
 // IsCloudPrincipal reports whether the user of an evidence actor on a
@@ -219,13 +223,10 @@ func AccountTypeID(id any, caption string) int {
 // the answer is no: the actor is then read by the account rule (03 §7.2),
 // as on a finding with no provider.
 func IsCloudPrincipal(provider string, finding PrincipalContext, read func(path string) any) bool {
-	var kind AccountTypeKind
-	if typeID := read("user.account.type_id"); typeID != nil {
-		kind = AccountTypeKinds[AccountTypeID(typeID, "")]
-	} else {
-		caption, _ := read("user.account.type").(string)
-		kind = AccountTypeKinds[AccountTypeID(nil, caption)]
-	}
+	// The type by the one call ReadUser makes, so a type_id that is no
+	// number falls back to the caption here too.
+	caption, _ := read("user.account.type").(string)
+	kind := AccountTypeKinds[AccountTypeID(read("user.account.type_id"), caption)]
 	if kind.Host {
 		return false
 	}

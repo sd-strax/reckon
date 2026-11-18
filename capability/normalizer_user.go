@@ -17,31 +17,23 @@ import (
 // already read as absent (identity.Placeholder*).
 type userObject struct {
 	name, domain    string // ocsf.UserName: a "domain\" prefix split off, a distinguished name not split
-	uid, uidAlt     string // the source's identifiers, as given
+	uid, uidAlt     string // the source's identifiers, trimmed
 	sid             string // uid when it is a SID that names a principal
 	email, fullName string
-	accountTypeID   int    // user.account.type_id
-	accountType     string // user.account.type, lowercased
+	accountTypeID   int // ocsf.AccountTypeID: user.account.type_id, else its caption
 }
 
-// readUser reads an OCSF user object. Its name and domain are read by
-// ocsf.UserName, so a name of the form "domain\sam" with no domain, or a
-// placeholder one, is split and "CONTOSO\jdoe" and {name: jdoe, domain:
-// CONTOSO} are one login.
+// readUser reads an OCSF user object by the one rule, ocsf.ReadUser
+// (adr/0367), so the normalizer, the event view and "seen as" read it alike.
+// m must have been reached through lookupPath or fieldOf, so the schema
+// check sees the fields read from it.
 func readUser(m map[string]any) userObject {
 	str := func(path string) string { return strings.TrimSpace(pathStr(m, path)) }
-	name, domain := ocsf.UserName(m, func(obj map[string]any, key string) any { return pathStr(obj, key) })
+	r := ocsf.ReadUser(m, fieldOf)
 	u := userObject{
-		name: name, domain: domain, uid: str("uid"), uidAlt: str("uid_alt"),
+		name: r.Name, domain: r.Domain, uid: r.UID, uidAlt: r.UIDAlt,
 		email: str("email_addr"), fullName: str("full_name"),
-		accountTypeID: pathInt(m, "account.type_id"),
-		accountType:   strings.ToLower(str("account.type")),
-	}
-	if identity.PlaceholderUserID(u.uid) {
-		u.uid = ""
-	}
-	if identity.PlaceholderUserID(u.uidAlt) {
-		u.uidAlt = ""
+		accountTypeID: r.AccountTypeID,
 	}
 	if identity.IsSID(u.uid) {
 		u.sid = u.uid
@@ -50,19 +42,19 @@ func readUser(m map[string]any) userObject {
 }
 
 // principalName is the user's principal name (user@domain) when the record
-// carries one: the name when it has an "@", else uid_alt when it does.
-func (u userObject) principalName() string {
-	switch {
-	case strings.Contains(u.name, "@"):
-		return u.name
-	case strings.Contains(u.uidAlt, "@"):
-		return u.uidAlt
+// carries one (ocsf.UserPrincipalName).
+func (u userObject) principalName() string { return ocsf.UserPrincipalName(u.name, u.uidAlt) }
+
+// samLogin is the "domain\sam" login (ocsf.UserLogin), or "" when the object
+// has no domain or its name is a principal name.
+func (u userObject) samLogin() string {
+	if l := ocsf.UserLogin(u.name, u.domain); l != u.name {
+		return l
 	}
 	return ""
 }
 
-// OCSF account.type_id values the shaping reads (the OCSF Account object).
-// accountTypeIDs holds their captions for the schema check.
+// OCSF account.type_id values the shaping reads (ocsf.AccountTypeKinds).
 const (
 	ocsfAccountLDAP      = 1
 	ocsfAccountWindows   = 2
@@ -72,12 +64,6 @@ const (
 	ocsfAccountGoogleWks = 15
 	ocsfAccountAD        = 19
 )
-
-var accountTypeIDs = map[int]string{
-	ocsfAccountLDAP: "LDAP Account", ocsfAccountWindows: "Windows Account", ocsfAccountAzureAD: "Azure AD Account",
-	ocsfAccountMacOS: "Mac OS Account", ocsfAccountLinux: "Linux Account", ocsfAccountGoogleWks: "Google Workspace",
-	ocsfAccountAD: "ActiveDirectory Account",
-}
 
 // machineDomains are the "domains" a Windows source names for principals that
 // are the machine's own: the account is windows-local, scoped by the host.
@@ -116,18 +102,20 @@ func osFamily(loc at) string {
 // accountType decides the account_type of the user object u, named by an
 // event whose device object (the machine the account acted on) is at device
 // and minted as host. The record's other device objects, where an OS may be
-// named, are the builder's (deviceObjects). The order is the decision:
+// named, are the builder's (deviceObjects). The account type is the id
+// ocsf.AccountTypeID reads: account.type_id, else the id of the
+// account.type caption, so a caption counts for every type and the id wins
+// when both are present (adr/0367). The order is the decision:
 //
 //  1. cloud: the source is an identity provider, which OCSF says through the
-//     account object, account.type_id 6 (Azure AD Account) or 15 (Google
-//     Workspace) or the same captions in account.type; or, when the record
-//     carries no SID and no domain\sam (a principal name beside a DNS
+//     account type 6 (Azure AD Account) or 15 (Google Workspace); or, when
+//     the record carries no SID and no domain\sam (a principal name beside a DNS
 //     domain is none), the event comes from an identity provider, its
 //     product or vendor named exactly (identityProviderSource).
 //     Nothing else makes a login cloud: an "@" alone is a principal
 //     name (adr/0324).
-//  2. ldap: account.type_id 1 (LDAP Account).
-//  3. unix: account.type_id 7 or 9 (macOS, Linux Account), or a Unix-family
+//  2. ldap: account type 1 (LDAP Account).
+//  3. unix: account type 7 or 9 (macOS, Linux Account), or a Unix-family
 //     device OS, on a record with no SID: scoped by the host, whatever
 //     domain the record names. An explicit Unix signal outweighs every
 //     Windows heuristic below but a SID.
@@ -136,9 +124,9 @@ func osFamily(loc at) string {
 //     BUILTIN, NT SERVICE, IIS APPPOOL, ...), or a domain that is the machine
 //     itself (a dotless domain that mints the event's host).
 //  5. windows-domain: a Windows source, which is a record whose uid is a SID,
-//     whose account.type_id is 2 (Windows Account) or 19 (ActiveDirectory
-//     Account) or the same captions in account.type, that names a domain, or
-//     whose device OS is Windows, naming a domain, a SID or a principal name.
+//     whose account type is 2 (Windows Account) or 19 (ActiveDirectory
+//     Account), that names a domain, or whose device OS is Windows, naming
+//     a domain, a SID or a principal name.
 //  6. windows: a Windows source naming a bare login, no domain and no SID:
 //     the weak account.
 //  7. login: a principal name from a source that names no OS: the weak
@@ -153,7 +141,6 @@ func osFamily(loc at) string {
 func (b *resultBuilder) accountType(u userObject, device at, host identity.STIXID) string {
 	switch {
 	case u.accountTypeID == ocsfAccountAzureAD || u.accountTypeID == ocsfAccountGoogleWks ||
-		u.accountType == "azure ad account" || u.accountType == "google workspace" ||
 		(u.sid == "" && (u.domain == "" || u.name == "" || strings.Contains(u.name, "@")) && identityProviderSource(b.evt.Payload, b.devices)):
 		return identity.AccountCloud
 	case u.accountTypeID == ocsfAccountLDAP:
@@ -170,10 +157,7 @@ func (b *resultBuilder) accountType(u userObject, device at, host identity.STIXI
 	if b.machineLocal(u, host) {
 		return identity.AccountWindowsLocal
 	}
-	// The Windows account types by id, or by caption in account.type, read
-	// from the table the schema check holds.
-	windowsType := u.accountTypeID == ocsfAccountWindows || u.accountTypeID == ocsfAccountAD ||
-		u.accountType == strings.ToLower(accountTypeIDs[ocsfAccountWindows]) || u.accountType == strings.ToLower(accountTypeIDs[ocsfAccountAD])
+	windowsType := u.accountTypeID == ocsfAccountWindows || u.accountTypeID == ocsfAccountAD
 	windows := u.sid != "" || windowsType || u.domain != "" || os == "windows"
 	switch {
 	case windows && (u.domain != "" || u.sid != "" || u.principalName() != ""):
@@ -289,14 +273,18 @@ func (b *resultBuilder) userAccount(prefix, device string, host identity.STIXID)
 // from it to the strong account, DIRECT, the record's provenance: the source
 // said in this record that the login is that account, as the host rule does
 // for an agent id (adr/0211). It returns "" when the object names nothing.
+//
+// The strong account is recorded under the user object's place in the event
+// (recordAccount, adr/0398).
 func (b *resultBuilder) userAccountAt(user, device at, host identity.STIXID) identity.STIXID {
-	return b.userAccountOf(objectAt(user.obj, user.path), device, host)
+	return b.userAccountOf(objectAt(user.obj, user.path), user.place(), device, host)
 }
 
 // userAccountOf is userAccountAt for a user object already in hand, such as
-// an entry of a list. m must have been reached through lookupPath or
-// fieldOf, so the schema check sees the fields read from it.
-func (b *resultBuilder) userAccountOf(m map[string]any, device at, host identity.STIXID) identity.STIXID {
+// an entry of a list, at place in the event. m must have been reached
+// through lookupPath or fieldOf, so the schema check sees the fields read
+// from it.
+func (b *resultBuilder) userAccountOf(m map[string]any, place string, device at, host identity.STIXID) identity.STIXID {
 	if m == nil {
 		return ""
 	}
@@ -305,6 +293,7 @@ func (b *resultBuilder) userAccountOf(m map[string]any, device at, host identity
 	if len(ids) == 0 {
 		return ""
 	}
+	b.recordAccount(place, ids[0])
 	return ids[0]
 }
 
@@ -366,10 +355,7 @@ func (b *resultBuilder) accountKeys(u userObject, typ string, host identity.STIX
 		}
 		out = append(out, accountKey{id: id, login: login})
 	}
-	sam := ""
-	if u.domain != "" && u.name != "" && !strings.Contains(u.name, "@") {
-		sam = u.domain + `\` + u.name
-	}
+	sam := u.samLogin()
 	login := firstNonEmpty(sam, u.principalName(), u.name)
 	switch typ {
 	case identity.AccountWindowsDomain:

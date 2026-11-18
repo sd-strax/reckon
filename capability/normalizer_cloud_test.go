@@ -65,6 +65,18 @@ func scosOf(res NormalizationResult, typ string) []SCO {
 	return out
 }
 
+// TestAPIActivity_CloudAccountTypeCaption (adr/0367): a cloud account's type
+// is read by ocsf.AccountTypeID and named by OCSF's caption, so a caption
+// OCSF lacks reads as Other.
+func TestAPIActivity_CloudAccountTypeCaption(t *testing.T) {
+	p := apiPayload()
+	p["cloud"].(map[string]any)["account"] = map[string]any{"uid": "111122223333", "type": "a word OCSF lacks"}
+	accts := scosOf(normalizeOne(t, p), identity.TypeCloudAccount)
+	if len(accts) != 1 || accts[0].Properties["account_type"] != "Other" {
+		t.Errorf("accounts = %+v; want one, typed Other", accts)
+	}
+}
+
 func hasEdge(res NormalizationResult, typ string, src, tgt identity.STIXID) bool {
 	for _, r := range res.Relationships {
 		if r.Type == typ && r.SourceRef == src && r.TargetRef == tgt {
@@ -140,7 +152,7 @@ func TestAPIActivity_IAMUser(t *testing.T) {
 	}
 
 	od := res.ObservedData[0]
-	if od.Provenance.Normalizer != "api_activity" || od.Provenance.NormalizerVersion != 4 || od.Provenance.DerivationMode != DerivationDirect {
+	if od.Provenance.Normalizer != "api_activity" || od.Provenance.NormalizerVersion != 6 || od.Provenance.DerivationMode != DerivationDirect {
 		t.Errorf("provenance = %+v", od.Provenance)
 	}
 	if len(od.ObjectRefs) != 4 {

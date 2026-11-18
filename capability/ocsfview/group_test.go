@@ -12,7 +12,7 @@ import (
 // built from Slots() names values the fold will find.
 func TestSlots_EveryTemplateRegistersItsCatalogue(t *testing.T) {
 	for _, class := range Classes() {
-		v := Render(Event{ClassUID: class, Payload: map[string]any{}}, nil)
+		v := Render(Event{ClassUID: class, Payload: map[string]any{}}, nil, nil)
 		var got []string
 		for _, s := range v.Slots {
 			got = append(got, s.Name)
@@ -35,12 +35,13 @@ func TestSlots_EveryTemplateRegistersItsCatalogue(t *testing.T) {
 	}
 }
 
-func authItem(id string, at string, js string, ents []Entity) GroupItem {
+// authItem renders a logon whose user the record links to the account user.
+func authItem(id string, at string, js string, ents []Entity, user string) GroupItem {
 	ts, err := time.Parse(time.RFC3339, at)
 	if err != nil {
 		panic(err)
 	}
-	v := Render(Event{ClassUID: classAuthentication, Payload: payload(js)}, ents)
+	v := Render(Event{ClassUID: classAuthentication, Payload: payload(js)}, ents, map[string][]string{"user": {user}})
 	return GroupItem{ID: id, ClassUID: classAuthentication, Time: ts, Slots: v.Slots}
 }
 
@@ -57,11 +58,11 @@ func scenarioLogons() []GroupItem {
 	nightly := `{"user":{"name":"svc_backup","domain":"CONTOSO"},"dst_endpoint":{"hostname":"WIN-FILE01"},"src_endpoint":{"ip":"10.0.9.10"},"logon_type":"Network","status":"SUCCESS"}`
 	var items []GroupItem
 	for d := 13; d <= 19; d++ {
-		items = append(items, authItem(fmt.Sprintf("n%d", d), fmt.Sprintf("2026-04-%02dT02:00:10Z", d), nightly, ents))
+		items = append(items, authItem(fmt.Sprintf("n%d", d), fmt.Sprintf("2026-04-%02dT02:00:10Z", d), nightly, ents, "user-account--svc"))
 	}
 	items = append(items,
-		authItem("jdoe", "2026-04-20T14:32:11Z", `{"user":{"name":"jdoe","domain":"CONTOSO"},"dst_endpoint":{"hostname":"WIN-FILE01"},"src_endpoint":{"ip":"10.0.4.55"},"logon_type":"RemoteInteractive","status":"SUCCESS"}`, ents),
-		authItem("rdp", "2026-04-20T14:32:47Z", `{"user":{"name":"svc_backup","domain":"CONTOSO"},"dst_endpoint":{"hostname":"WIN-FILE01"},"src_endpoint":{"ip":"10.0.4.20"},"logon_type":"RemoteInteractive","status":"SUCCESS"}`, ents),
+		authItem("jdoe", "2026-04-20T14:32:11Z", `{"user":{"name":"jdoe","domain":"CONTOSO"},"dst_endpoint":{"hostname":"WIN-FILE01"},"src_endpoint":{"ip":"10.0.4.55"},"logon_type":"RemoteInteractive","status":"SUCCESS"}`, ents, "user-account--jdoe"),
+		authItem("rdp", "2026-04-20T14:32:47Z", `{"user":{"name":"svc_backup","domain":"CONTOSO"},"dst_endpoint":{"hostname":"WIN-FILE01"},"src_endpoint":{"ip":"10.0.4.20"},"logon_type":"RemoteInteractive","status":"SUCCESS"}`, ents, "user-account--svc"),
 	)
 	return items
 }
@@ -85,7 +86,7 @@ func TestFold_Scenario(t *testing.T) {
 	for _, p := range g.Key {
 		key = append(key, p.Slot+"="+p.Text+"@"+p.Ref)
 	}
-	want := []string{"user=svc_backup@user-account--svc", "logon_type=Network@", "src=10.0.9.10@ipv4-addr--bkp", "dst=WIN-FILE01@reckon-host--file01"}
+	want := []string{`user=CONTOSO\svc_backup@user-account--svc`, "logon_type=Network@", "src=10.0.9.10@ipv4-addr--bkp", "dst=WIN-FILE01@reckon-host--file01"}
 	if !slices.Equal(key, want) {
 		t.Errorf("key = %v; want %v", key, want)
 	}
@@ -126,7 +127,7 @@ func TestFold_PivotDropsTheEntity(t *testing.T) {
 func TestFold_ImageKeysByHash(t *testing.T) {
 	at := time.Date(2026, 4, 20, 10, 0, 0, 0, time.UTC)
 	item := func(id, js string, ents []Entity) GroupItem {
-		v := Render(Event{ClassUID: classProcess, Payload: payload(js)}, ents)
+		v := Render(Event{ClassUID: classProcess, Payload: payload(js)}, ents, nil)
 		return GroupItem{ID: id, ClassUID: classProcess, Time: at, Slots: v.Slots}
 	}
 	same := []Entity{ent("file--abc", map[string]any{"name": "", "hashes": map[string]any{"SHA-256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"}})}
@@ -154,8 +155,8 @@ func TestFold_ImageKeysByHash(t *testing.T) {
 func TestFold_NoValueNeverFolds(t *testing.T) {
 	at := time.Date(2026, 4, 20, 10, 0, 0, 0, time.UTC)
 	items := []GroupItem{
-		{ID: "a", ClassUID: classNetwork, Time: at, Slots: Render(Event{ClassUID: classNetwork, Payload: map[string]any{}}, nil).Slots},
-		{ID: "b", ClassUID: classNetwork, Time: at, Slots: Render(Event{ClassUID: classNetwork, Payload: map[string]any{}}, nil).Slots},
+		{ID: "a", ClassUID: classNetwork, Time: at, Slots: Render(Event{ClassUID: classNetwork, Payload: map[string]any{}}, nil, nil).Slots},
+		{ID: "b", ClassUID: classNetwork, Time: at, Slots: Render(Event{ClassUID: classNetwork, Payload: map[string]any{}}, nil, nil).Slots},
 		{ID: "c", ClassUID: 8001, Time: at},
 		{ID: "d", ClassUID: 8001, Time: at},
 	}
@@ -191,7 +192,7 @@ func TestParseKeys(t *testing.T) {
 func TestFold_ChangedObservationsStayApart(t *testing.T) {
 	at := time.Date(2026, 4, 20, 10, 0, 0, 0, time.UTC)
 	item := func(id string, class int, js string) GroupItem {
-		return GroupItem{ID: id, ClassUID: class, Time: at, Slots: Render(Event{ClassUID: class, Payload: payload(js)}, nil).Slots}
+		return GroupItem{ID: id, ClassUID: class, Time: at, Slots: Render(Event{ClassUID: class, Payload: payload(js)}, nil, nil).Slots}
 	}
 	cases := []struct {
 		name  string
@@ -265,17 +266,18 @@ func TestFold_ExplicitEmptyKey(t *testing.T) {
 func TestFold_PivotDropsTheAccountTarget(t *testing.T) {
 	ents := []Entity{ent("user-account--jdoe", map[string]any{"account_login": `CONTOSO\jdoe`})}
 	for _, tc := range []struct {
-		name string
-		uid  int
-		js   string
+		name  string
+		uid   int
+		js    string
+		place string
 	}{
-		{"account change", 3001, `{"activity_name":"Create","user":{"name":"jdoe","domain":"CONTOSO"},"actor":{"user":{"name":"admin"}}}`},
-		{"user access", 3005, `{"activity_name":"Assign Privileges","user":{"name":"jdoe","domain":"CONTOSO"},"privileges":["SeDebugPrivilege"]}`},
-		{"group management, user", 3006, `{"activity_name":"Add User","user":{"name":"jdoe","domain":"CONTOSO"},"group":{"name":"Domain Admins"}}`},
-		{"group management, one users[] member", 3006, `{"activity_name":"Add User","users":[{"name":"jdoe","domain":"CONTOSO"}],"group":{"name":"Domain Admins"}}`},
+		{"account change", 3001, `{"activity_name":"Create","user":{"name":"jdoe","domain":"CONTOSO"},"actor":{"user":{"name":"admin"}}}`, "user"},
+		{"user access", 3005, `{"activity_name":"Assign Privileges","user":{"name":"jdoe","domain":"CONTOSO"},"privileges":["SeDebugPrivilege"]}`, "user"},
+		{"group management, user", 3006, `{"activity_name":"Add User","user":{"name":"jdoe","domain":"CONTOSO"},"group":{"name":"Domain Admins"}}`, "user"},
+		{"group management, one users[] member", 3006, `{"activity_name":"Add User","users":[{"name":"jdoe","domain":"CONTOSO"}],"group":{"name":"Domain Admins"}}`, "users[0]"},
 	} {
 		uid, js, class := tc.uid, tc.js, tc.name
-		v := Render(Event{ClassUID: uid, Payload: payload(js)}, ents)
+		v := Render(Event{ClassUID: uid, Payload: payload(js)}, ents, map[string][]string{tc.place: {"user-account--jdoe"}})
 		item := GroupItem{ID: "e", ClassUID: uid, Time: time.Now(), Slots: v.Slots}
 		groups := Fold([]GroupItem{item}, Keys{uid: {"target", "activity"}}, "user-account--jdoe")
 		if len(groups) != 1 {
@@ -290,5 +292,25 @@ func TestFold_PivotDropsTheAccountTarget(t *testing.T) {
 		if p := unpivoted[0].Key[0]; p.Slot != "target" || p.Ref != "user-account--jdoe" {
 			t.Errorf("%s: target key part = %+v; want it bound", class, p)
 		}
+	}
+}
+
+// TestFold_UnboundActorsByLogin (adr/0367): an unbound actor is shown and
+// keyed by its login, so the same sam in two domains is two groups.
+func TestFold_UnboundActorsByLogin(t *testing.T) {
+	at := time.Date(2026, 4, 20, 14, 0, 0, 0, time.UTC)
+	var items []GroupItem
+	for i, name := range []string{`CONTOSO\\admin`, `FABRIKAM\\admin`} {
+		v := Render(Event{ClassUID: 1007, Payload: payload(`{"activity_name":"Launch","actor":{"user":{"name":"` + name + `"}},"process":{"name":"cmd.exe"}}`)}, nil, nil)
+		items = append(items, GroupItem{ID: fmt.Sprint(i), ClassUID: 1007, Time: at, Slots: v.Slots})
+	}
+	groups := Fold(items, Keys{1007: {"user"}}, "")
+	var shown []string
+	for _, g := range groups {
+		shown = append(shown, g.Key[0].Text)
+	}
+	slices.Sort(shown)
+	if want := []string{`CONTOSO\admin`, `FABRIKAM\admin`}; !slices.Equal(shown, want) {
+		t.Errorf("groups shown as %v; want %v", shown, want)
 	}
 }
