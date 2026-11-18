@@ -1,6 +1,6 @@
 # 0382 — Action descriptors and verbs are checked when they are registered, with the rules the agent builds its tools by
 
-Issue: #382 · PR: pending · Status: accepted
+Issue: #382 · PR: #410 · Status: accepted
 
 ## Context
 
