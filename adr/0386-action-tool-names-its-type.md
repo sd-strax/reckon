@@ -1,6 +1,6 @@
 # 0386 — Each action tool's description names its action type
 
-Issue: #386 · PR: pending · Status: accepted
+Issue: #386 · PR: #412 · Status: accepted
 
 ## Context
 
