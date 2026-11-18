@@ -1,6 +1,6 @@
 # 0398 — The normalizer records which account each user object is, and the view and "seen as" read that record
 
-Issue: #398 · PR: pending · Status: accepted
+Issue: #398 · PR: #411 · Status: accepted
 
 ## Context
 
