@@ -30,7 +30,7 @@ type SOPOutline struct {
 	Title    string       `json:"title"`
 	Revision int          `json:"revision"`
 	Cut      string       `json:"cut"`
-	Status   string       `json:"status"`
+	Status   SOPStatus    `json:"status"`
 	Sections []SOPSection `json:"sections"`
 }
 
@@ -42,7 +42,7 @@ type SOPSectionRead struct {
 	Title    string     `json:"title"`
 	Revision int        `json:"revision"`
 	Cut      string     `json:"cut"`
-	Status   string     `json:"status"`
+	Status   SOPStatus  `json:"status"`
 	Section  SOPSection `json:"section"`
 	Outline  []string   `json:"outline"`
 }

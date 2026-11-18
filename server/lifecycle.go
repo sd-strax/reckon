@@ -28,9 +28,12 @@ type LifecycleRequestBody struct {
 // or failed to start (POST .../export remains the manual retrigger).
 type LifecycleResponse struct {
 	InvestigationRef string `json:"investigation_ref"`
-	Status           string `json:"status"`
-	SequenceNo       int64  `json:"sequence_no"`
-	ExportWorkflowID string `json:"export_workflow_id,omitempty"`
+	// Status is never empty: every transition this endpoint accepts appends
+	// an event that sets the status, and a lifecycle command is never a
+	// retried system command that appends nothing.
+	Status           aggregate.InvestigationStatus `json:"status"`
+	SequenceNo       int64                         `json:"sequence_no"`
+	ExportWorkflowID string                        `json:"export_workflow_id,omitempty"`
 }
 
 // investigationLifecycle handles POST /api/investigations/{id}/lifecycle: the
@@ -70,7 +73,7 @@ func (b *Backend) investigationLifecycle(w http.ResponseWriter, r *http.Request,
 		InvestigationRef: id.String(),
 		// The committed events are the authority on the resulting status —
 		// never a transition→status table maintained here.
-		Status:     aggregate.StatusAfter(res.AppliedEvents),
+		Status:     aggregate.InvestigationStatus(aggregate.StatusAfter(res.AppliedEvents)),
 		SequenceNo: res.NewSequenceNo,
 	}
 	// Keyed on the persisted event, not the request verb, per 07 §2.3

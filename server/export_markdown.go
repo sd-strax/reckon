@@ -225,7 +225,7 @@ func (b *Backend) renderInvestigationMarkdown(ctx context.Context, id uuid.UUID)
 			}
 			var meta []string
 			if e.Confidence != "" {
-				meta = append(meta, "confidence "+e.Confidence)
+				meta = append(meta, "confidence "+string(e.Confidence))
 			}
 			if e.ToolCalls > 0 {
 				meta = append(meta, fmt.Sprintf("%d tool call(s)", e.ToolCalls))

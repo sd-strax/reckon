@@ -45,6 +45,28 @@ const (
 	PredictionWithdrawn    = "WITHDRAWN"
 )
 
+// HypothesisStatus is a hypothesis's status as a served view carries it.
+type HypothesisStatus string
+
+// WireValues lists every hypothesis status, in the order declared above.
+func (HypothesisStatus) WireValues() []string {
+	return []string{
+		HypothesisProposed, HypothesisOpen, HypothesisSupported,
+		HypothesisRefuted, HypothesisInconclusive, HypothesisAbandoned,
+	}
+}
+
+// PredictionStatus is a prediction's status as a served view carries it.
+type PredictionStatus string
+
+// WireValues lists every prediction status, in the order declared above.
+func (PredictionStatus) WireValues() []string {
+	return []string{
+		PredictionUntested, PredictionConfirmed, PredictionDisconfirmed,
+		PredictionInconclusive, PredictionWithdrawn,
+	}
+}
+
 // STIX type prefixes for the reasoning nodes: reckon's custom types, declared
 // by extension definitions (01-domain-model.md, STIX Conformance and Change).
 const (
@@ -65,6 +87,14 @@ const (
 	TestKindTool   = "tool"
 	TestKindManual = "manual"
 )
+
+// TestKind is who decides a prediction, as a served view carries it.
+type TestKind string
+
+// WireValues lists every test kind, in the order declared above.
+func (TestKind) WireValues() []string {
+	return []string{TestKindTool, TestKindManual}
+}
 
 // Bounds on an attestation (adr/0054): the content is what a person said or
 // what was checked by hand, a paragraph at most; source and channel are labels.

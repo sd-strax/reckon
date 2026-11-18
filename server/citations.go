@@ -21,11 +21,11 @@ import (
 
 // CitationView is one investigation that consulted a procedure or a past case.
 type CitationView struct {
-	InvestigationID string    `json:"investigation_id"`
-	Title           string    `json:"title"`
-	Status          string    `json:"status"`
-	Cited           bool      `json:"cited"`
-	LastAt          time.Time `json:"last_at"`
+	InvestigationID string                        `json:"investigation_id"`
+	Title           string                        `json:"title"`
+	Status          aggregate.InvestigationStatus `json:"status"`
+	Cited           bool                          `json:"cited"`
+	LastAt          time.Time                     `json:"last_at"`
 	// Acts is how many reasoning acts in the investigation carried the ref.
 	Acts int `json:"acts"`
 	// Revisions are the distinct SOP revisions those acts had in front of
@@ -109,7 +109,7 @@ func (b *Backend) knowledgeCitations(w http.ResponseWriter, r *http.Request, ref
 		out.Investigations = append(out.Investigations, CitationView{
 			InvestigationID: c.AggregateID.String(),
 			Title:           c.Title,
-			Status:          c.Status,
+			Status:          aggregate.InvestigationStatus(c.Status),
 			Cited:           c.Cited,
 			LastAt:          c.LastAt,
 			Acts:            c.Acts,

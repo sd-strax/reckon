@@ -16,10 +16,10 @@ import (
 
 // InvestigationView is the JSON shape returned to clients.
 type InvestigationView struct {
-	AggregateID       string `json:"aggregate_id"`
-	Title             string `json:"title"`
-	Status            string `json:"status"`
-	LastEventSequence int64  `json:"last_event_sequence"`
+	AggregateID       string                        `json:"aggregate_id"`
+	Title             string                        `json:"title"`
+	Status            aggregate.InvestigationStatus `json:"status"`
+	LastEventSequence int64                         `json:"last_event_sequence"`
 
 	// Verdict is the disposition of record (01 §Verdict), absent when none —
 	// the honest zero: no stored "pending".
@@ -91,10 +91,10 @@ func seedBody(s *aggregate.Seed) *SeedBody {
 
 // VerdictView is the verdict fold as served.
 type VerdictView struct {
-	Disposition      string    `json:"disposition"`
-	Rationale        string    `json:"rationale,omitempty"`
-	VerdictAt        time.Time `json:"verdict_at"`
-	InterpretationID string    `json:"interpretation_id,omitempty"`
+	Disposition      aggregate.VerdictDisposition `json:"disposition"`
+	Rationale        string                       `json:"rationale,omitempty"`
+	VerdictAt        time.Time                    `json:"verdict_at"`
+	InterpretationID string                       `json:"interpretation_id,omitempty"`
 }
 
 // SeedBody is the client shape of the investigation's root (01 §Extension 1).
@@ -154,6 +154,11 @@ type CreateInvestigationResponse struct {
 	NewSequenceNo int64 `json:"new_sequence_no"`
 }
 
+// InvestigationsResponse is GET /api/investigations.
+type InvestigationsResponse struct {
+	Investigations []InvestigationView `json:"investigations"`
+}
+
 // listInvestigations renders all rows of investigation_current.
 // Requires viewer or analyst or auditor (enforced by caller).
 func (b *Backend) listInvestigations(w http.ResponseWriter, r *http.Request) {
@@ -173,7 +178,7 @@ func (b *Backend) listInvestigations(w http.ResponseWriter, r *http.Request) {
 		out = append(out, InvestigationView{
 			AggregateID:       row.AggregateID.String(),
 			Title:             row.Title,
-			Status:            row.Status,
+			Status:            aggregate.InvestigationStatus(row.Status),
 			LastEventSequence: row.LastEventSequence,
 			SeedSummary:       row.SeedSummary,
 			Seed:              seedBody(row.Seed),
@@ -188,7 +193,7 @@ func (b *Backend) listInvestigations(w http.ResponseWriter, r *http.Request) {
 	if out == nil {
 		out = []InvestigationView{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"investigations": out})
+	writeJSON(w, http.StatusOK, InvestigationsResponse{Investigations: out})
 }
 
 // getInvestigation loads a single investigation by aggregate_id.
@@ -209,7 +214,7 @@ func (b *Backend) getInvestigation(w http.ResponseWriter, r *http.Request, id uu
 	view := InvestigationView{
 		AggregateID:       ic.AggregateID.String(),
 		Title:             ic.Title,
-		Status:            ic.Status,
+		Status:            aggregate.InvestigationStatus(ic.Status),
 		LastEventSequence: ic.LastEventSequence,
 		Seed:              seedBody(ic.Seed),
 		SeedSummary:       ic.SeedSummary,
@@ -227,7 +232,7 @@ func (b *Backend) getInvestigation(w http.ResponseWriter, r *http.Request, id uu
 	}
 	if ic.VerdictDisposition != "" {
 		view.Verdict = &VerdictView{
-			Disposition:      ic.VerdictDisposition,
+			Disposition:      aggregate.VerdictDisposition(ic.VerdictDisposition),
 			Rationale:        ic.VerdictRationale,
 			VerdictAt:        ic.VerdictAt.Time,
 			InterpretationID: ic.VerdictInterpretationID.String(),
@@ -247,6 +252,20 @@ func (b *Backend) getInvestigation(w http.ResponseWriter, r *http.Request, id uu
 		return
 	}
 	writeJSON(w, http.StatusOK, view)
+}
+
+// InvestigationExistsResponse is the 409 a case seed answers when the case
+// already has an investigation: the workbench opens that one.
+type InvestigationExistsResponse struct {
+	Error           string `json:"error"`
+	InvestigationID string `json:"investigation_id"`
+}
+
+// UnknownEntityResponse is the 422 an entity seed answers when nothing knows
+// the entity.
+type UnknownEntityResponse struct {
+	Error         string `json:"error"`
+	UnknownEntity bool   `json:"unknown_entity"`
 }
 
 // createInvestigation dispatches a CreateInvestigation command via the
@@ -291,9 +310,9 @@ func (b *Backend) createInvestigation(w http.ResponseWriter, r *http.Request) {
 			writeInternalError(w, "look up investigations", err)
 			return
 		} else if existing != "" {
-			writeJSON(w, http.StatusConflict, map[string]string{
-				"error":            "case " + seed.CaseID + " already has an investigation",
-				"investigation_id": existing,
+			writeJSON(w, http.StatusConflict, InvestigationExistsResponse{
+				Error:           "case " + seed.CaseID + " already has an investigation",
+				InvestigationID: existing,
 			})
 			return
 		}
@@ -341,7 +360,7 @@ func (b *Backend) createInvestigation(w http.ResponseWriter, r *http.Request) {
 		// An account seeded by its ref is persisted by definition.
 		if resolved.Seed.Type == aggregate.SeedEntity && !req.SeedInput.AllowUnknown && strings.TrimSpace(req.SeedInput.AccountRef) == "" {
 			if unknown, msg := b.unknownHost(r, resolved); unknown {
-				writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": msg, "unknown_entity": true})
+				writeJSON(w, http.StatusUnprocessableEntity, UnknownEntityResponse{Error: msg, UnknownEntity: true})
 				return
 			}
 			// A principal name the record holds as several accounts is

@@ -2,15 +2,15 @@
   "action": {
     "action_id": "x",
     "action_type": "x",
-    "tier": "x",
-    "status": "x",
-    "required_mode": "x",
+    "tier": "T1",
+    "status": "REQUESTED",
+    "required_mode": "MANUAL",
     "outcome": "x",
     "secondary_approver_pool": [
       "x"
     ],
     "primary_approver_ref": "x",
-    "mode": "x",
+    "mode": "MANUAL",
     "is_reversal": true,
     "targets": [
       {
@@ -64,14 +64,14 @@
         "kind": "x",
         "model": "x"
       },
-      "status": "x",
+      "status": "REQUESTED",
       "detail": "x"
     }
   ],
   "authorization": {
-    "required_mode": "x",
-    "mode": "x",
-    "stage": "x",
+    "required_mode": "MANUAL",
+    "mode": "MANUAL",
+    "stage": "SOLO",
     "primary_approver": {
       "principal": "x",
       "principal_name": "x",

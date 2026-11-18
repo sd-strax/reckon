@@ -1,8 +1,8 @@
 {
   "action_id": "x",
-  "tier": "x",
-  "status": "x",
-  "mode": "x",
+  "tier": "T1",
+  "status": "PENDING_MANUAL",
+  "mode": "MANUAL",
   "matched_policy_ref": "x",
   "workflow_id": "x"
 }

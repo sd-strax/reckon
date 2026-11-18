@@ -298,7 +298,7 @@ func (s *service) handleCreateSession(ctx context.Context, raw json.RawMessage) 
 				// mid-JSON). Absent when the result is not a capability
 				// envelope (e.g. list_actions).
 				if cov, n, refs, ok := summarizeEnvelope(content); ok && !isError {
-					note.Coverage = cov
+					note.Coverage = resultCoverage(cov)
 					note.EventCount = &n
 					note.Refs = refs
 					note.CallID = envelopeCallID(content)
@@ -360,15 +360,50 @@ type turnUsage struct {
 // needs to render and act (approve/reject go extension→backend directly on
 // the human token — never through this process, §5).
 type pendingAction struct {
-	ActionID   string   `json:"action_id"`
-	ActionType string   `json:"action_type"`
-	Tier       string   `json:"tier"`
-	Status     string   `json:"status"`
-	Targets    []string `json:"targets,omitempty"`
+	ActionID   string        `json:"action_id"`
+	ActionType string        `json:"action_type"`
+	Tier       actionTier    `json:"tier"`
+	Status     pendingStatus `json:"status"`
+	Targets    []string      `json:"targets,omitempty"`
 	// Expired: the approval window elapsed — the engine refuses an approve
 	// even though Status may still read pending (lazy expiry, 04). Surfaces
 	// must not offer an approve affordance on these.
 	Expired bool `json:"expired,omitempty"`
+}
+
+// actionTier is a pending action's trust tier. The backend owns the words; the
+// sidecar may not import it (adr/0237), so they are listed here and a test
+// holds them equal to the backend's.
+type actionTier string
+
+// WireValues lists every trust tier.
+func (actionTier) WireValues() []string {
+	return []string{"T1", "T2", "T3"}
+}
+
+// pendingStatus is a pending action's status as the agent labels it
+// (agent.ActionStatus.PendingLabel): a request still waiting for a person is
+// PENDING_MANUAL or PENDING_TWO_PARTY, and any other status passes through.
+type pendingStatus string
+
+// WireValues lists the two pending labels, then every backend action status
+// the label passes through. A test holds them equal to the backend's.
+func (pendingStatus) WireValues() []string {
+	return []string{
+		"PENDING_MANUAL", "PENDING_TWO_PARTY",
+		"APPROVED", "REJECTED", "EXPIRED", "EXECUTING", "SUCCEEDED", "FAILED", "REVERSED", "OUTCOME_UNKNOWN",
+	}
+}
+
+// resultCoverage is the coverage a tool result's envelope states: a capability
+// call's, or a knowledge recall's. A test holds the words equal to the
+// backend's.
+type resultCoverage string
+
+// WireValues lists the capability coverages, then the recall coverages the
+// capability list lacks.
+func (resultCoverage) WireValues() []string {
+	return []string{"COMPLETE", "PARTIAL", "UNAVAILABLE_TENANT", "UNAVAILABLE_TRANSIENT", "FAILED", "EMPTY", "EMPTY_UNDER_FILTER"}
 }
 
 // turnTextNote rides both text notifications: turn/text carries a
@@ -404,8 +439,8 @@ type turnToolResultNote struct {
 	// a large result. Present only when the result parsed as a capability
 	// envelope; EventCount is a pointer so an honest zero ("COMPLETE · 0
 	// events") is distinguishable from not-an-envelope.
-	Coverage   string `json:"coverage,omitempty"`
-	EventCount *int   `json:"event_count,omitempty"`
+	Coverage   resultCoverage `json:"coverage,omitempty"`
+	EventCount *int           `json:"event_count,omitempty"`
 	// Refs are the envelope's citation ids (observed-data, entities, raw
 	// events) — what the client's pin-from-result and citation-open surfaces
 	// act on (design/ui 02 §2.8), extracted pre-clip like the ticker fields.
@@ -498,8 +533,8 @@ func (s *service) handleTurn(ctx context.Context, raw json.RawMessage) (any, err
 		pa := pendingAction{
 			ActionID:   a.ActionID,
 			ActionType: a.ActionType,
-			Tier:       a.Tier,
-			Status:     a.PendingLabel(),
+			Tier:       actionTier(a.Tier),
+			Status:     pendingStatus(a.PendingLabel()),
 			Expired:    a.Expired(time.Now()),
 		}
 		for _, t := range a.Targets {

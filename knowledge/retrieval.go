@@ -19,6 +19,16 @@ const (
 	CoverageEmpty    = "EMPTY"
 )
 
+// Coverage is a recall's outcome as a served result carries it. The words are
+// the untyped constants above and CoverageEmptyUnderFilter.
+type Coverage string
+
+// WireValues lists every recall coverage: the two above, then
+// CoverageEmptyUnderFilter.
+func (Coverage) WireValues() []string {
+	return []string{CoverageComplete, CoverageEmpty, CoverageEmptyUnderFilter}
+}
+
 // Recall units (design/06 §4.2): what one hit stands for. A procedure answers
 // "which procedure applies"; a section answers "what do our procedures say
 // about this", and may return two pieces of one procedure.
@@ -76,7 +86,7 @@ type SOPMatch struct {
 	MatchRationale string     `json:"match_rationale"`
 	Tags           []string   `json:"tags,omitempty"`
 	Recommendation string     `json:"recommendation,omitempty"`
-	Status         string     `json:"status"`
+	Status         SOPStatus  `json:"status"`
 	// Backend attributes the ranker that produced this result (substrate §5.2)
 	// — "vector-cosine/<model>" or the degraded "pg-fts", so a consumer can tell
 	// semantic recall from the keyword fallback.
@@ -86,7 +96,7 @@ type SOPMatch struct {
 // RecallResult is the recall_sops response envelope.
 type RecallResult struct {
 	Results     []SOPMatch `json:"results"`
-	Coverage    string     `json:"coverage"`
+	Coverage    Coverage   `json:"coverage"`
 	RetrievalAt time.Time  `json:"retrieval_at"`
 }
 
@@ -123,7 +133,7 @@ func (s *Store) RecallSOPs(ctx context.Context, tenantID uuid.UUID, req RecallRe
 		return RecallResult{}, fmt.Errorf("recall_sops: %w", err)
 	}
 	out := RecallResult{
-		Coverage:    string(res.Coverage),
+		Coverage:    Coverage(res.Coverage),
 		RetrievalAt: res.RetrievalAt,
 		Results:     make([]SOPMatch, 0, len(res.Results)),
 	}

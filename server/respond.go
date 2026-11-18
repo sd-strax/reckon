@@ -21,9 +21,21 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+// ErrorResponse is the stable error shape for all non-2xx responses.
+type ErrorResponse struct {
+	Error string `json:"error"`
+}
+
+// InternalErrorResponse is a 500's body: what failed, and the reference the
+// cause is logged under.
+type InternalErrorResponse struct {
+	Error string `json:"error"`
+	Ref   string `json:"ref"`
+}
+
 // writeJSONError writes a stable error JSON shape for all non-2xx responses.
 func writeJSONError(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]any{"error": msg})
+	writeJSON(w, status, ErrorResponse{Error: msg})
 }
 
 // writeInternalError answers a server-side failure with a 500 that names what
@@ -34,9 +46,9 @@ func writeJSONError(w http.ResponseWriter, status int, msg string) {
 func writeInternalError(w http.ResponseWriter, what string, err error) {
 	ref := newErrorRef()
 	slog.Error("internal error", "what", what, "ref", ref, "err", err)
-	writeJSON(w, http.StatusInternalServerError, map[string]any{
-		"error": what + ": internal error (ref " + ref + ")",
-		"ref":   ref,
+	writeJSON(w, http.StatusInternalServerError, InternalErrorResponse{
+		Error: what + ": internal error (ref " + ref + ")",
+		Ref:   ref,
 	})
 }
 

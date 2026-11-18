@@ -302,7 +302,7 @@ func TestActionOutcome_ListAndRecordAgree(t *testing.T) {
 		if err != nil {
 			t.Fatalf("loadActionRecord: %v", err)
 		}
-		if row.Status != want[id] || row.Outcome != want[id] || rec.Action.Outcome != row.Outcome {
+		if string(row.Status) != want[id] || row.Outcome != want[id] || rec.Action.Outcome != row.Outcome {
 			t.Errorf("%s: list status/outcome = %q/%q, record outcome = %q; want %q on all three",
 				id, row.Status, row.Outcome, rec.Action.Outcome, want[id])
 		}
@@ -765,7 +765,7 @@ func TestListInvestigationActions(t *testing.T) {
 		timeout.String(): {aggregate.ActionStatusFailed, "TIMEOUT"},
 		first.ActionID:   {aggregate.ActionStatusRequested, ""},
 	} {
-		if got := byID[id]; got.Status != want[0] || got.Outcome != want[1] {
+		if got := byID[id]; string(got.Status) != want[0] || got.Outcome != want[1] {
 			t.Errorf("%s: status/outcome = %q/%q; want %q/%q", id, got.Status, got.Outcome, want[0], want[1])
 		}
 	}

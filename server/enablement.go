@@ -193,11 +193,29 @@ func (b *Backend) applyEnablement(w http.ResponseWriter, r *http.Request, adapte
 	// The audit line: attributed, append-only, beside the file it governs.
 	b.appendEnablementAudit(claims.Subject, adapter, body)
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"status":  "applied",
-		"adapter": adapter,
-		"enabled": body.Enabled,
+	writeJSON(w, http.StatusOK, ApplyEnablementResponse{
+		Adapter: adapter,
+		Enabled: body.Enabled,
+		Status:  EnablementAppliedStatus,
 	})
+}
+
+// ApplyEnablementResponse answers an applied enablement change.
+type ApplyEnablementResponse struct {
+	Adapter string            `json:"adapter"`
+	Enabled bool              `json:"enabled"`
+	Status  EnablementApplied `json:"status"`
+}
+
+// EnablementApplied is the one word an applied enablement change answers with.
+type EnablementApplied string
+
+// EnablementAppliedStatus is the change written and reloaded.
+const EnablementAppliedStatus EnablementApplied = "applied"
+
+// WireValues lists the one word.
+func (EnablementApplied) WireValues() []string {
+	return []string{string(EnablementAppliedStatus)}
 }
 
 // buildInPackage is Reload's build when runtime injected none: the

@@ -799,7 +799,7 @@ func TestReindexKnowledge_OnFakes(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &started); err != nil || started.Run == "" {
 		t.Fatalf("the POST names no run: %v %s", err, body)
 	}
-	awaitState := func(want string) ReindexJob {
+	awaitState := func(want ReindexState) ReindexJob {
 		t.Helper()
 		deadline := time.Now().Add(5 * time.Second)
 		for time.Now().Before(deadline) {

@@ -33,7 +33,7 @@ type ActionDescriptor struct {
 	ActionType  string                  `json:"action_type"`  // e.g. "host.isolate"
 	Intent      string                  `json:"intent"`       // LLM-facing: effect + when to use
 	Inputs      []capability.InputParam `json:"inputs"`       // schema for request_action.parameters
-	DefaultTier string                  `json:"default_tier"` // T2 | T3 (04 §2)
+	DefaultTier aggregate.Tier          `json:"default_tier"` // T2 | T3 (04 §2)
 	// Reversibility is the baseline classification (04 §7): "reversible"
 	// (RELIABLE — the tool cleanly undoes the effect), "best_effort" (an inverse
 	// action exists but its effect is tooling-dependent — e.g. ioc.block against a

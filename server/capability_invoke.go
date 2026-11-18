@@ -66,15 +66,15 @@ type CapabilityInvokeResponse struct {
 	// a surface opens to see which binding answered, with what, and what it
 	// produced. Resolvable at GET /api/investigations/{id}/calls/{call_id}
 	// when the call named an investigation.
-	CallID           string           `json:"call_id"`
-	Verb             string           `json:"verb"`
-	Coverage         string           `json:"coverage"`
-	OcsfEventRefs    []string         `json:"ocsf_event_refs,omitempty"`
-	ObservedDataRefs []string         `json:"observed_data_refs,omitempty"`
-	EntityRefs       []string         `json:"entity_refs,omitempty"`
-	DegradationNotes []string         `json:"degradation_notes,omitempty"`
-	Events           []OcsfEventView  `json:"events,omitempty"`
-	Normalized       []NormalizedView `json:"normalized,omitempty"`
+	CallID           string              `json:"call_id"`
+	Verb             string              `json:"verb"`
+	Coverage         capability.Coverage `json:"coverage"`
+	OcsfEventRefs    []string            `json:"ocsf_event_refs,omitempty"`
+	ObservedDataRefs []string            `json:"observed_data_refs,omitempty"`
+	EntityRefs       []string            `json:"entity_refs,omitempty"`
+	DegradationNotes []string            `json:"degradation_notes,omitempty"`
+	Events           []OcsfEventView     `json:"events,omitempty"`
+	Normalized       []NormalizedView    `json:"normalized,omitempty"`
 	// NullObservation is present when the answer was complete and empty
 	// (adr/0061); its id is also in ObservedDataRefs.
 	NullObservation *capability.NullObservation `json:"null_observation,omitempty"`
@@ -157,7 +157,7 @@ func buildInvokeResponse(callID uuid.UUID, verb string, res capability.Capabilit
 	out := CapabilityInvokeResponse{
 		CallID:           callID.String(),
 		Verb:             verb,
-		Coverage:         string(res.Coverage),
+		Coverage:         res.Coverage,
 		OcsfEventRefs:    res.OcsfEventRefs,
 		DegradationNotes: res.DegradationNotes,
 		NullObservation:  res.NullObservation,

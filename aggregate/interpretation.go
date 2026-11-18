@@ -160,6 +160,14 @@ const (
 	ConfidenceLow    = "LOW"
 )
 
+// Confidence is an act's confidence as a served view carries it.
+type Confidence string
+
+// WireValues lists every confidence, in the order declared above.
+func (Confidence) WireValues() []string {
+	return []string{ConfidenceHigh, ConfidenceMedium, ConfidenceLow}
+}
+
 // Derivation mode (01-domain-model.md §Interpretation schema): DIRECT = produced
 // by a tool through the capability layer; INFERRED = derived/reasoned by the
 // analyst or the AI delegate. Lifecycle transitions are reasoning acts, so

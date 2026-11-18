@@ -6,7 +6,7 @@
       "action_type": "x",
       "target": "x",
       "subject": "x",
-      "status": "x",
+      "status": "awaiting_reply",
       "follow_up_hours": 1,
       "follow_ups": 1,
       "unacked_reply": true,

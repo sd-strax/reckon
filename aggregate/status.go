@@ -30,3 +30,13 @@ const (
 	StatusArchived  = "archived"
 	StatusDiscarded = "discarded"
 )
+
+// InvestigationStatus is an investigation's lifecycle status as a served view
+// carries it. The words are the untyped constants above, so code that holds a
+// status as a string is unchanged.
+type InvestigationStatus string
+
+// WireValues lists every investigation status, in the order declared above.
+func (InvestigationStatus) WireValues() []string {
+	return []string{StatusDraft, StatusActive, StatusPaused, StatusConcluded, StatusArchived, StatusDiscarded}
+}

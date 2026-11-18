@@ -3,15 +3,15 @@
     {
       "action_id": "x",
       "action_type": "x",
-      "tier": "x",
-      "status": "x",
-      "required_mode": "x",
+      "tier": "T1",
+      "status": "REQUESTED",
+      "required_mode": "MANUAL",
       "outcome": "x",
       "secondary_approver_pool": [
         "x"
       ],
       "primary_approver_ref": "x",
-      "mode": "x",
+      "mode": "MANUAL",
       "is_reversal": true,
       "targets": [
         {

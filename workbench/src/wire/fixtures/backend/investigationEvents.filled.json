@@ -9,7 +9,7 @@
       "source_tool": "x",
       "call_id": "x",
       "verb": "x",
-      "coverage": "x",
+      "coverage": "COMPLETE",
       "observed_data_refs": [
         "x"
       ],

@@ -26,4 +26,6 @@ func TestWireFixtures(t *testing.T) {
 		Protocol int `json:"protocol"`
 		API      int `json:"api"`
 	}{ProtocolVersion, apiversion.Current})
+	checkWireValues(t)
+	wirefixture.RequireWordsChecked(t)
 }

@@ -1,6 +1,6 @@
 {
   "action_id": "x",
-  "status": "x",
-  "stage": "x",
+  "status": "REQUESTED",
+  "stage": "SOLO",
   "workflow_id": "x"
 }

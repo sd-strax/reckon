@@ -141,7 +141,7 @@ type SimilarMatch struct {
 // SimilarResult is the recall_similar_investigations response envelope.
 type SimilarResult struct {
 	Results     []SimilarMatch `json:"results"`
-	Coverage    string         `json:"coverage"`
+	Coverage    Coverage       `json:"coverage"`
 	RetrievalAt time.Time      `json:"retrieval_at"`
 	// UnmatchedTags names the filter tags no summary carries, when they are
 	// why the answer is empty (Coverage EMPTY_UNDER_FILTER).
@@ -176,7 +176,7 @@ func (s *Store) RecallSimilar(ctx context.Context, tenantID uuid.UUID, req Simil
 		return SimilarResult{}, fmt.Errorf("recall_similar_investigations: %w", err)
 	}
 	out := SimilarResult{
-		Coverage:    string(res.Coverage),
+		Coverage:    Coverage(res.Coverage),
 		RetrievalAt: res.RetrievalAt,
 		Results:     make([]SimilarMatch, 0, len(res.Results)),
 	}
@@ -360,7 +360,7 @@ type PriorRequest struct {
 // entities (those written since adr/0163, plus the seeded prior cases).
 type PriorResult struct {
 	Entity         string            `json:"entity"`
-	Coverage       string            `json:"coverage"`
+	Coverage       Coverage          `json:"coverage"`
 	Investigations []CaseSummaryView `json:"investigations"`
 }
 

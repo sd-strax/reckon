@@ -12,14 +12,14 @@
             "desc": "x"
           }
         ],
-        "default_tier": "x",
+        "default_tier": "T1",
         "reversibility": "x",
         "reversible_by": "x",
         "d3fend": "x",
         "name": "x",
         "category": "x"
       },
-      "status": "x",
+      "status": "available",
       "bindings": 1
     }
   ]

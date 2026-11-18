@@ -33,6 +33,13 @@ type demoInstallState struct {
 	SOPs           int `json:"sops"`
 }
 
+// DemoNotVirginResponse is the 409 a demo seed answers on an install that
+// already holds work.
+type DemoNotVirginResponse struct {
+	Error string           `json:"error"`
+	State demoInstallState `json:"state"`
+}
+
 // seedDemoKnowledge handles POST /api/admin/demo/seed (analyst): load the
 // embedded prior-case summaries into the knowledge corpus (the history the
 // similarity-recall loop draws on). SOPs are deliberately NOT seeded here — they
@@ -57,9 +64,9 @@ func (b *Backend) seedDemoKnowledge(w http.ResponseWriter, r *http.Request) {
 	if state.Investigations > 0 || state.SOPs > 0 {
 		// Not virgin — refuse and say exactly why. The CLI turns this into the
 		// "run `reckon demo reset` first" message.
-		writeJSON(w, http.StatusConflict, map[string]any{
-			"error": "install is not virgin — demo seed only runs on a fresh install",
-			"state": state,
+		writeJSON(w, http.StatusConflict, DemoNotVirginResponse{
+			Error: "install is not virgin — demo seed only runs on a fresh install",
+			State: state,
 		})
 		return
 	}

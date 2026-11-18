@@ -61,6 +61,20 @@ const (
 	ActionStatusOutcomeUnknown = "OUTCOME_UNKNOWN"
 )
 
+// ActionStatus is a reckon-action's lifecycle status as a served view carries
+// it. The words are the untyped constants above.
+type ActionStatus string
+
+// WireValues lists every action status, in the order declared above.
+func (ActionStatus) WireValues() []string {
+	return []string{
+		ActionStatusRequested, ActionStatusPendingSecondary, ActionStatusApproved,
+		ActionStatusRejected, ActionStatusExpired, ActionStatusExecuting,
+		ActionStatusSucceeded, ActionStatusFailed, ActionStatusReversed,
+		ActionStatusOutcomeUnknown,
+	}
+}
+
 // Trust tiers (04 §1). T0/T1 don't produce reckon-actions (they stay in the
 // interpretation layer); write actions are T2 or T3.
 const (
@@ -69,14 +83,43 @@ const (
 	TierT3 = "T3"
 )
 
-// Authorization modes and stages (04 §3.3).
+// Tier is an action's trust tier as a served view carries it.
+type Tier string
+
+// WireValues lists every trust tier, in the order declared above.
+func (Tier) WireValues() []string {
+	return []string{TierT1, TierT2, TierT3}
+}
+
+// Authorization modes (04 §3.3).
 const (
 	AuthModeManual            = "MANUAL"
 	AuthModeAutoPolicy        = "AUTO_POLICY"
 	AuthModeTwoParty          = "TWO_PARTY"
 	AuthModeExternalDelegated = "EXTERNAL_DELEGATED"
+)
 
+// Authorization stages (04 §3.3).
+const (
 	AuthStageSolo      = "SOLO"
 	AuthStagePrimary   = "PRIMARY"
 	AuthStageSecondary = "SECONDARY"
 )
+
+// AuthMode is how an action is, or must be, authorized, as a served view
+// carries it.
+type AuthMode string
+
+// WireValues lists every authorization mode, in the order declared above.
+func (AuthMode) WireValues() []string {
+	return []string{AuthModeManual, AuthModeAutoPolicy, AuthModeTwoParty, AuthModeExternalDelegated}
+}
+
+// AuthStage is which approval an authorization records, as a served view
+// carries it.
+type AuthStage string
+
+// WireValues lists every authorization stage, in the order declared above.
+func (AuthStage) WireValues() []string {
+	return []string{AuthStageSolo, AuthStagePrimary, AuthStageSecondary}
+}
