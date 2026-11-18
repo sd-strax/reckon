@@ -260,7 +260,7 @@ func TestShippedScenariosBindEveryInverse(t *testing.T) {
 		if err != nil {
 			t.Fatalf("load %s: %v", path, err)
 		}
-		catalog := DefaultActionCatalog()
+		catalog := defaultActionCatalog(t)
 		for at := range cfg.Bindings {
 			d, ok := catalog.Descriptor(at)
 			if !ok || d.ReversibleBy == "" {

@@ -40,8 +40,9 @@ what the backend's catalogs and the agent's tool list share.
   strictest of the documented provider rules. An action tool is `request_` plus
   the type, so an action type has at most 56 characters.
 - **An action descriptor is checked when it is registered.** It is refused when
-  its type gives an invalid tool name, or when an input uses a request field's
-  name or is declared twice. The action catalog is built in code, so a refused
+  its type is empty, gives an invalid tool name or gives the tool name of
+  another registered type, or when an input uses a request field's name or is
+  declared twice. The action catalog is built in code, so a refused
   descriptor fails backend startup with an error naming it.
 - **A verb is checked when it is registered.** It is refused when its name is not
   a valid tool name, is a built-in tool name, or is an action type's tool name.

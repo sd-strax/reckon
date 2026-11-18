@@ -1,10 +1,12 @@
 package action
 
 import (
+	"fmt"
 	"sort"
 
 	"github.com/sd-strax/reckon/aggregate"
 	"github.com/sd-strax/reckon/capability"
+	"github.com/sd-strax/reckon/internal/catalog"
 )
 
 // Reversibility classifications (04 §7). The ordered scale is
@@ -83,8 +85,37 @@ func NewActionCatalog() *ActionCatalog {
 	return &ActionCatalog{byType: make(map[string]ActionDescriptor)}
 }
 
-// Register adds or replaces a descriptor.
-func (c *ActionCatalog) Register(d ActionDescriptor) { c.byType[d.ActionType] = d }
+// Register adds or replaces a descriptor. It refuses a descriptor that breaks
+// the tool-name rules (adr/0382): its action type gives an invalid tool name
+// or the tool name of another registered type, or an input takes the name of
+// a field every request carries or is declared twice.
+func (c *ActionCatalog) Register(d ActionDescriptor) error {
+	inputs := make([]string, 0, len(d.Inputs))
+	for _, in := range d.Inputs {
+		inputs = append(inputs, in.Name)
+	}
+	if err := catalog.ValidateActionDescriptor(d.ActionType, inputs); err != nil {
+		return fmt.Errorf("register action descriptor: %w", err)
+	}
+	name := catalog.ActionToolName(d.ActionType)
+	for t := range c.byType {
+		if t != d.ActionType && catalog.ActionToolName(t) == name {
+			return fmt.Errorf("register action descriptor: action types %q and %q both give the tool name %q", t, d.ActionType, name)
+		}
+	}
+	c.byType[d.ActionType] = d
+	return nil
+}
+
+// ToolNames returns the tool name of every registered action type
+// (catalog.ActionToolName), so a verb can be checked against them.
+func (c *ActionCatalog) ToolNames() []string {
+	out := make([]string, 0, len(c.byType))
+	for _, t := range c.ActionTypes() {
+		out = append(out, catalog.ActionToolName(t))
+	}
+	return out
+}
 
 // Descriptor returns the descriptor for an action type, if registered.
 func (c *ActionCatalog) Descriptor(actionType string) (ActionDescriptor, bool) {
@@ -115,7 +146,10 @@ func (c *ActionCatalog) ActionTypes() []string {
 // only (04 §2.1) — not load-bearing for control flow. Reversal actions carry a
 // D3FEND id only where the ontology's Restore tactic names the restoration as a
 // first-class technique (D3-RNA, D3-RE, D3-ULA); other reversals carry none.
-func DefaultActionCatalog() *ActionCatalog {
+//
+// It fails when Register refuses a descriptor, and backend startup fails with
+// it (adr/0382).
+func DefaultActionCatalog() (*ActionCatalog, error) {
 	c := NewActionCatalog()
 	for _, d := range []ActionDescriptor{
 		{
@@ -309,7 +343,9 @@ func DefaultActionCatalog() *ActionCatalog {
 			Reversibility: ReversibilityIrreversible,
 		},
 	} {
-		c.Register(d)
+		if err := c.Register(d); err != nil {
+			return nil, err
+		}
 	}
-	return c
+	return c, nil
 }

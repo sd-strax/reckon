@@ -133,7 +133,7 @@ func TestAWSConfig_OnlyConfiguredCredentials(t *testing.T) {
 }
 
 func TestDescribe(t *testing.T) {
-	d := describe()
+	d := mustDescribe(t)
 	var verbs []string
 	for _, v := range d.Verbs {
 		verbs = append(verbs, v.Verb)
@@ -141,7 +141,10 @@ func TestDescribe(t *testing.T) {
 	if !reflect.DeepEqual(verbs, []string{verbActivity, verbHistory, verbContext}) {
 		t.Errorf("verbs = %v", verbs)
 	}
-	catalog := capability.DefaultCatalog()
+	catalog, err := capability.DefaultCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, v := range d.Verbs {
 		if want, _ := catalog.Descriptor(v.Verb); !reflect.DeepEqual(v, want) {
 			t.Errorf("%s descriptor drifts from the catalog", v.Verb)
@@ -193,7 +196,7 @@ func TestDescribe_BindingsMatchExample(t *testing.T) {
 	if !reflect.DeepEqual(spec.Reads, []string{opActivity, opHistory, opContext}) {
 		t.Errorf("reads = %v", spec.Reads)
 	}
-	for _, rb := range describe().DefaultReadBindings {
+	for _, rb := range mustDescribe(t).DefaultReadBindings {
 		bs := cfg.Bindings[rb.Verb]
 		if len(bs) != 1 {
 			t.Fatalf("%s: example has %d bindings", rb.Verb, len(bs))
@@ -206,7 +209,7 @@ func TestDescribe_BindingsMatchExample(t *testing.T) {
 		}
 	}
 	// The resource carries every scope key, the provider lowercased.
-	res := describe().DefaultReadBindings[0].Params["resource"].(map[string]any)
+	res := mustDescribe(t).DefaultReadBindings[0].Params["resource"].(map[string]any)
 	if len(res) != 9 || res["provider"] != "${entity.cloud_resource.provider? | lower}" {
 		t.Errorf("resource binding = %v", res)
 	}
@@ -636,4 +639,14 @@ func TestHealth_ProbeFailuresAreUnhealthy(t *testing.T) {
 			t.Errorf("%s: health = %+v", code, h)
 		}
 	}
+}
+
+// mustDescribe is describe for a test: it fails the test when describe fails.
+func mustDescribe(t *testing.T) adapterplugin.DescribeResult {
+	t.Helper()
+	d, err := describe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d
 }

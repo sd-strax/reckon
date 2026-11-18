@@ -481,7 +481,11 @@ func buildGate2(cfg config.Config) (*action.Gate2, *action.ActionCatalog, error)
 	if err != nil {
 		return nil, nil, fmt.Errorf("build Gate 2: %w", err)
 	}
-	return gate2, action.DefaultActionCatalog(), nil
+	actions, err := action.DefaultActionCatalog()
+	if err != nil {
+		return nil, nil, fmt.Errorf("build action catalog: %w", err)
+	}
+	return gate2, actions, nil
 }
 
 // buildKnowledge constructs the SOP knowledge store over the memory substrate.
@@ -665,7 +669,14 @@ func buildCapability(cfg config.Config, host *adapterplugin.Host) (*capability.R
 	// Register the verbs an out-of-process adapter describes but the engine
 	// catalog does not already define (11 §4.2), so an adapter's own verbs are
 	// visible to the agent — without this, only DefaultCatalog verbs surface.
-	reconcileCatalog(host, tc, catalog)
+	actionTools, err := actionToolNames()
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := checkBuiltinVerbs(catalog, actionTools); err != nil {
+		return nil, nil, fmt.Errorf("build capability layer: %w", err)
+	}
+	reconcileCatalog(host, tc, catalog, actionTools)
 	log.Printf("%s: capability layer loaded from %s (%d verbs available)",
 		branding.CLI, path, len(resolver.AvailableVerbs(catalog)))
 	return resolver, catalog, nil
