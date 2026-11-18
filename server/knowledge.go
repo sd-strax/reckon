@@ -66,12 +66,28 @@ func (b *Backend) recallSOPs(w http.ResponseWriter, r *http.Request) {
 // accepts only that run's done state, since a restart answers idle and a
 // later POST replaces the state with another run's.
 type ReindexJob struct {
-	Run        string     `json:"run,omitempty"`
-	State      string     `json:"state"` // idle | running | done | failed
-	Entries    int        `json:"entries,omitempty"`
-	Error      string     `json:"error,omitempty"`
-	StartedAt  *time.Time `json:"started_at,omitempty"`
-	FinishedAt *time.Time `json:"finished_at,omitempty"`
+	Run        string       `json:"run,omitempty"`
+	State      ReindexState `json:"state"`
+	Entries    int          `json:"entries,omitempty"`
+	Error      string       `json:"error,omitempty"`
+	StartedAt  *time.Time   `json:"started_at,omitempty"`
+	FinishedAt *time.Time   `json:"finished_at,omitempty"`
+}
+
+// ReindexState is where the on-demand reindex stands.
+type ReindexState string
+
+// The reindex states. The zero state is served as idle.
+const (
+	ReindexIdle    ReindexState = "idle"
+	ReindexRunning ReindexState = "running"
+	ReindexDone    ReindexState = "done"
+	ReindexFailed  ReindexState = "failed"
+)
+
+// WireValues lists every reindex state, in the order declared above.
+func (ReindexState) WireValues() []string {
+	return []string{string(ReindexIdle), string(ReindexRunning), string(ReindexDone), string(ReindexFailed)}
 }
 
 // reindexTimeout bounds one on-demand run; the startup reconciliation has
@@ -86,7 +102,7 @@ const reindexTimeout = time.Hour
 // with its state rather than started twice.
 func (b *Backend) startReindexKnowledge(w http.ResponseWriter, r *http.Request) {
 	b.reindexMu.Lock()
-	if b.reindex.State == "running" {
+	if b.reindex.State == ReindexRunning {
 		job := b.reindex
 		b.reindexMu.Unlock()
 		writeJSON(w, http.StatusAccepted, job)
@@ -94,7 +110,7 @@ func (b *Backend) startReindexKnowledge(w http.ResponseWriter, r *http.Request) 
 	}
 	now := time.Now().UTC()
 	run := uuid.NewString()
-	b.reindex = ReindexJob{Run: run, State: "running", StartedAt: &now}
+	b.reindex = ReindexJob{Run: run, State: ReindexRunning, StartedAt: &now}
 	job := b.reindex
 	b.reindexMu.Unlock()
 
@@ -112,10 +128,10 @@ func (b *Backend) startReindexKnowledge(w http.ResponseWriter, r *http.Request) 
 		b.reindex.FinishedAt = &done
 		b.reindex.Entries = n
 		if err != nil {
-			b.reindex.State, b.reindex.Error = "failed", err.Error()
+			b.reindex.State, b.reindex.Error = ReindexFailed, err.Error()
 			return
 		}
-		b.reindex.State = "done"
+		b.reindex.State = ReindexDone
 	}()
 	writeJSON(w, http.StatusAccepted, job)
 }
@@ -127,7 +143,7 @@ func (b *Backend) getReindexKnowledge(w http.ResponseWriter, _ *http.Request) {
 	job := b.reindex
 	b.reindexMu.Unlock()
 	if job.State == "" {
-		job.State = "idle"
+		job.State = ReindexIdle
 	}
 	writeJSON(w, http.StatusOK, job)
 }
@@ -339,6 +355,11 @@ type SummaryNarrativeBody struct {
 	GeneratorModel   string `json:"generator_model,omitempty"`
 }
 
+// SummaryNarrativeResponse names the case summary a narrative was written to.
+type SummaryNarrativeResponse struct {
+	SummaryID string `json:"summary_id"`
+}
+
 // summaryNarrative handles POST /api/knowledge/summary_narrative (analyst):
 // the BYOK client enriches the concluded investigation's structured summary
 // with an LLM narrative. The server never holds a model key — the two-tier
@@ -359,7 +380,14 @@ func (b *Backend) summaryNarrative(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "summary_narrative: "+err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"summary_id": id.String()})
+	writeJSON(w, http.StatusOK, SummaryNarrativeResponse{SummaryID: id.String()})
+}
+
+// SOPImportResponse answers POST /api/sops/import: the SOP the import
+// landed on and what it did to it.
+type SOPImportResponse struct {
+	ID      string                  `json:"id"`
+	Outcome knowledge.ImportOutcome `json:"outcome"`
 }
 
 // importSOP handles POST /api/sops/import (analyst): upsert institutional
@@ -391,7 +419,7 @@ func (b *Backend) importSOP(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "import sop: "+err.Error())
 		return
 	}
-	writeJSON(w, importStatus(outcome), map[string]string{"id": id.String(), "outcome": string(outcome)})
+	writeJSON(w, importStatus(outcome), SOPImportResponse{ID: id.String(), Outcome: outcome})
 }
 
 // importStatus maps an import outcome to its status: a new lineage is 201,
@@ -410,6 +438,14 @@ func importStatus(outcome knowledge.ImportOutcome) int {
 type SOPMarkdownBody struct {
 	Filename string `json:"filename"`
 	Content  string `json:"content"`
+}
+
+// SOPMarkdownImportResponse answers POST /api/sops/import_markdown. It names
+// the title the document was parsed to, which the workbench shows.
+type SOPMarkdownImportResponse struct {
+	ID      string                  `json:"id"`
+	Outcome knowledge.ImportOutcome `json:"outcome"`
+	Title   string                  `json:"title"`
 }
 
 // importMarkdownSOP handles POST /api/sops/import_markdown (analyst): parse one
@@ -455,7 +491,12 @@ func (b *Backend) importMarkdownSOP(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "import sop: "+err.Error())
 		return
 	}
-	writeJSON(w, importStatus(outcome), map[string]string{"id": id.String(), "outcome": string(outcome), "title": doc.Title})
+	writeJSON(w, importStatus(outcome), SOPMarkdownImportResponse{ID: id.String(), Outcome: outcome, Title: doc.Title})
+}
+
+// SOPCreatedResponse answers POST /api/sops.
+type SOPCreatedResponse struct {
+	ID string `json:"id"`
 }
 
 func (b *Backend) createSOP(w http.ResponseWriter, r *http.Request) {
@@ -478,7 +519,12 @@ func (b *Backend) createSOP(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "create sop: "+err.Error())
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]string{"id": id.String()})
+	writeJSON(w, http.StatusCreated, SOPCreatedResponse{ID: id.String()})
+}
+
+// SOPListResponse is GET /api/sops.
+type SOPListResponse struct {
+	SOPs []SOPRow `json:"sops"`
 }
 
 func (b *Backend) listSOPs(w http.ResponseWriter, r *http.Request) {
@@ -501,7 +547,7 @@ func (b *Backend) listSOPs(w http.ResponseWriter, r *http.Request) {
 	for _, s := range sops {
 		rows = append(rows, SOPRow{SOP: s, CitedIn: counts[s.ID.String()].CitedIn})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"sops": rows})
+	writeJSON(w, http.StatusOK, SOPListResponse{SOPs: rows})
 }
 
 // getSOP handles GET /api/sops/{id}: the current revision, retired included.

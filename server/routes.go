@@ -155,6 +155,14 @@ func mountRoutes(mux *http.ServeMux, auth func(http.Handler) http.Handler, route
 	}
 }
 
+// ForbiddenResponse is the 403 a role gate answers: the roles it required,
+// any one of which would have passed.
+type ForbiddenResponse struct {
+	Error         string   `json:"error"`
+	RequiredAny   bool     `json:"required_any"`
+	RequiredRoles []string `json:"required_roles"`
+}
+
 // requireRoles admits a caller holding any of roles: otherwise a 403 naming
 // them, or a 500 if no claims reached it.
 func requireRoles(roles []string, next http.HandlerFunc) http.HandlerFunc {
@@ -167,10 +175,10 @@ func requireRoles(roles []string, next http.HandlerFunc) http.HandlerFunc {
 		if !claims.HasAnyRole(roles...) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusForbidden)
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"error":          "required role(s) missing",
-				"required_roles": roles,
-				"required_any":   true,
+			_ = json.NewEncoder(w).Encode(ForbiddenResponse{
+				Error:         "required role(s) missing",
+				RequiredAny:   true,
+				RequiredRoles: roles,
 			})
 			return
 		}

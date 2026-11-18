@@ -3,6 +3,7 @@ package evidence
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -212,8 +213,19 @@ func TestInvestigationEvents(t *testing.T) {
 	if len(all.Rows[1].Entities) != 1 || all.Rows[1].Entities[0].Ref != string(host1) {
 		t.Errorf("second row entities = %+v; want the host alone", all.Rows[1].Entities)
 	}
-	if ents, err := s.EventEntities(ctx, first.ID); err != nil || len(ents) != 2 {
-		t.Errorf("EventEntities = %d, %v; want 2", len(ents), err)
+	if d, err := s.EventDerived(ctx, first.ID); err != nil || len(d.Entities) != 2 || !slices.Equal(d.ObservedDataRefs, first.ObservedDataRefs) {
+		t.Errorf("EventDerived = %d entities, observations %v, %v; want 2 and %v", len(d.Entities), d.ObservedDataRefs, err, first.ObservedDataRefs)
+	}
+	// The path back: an observation names the event it was made from
+	// (adr/0364).
+	if ids, err := s.ObservationEvents(ctx, first.ObservedDataRefs[0]); err != nil || !slices.Equal(ids, []string{first.ID.String()}) {
+		t.Errorf("ObservationEvents = %v, %v; want [%s]", ids, err, first.ID)
+	}
+	if _, err := s.ObservationEvents(ctx, string(host1)); !errors.Is(err, ErrMalformedRef) {
+		t.Errorf("ObservationEvents of a host: err = %v; want ErrMalformedRef", err)
+	}
+	if ids, err := s.ObservationEvents(ctx, "observed-data--"+uuid.NewString()); err != nil || len(ids) != 0 {
+		t.Errorf("ObservationEvents of an unknown observation = %v, %v; want none", ids, err)
 	}
 
 	bySvc, err := s.InvestigationEvents(ctx, inv, EventFilter{Entity: string(svc)})
@@ -342,5 +354,64 @@ func TestRecordArtifactIsNotAnEntity(t *testing.T) {
 	}
 	if len(around.Rows) != 0 {
 		t.Errorf("around = %d rows; want none, since the record names no entity", len(around.Rows))
+	}
+}
+
+// TestAddUserAccounts_Conflict: two observations of one event that list
+// different accounts at one place leave that place unlinked, whatever a
+// third says. A place whose lists agree stays linked.
+func TestAddUserAccounts_Conflict(t *testing.T) {
+	rows := []EventRow{{}}
+	conflicts := map[rowPlace]bool{}
+	for _, raw := range []string{
+		`{"user":["user-account--a"],"actor.user":["user-account--c","user-account--d"]}`,
+		`{"user":["user-account--b"],"actor.user":["user-account--c","user-account--d"]}`,
+		`{"user":["user-account--a"]}`,
+	} {
+		addUserAccounts(rows, 0, []byte(raw), conflicts)
+	}
+	if got := rows[0].UserAccounts; len(got) != 1 || !slices.Equal(got["actor.user"], []string{"user-account--c", "user-account--d"}) {
+		t.Errorf("user_accounts = %v; want only actor.user linked", got)
+	}
+}
+
+// TestObservationEvents_OneIDPerEvent: each call stores its own copy of an
+// event, so an observation is linked to every copy. Copies from different
+// calls are one event and are named once, by the first retrieved; copies
+// within one call stay separate (adr/0348, adr/0364).
+func TestObservationEvents_OneIDPerEvent(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	inv := uuid.New()
+	at := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	host := stixID("reckon-host")
+	od := stixID("observed-data")
+	copyOf := func(recorded time.Time) (capability.OcsfEvent, capability.NormalizationResult) {
+		evt, nr := retrieved(3002, "Authentication", at, host)
+		evt.RecordedAt = recorded
+		nr.ObservedData[0].ID = od
+		return evt, nr
+	}
+	persist := func(minute int, n int) []uuid.UUID {
+		var events []capability.OcsfEvent
+		var norm []capability.NormalizationResult
+		var ids []uuid.UUID
+		for range n {
+			e, nr := copyOf(at.Add(time.Duration(minute) * time.Minute))
+			events, norm, ids = append(events, e), append(norm, nr), append(ids, e.ID)
+		}
+		persistCall(t, s, Call{ID: uuid.Must(uuid.NewV7()), InvestigationID: &inv, Verb: "enumerate_logons", StartedAt: at},
+			capability.CapabilityResult{Coverage: capability.CoverageComplete, Events: events, Normalized: norm})
+		return ids
+	}
+	first := persist(1, 1)
+	persist(2, 1)
+	if ids, err := s.ObservationEvents(ctx, string(od)); err != nil || !slices.Equal(ids, []string{first[0].String()}) {
+		t.Fatalf("two calls' copies: ObservationEvents = %v, %v; want the first retrieved, %s, once", ids, err, first[0])
+	}
+	// A call that returned the event twice holds two events of that shape.
+	twice := persist(3, 2)
+	if ids, err := s.ObservationEvents(ctx, string(od)); err != nil || !slices.Equal(ids, []string{first[0].String(), twice[1].String()}) {
+		t.Errorf("a call with two copies: ObservationEvents = %v, %v; want %s and %s", ids, err, first[0], twice[1])
 	}
 }

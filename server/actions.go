@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"time"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -12,120 +12,6 @@ import (
 	"github.com/sd-strax/reckon/aggregate"
 	"github.com/sd-strax/reckon/authz"
 )
-
-// RequestActionBody is the request_action tool call over HTTP (08 §2).
-type RequestActionBody struct {
-	ActionType       string                 `json:"action_type"`
-	Targets          []aggregate.TargetSpec `json:"targets"`
-	Parameters       json.RawMessage        `json:"parameters,omitempty"`
-	EvidenceRefs     []string               `json:"evidence_refs,omitempty"`
-	Rationale        string                 `json:"rationale"`
-	InvestigationRef string                 `json:"investigation_ref"`
-	// ReversalOfRef, when set, makes this request a reversal of that original
-	// action (04 §7): action_type should be the inverse, and auto-approval
-	// triggers the ReversalSaga instead of a plain dispatch.
-	ReversalOfRef string `json:"reversal_of_ref,omitempty"`
-	// RetryOf records lineage to the prior FAILED/EXPIRED action this request
-	// replaces (design/ui binding §2.3).
-	RetryOf string `json:"retry_of,omitempty"`
-}
-
-// RequestActionResponse reports the created reckon-action and how authorization
-// resolved.
-type RequestActionResponse struct {
-	ActionID         string `json:"action_id"`
-	Tier             string `json:"tier"`
-	Status           string `json:"status"` // PENDING_MANUAL | PENDING_TWO_PARTY | APPROVED
-	Mode             string `json:"mode"`
-	MatchedPolicyRef string `json:"matched_policy_ref,omitempty"`
-	WorkflowID       string `json:"workflow_id,omitempty"`
-}
-
-// ActionView is one row of GET /api/investigations/{id}/actions — the action
-// review queue + audit list a surface renders to offer approvals. Status is the
-// projection's raw lifecycle status (REQUESTED/PENDING_SECONDARY/APPROVED/…);
-// required_mode says what approval the request still needs (MANUAL/TWO_PARTY).
-type ActionView struct {
-	ActionID     string `json:"action_id"`
-	ActionType   string `json:"action_type"`
-	Tier         string `json:"tier"`
-	Status       string `json:"status"`
-	RequiredMode string `json:"required_mode,omitempty"`
-	// Outcome is the recorded final outcome (SUCCEEDED | FAILED | PARTIAL |
-	// TIMEOUT), or a person's resolution of an unknown one. Empty until one
-	// is recorded. Status folds PARTIAL into SUCCEEDED and TIMEOUT into
-	// FAILED (08 §7.1), so a surface that tells the analyst what happened
-	// reads this field (adr/0361).
-	Outcome string `json:"outcome,omitempty"`
-	// SecondaryApproverPool is who may complete a two-party approval, frozen
-	// at request time by the policy that required it (04 §4.1); empty for a
-	// manual action, and for a two-party one whose policy named no pool (the
-	// on-call rotation then). The card tells the first approver who finishes
-	// it (adr/0099).
-	SecondaryApproverPool []string `json:"secondary_approver_pool,omitempty"`
-	// PrimaryApproverRef is who gave the first approval, once one is in; a
-	// two-party card awaiting its second approval leaves them out of the
-	// candidates, since the aggregate requires two distinct humans.
-	PrimaryApproverRef string                 `json:"primary_approver_ref,omitempty"`
-	Mode               string                 `json:"mode,omitempty"`
-	IsReversal         bool                   `json:"is_reversal,omitempty"`
-	Targets            []aggregate.TargetSpec `json:"targets,omitempty"`
-	EvidenceRefs       []string               `json:"evidence_refs,omitempty"`
-	ExpiresAt          *time.Time             `json:"expires_at,omitempty"`
-	// Parameters are the request's frozen parameters — the pre-send preview
-	// for notify.* actions renders the message body from here (binding §4:
-	// the preview IS the approval surface, so the approver must see exactly
-	// what will be sent).
-	Parameters json.RawMessage `json:"parameters,omitempty"`
-
-	// Reversibility is the classification frozen at request time (04 §7):
-	// REVERSIBLE | BEST_EFFORT | IRREVERSIBLE — the decision-grade card states
-	// it honestly BEFORE approval (design/ui 03 §3.3).
-	Reversibility string `json:"reversibility,omitempty"`
-	// TierEscalated: the blast-radius escalator raised this above the type's
-	// default tier (04 §1) — the card says why it is T3.
-	TierEscalated bool `json:"tier_escalated,omitempty"`
-	// EditedAt is when the request was last edited before approval (adr/0127).
-	EditedAt *time.Time `json:"edited_at,omitempty"`
-	// RequestedAt is when the action was requested; the Response lens orders
-	// its timeline by it (adr/0361).
-	RequestedAt *time.Time `json:"requested_at,omitempty"`
-	// ApprovedAt is when the first approval was recorded. A two-party action
-	// carries it while it still awaits its second approval, so it says when,
-	// never whether: the status says whether. Absent before any approval, and
-	// on rows approved before the time was recorded (adr/0361).
-	ApprovedAt *time.Time `json:"approved_at,omitempty"`
-	// Inputs are the type's declared non-entity parameters — what an edit may
-	// set — so a surface can offer the fields the request did not fill.
-	Inputs []EditableInput `json:"inputs,omitempty"`
-	// Name and Category come from the action catalog (#123): what a surface
-	// titles and groups the action by, so no surface guesses from the id.
-	Name     string `json:"name,omitempty"`
-	Category string `json:"category,omitempty"`
-	// RetryOf: lineage to the action this one replaces (zero when not a retry).
-	RetryOf string `json:"retry_of,omitempty"`
-	// RequestingInterpretationID: the act that requested it, so the thread's
-	// request line can name the action (#153).
-	RequestingInterpretationID string `json:"requesting_interpretation_id,omitempty"`
-	// ReversalOfRef: the action this one reverses (zero when not a reversal),
-	// so a surface can show an original's reversal on the original.
-	ReversalOfRef string `json:"reversal_of_ref,omitempty"`
-	// Adapter is the tool that dispatched the action (write-side provenance):
-	// which of several possible tools actually acted. Empty until dispatched.
-	Adapter string `json:"adapter,omitempty"`
-	// PlannedAdapter is the tool the resolver WOULD dispatch to if approved now —
-	// the pre-approval preview so the analyst sees which system of record an
-	// external action will hit before committing. Set only while pending
-	// (superseded by Adapter once dispatched).
-	PlannedAdapter string `json:"planned_adapter,omitempty"`
-	// ErrorDetail is the reason a FAILED action failed (08 §6c), so the ledger
-	// explains the outcome instead of a bare FAILED. Empty on success.
-	ErrorDetail string `json:"error_detail,omitempty"`
-	// ResultRef is the operational reference the dispatch returned (e.g. the
-	// created ServiceNow incident number) — the analyst's handle into the
-	// external system of record.
-	ResultRef string `json:"result_ref,omitempty"`
-}
 
 // listInvestigationActions serves GET /api/investigations/{id}/actions: every
 // reckon-action of the investigation, oldest first. This is how a surface recovers
@@ -153,13 +39,7 @@ func (b *Backend) listInvestigationActions(w http.ResponseWriter, r *http.Reques
 		v.Outcome = outcomes[a.ActionID]
 		out = append(out, v)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"actions": out})
-}
-
-// EditableInput is one parameter an edit may set (adr/0127).
-type EditableInput struct {
-	Name     string `json:"name"`
-	Required bool   `json:"required,omitempty"`
+	writeJSON(w, http.StatusOK, ActionsResponse{Actions: out})
 }
 
 // actionView maps one projected reckon-action to the list/record view: the frozen
@@ -169,12 +49,12 @@ func (b *Backend) actionView(a aggregate.ActionCurrent) ActionView {
 	v := ActionView{
 		ActionID:              a.ActionID.String(),
 		ActionType:            a.ActionType,
-		Tier:                  a.Tier,
-		Status:                a.Status,
-		RequiredMode:          a.RequiredMode,
+		Tier:                  aggregate.Tier(a.Tier),
+		Status:                aggregate.ActionStatus(a.Status),
+		RequiredMode:          aggregate.AuthMode(a.RequiredMode),
 		SecondaryApproverPool: a.SecondaryApproverPool,
 		PrimaryApproverRef:    a.PrimaryApprover,
-		Mode:                  a.Mode,
+		Mode:                  aggregate.AuthMode(a.Mode),
 		IsReversal:            a.IsReversal,
 		Targets:               a.Targets,
 		EvidenceRefs:          a.EvidenceRefs,
@@ -213,7 +93,7 @@ func (b *Backend) actionView(a aggregate.ActionCurrent) ActionView {
 	// for the type vs the frozen tier on the action.
 	if b.cfg.ActionCatalog != nil {
 		if d, ok := b.cfg.ActionCatalog.Descriptor(a.ActionType); ok {
-			v.TierEscalated = d.DefaultTier != a.Tier && a.Tier == aggregate.TierT3
+			v.TierEscalated = string(d.DefaultTier) != a.Tier && a.Tier == aggregate.TierT3
 			// The human name and category the surfaces show (#123).
 			v.Name, v.Category = d.Name, d.Category
 			for _, in := range d.Inputs {
@@ -257,7 +137,7 @@ func (b *Backend) listActionTypes(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	summaries := resolver.ListActionTypes(b.cfg.ActionCatalog)
-	writeJSON(w, http.StatusOK, map[string]any{"action_types": summaries})
+	writeJSON(w, http.StatusOK, ActionTypesResponse{ActionTypes: summaries})
 }
 
 // requestAction handles POST /api/actions: the agent-facing request_action tool
@@ -370,6 +250,9 @@ func (b *Backend) dispatchActionRequest(w http.ResponseWriter, r *http.Request, 
 		RetryOf:          retryOf,
 	}, now)
 	if err != nil {
+		if b.writeEventCitedError(r.Context(), w, "request action", err) {
+			return
+		}
 		writeJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -397,10 +280,10 @@ func (b *Backend) dispatchActionRequest(w http.ResponseWriter, r *http.Request, 
 	}
 	resp := RequestActionResponse{
 		ActionID:         cmd.ActionID.String(),
-		Tier:             cmd.Tier,
-		Mode:             decision.Mode,
+		Tier:             aggregate.Tier(cmd.Tier),
+		Mode:             aggregate.AuthMode(decision.Mode),
 		MatchedPolicyRef: decision.MatchedPolicyRef,
-		Status:           "PENDING_MANUAL",
+		Status:           RequestPendingManual,
 	}
 	// Invisible activate at the action boundary (01 §Extension 2): the first
 	// action of a DRAFT investigation always gets a human — that approval is the
@@ -415,7 +298,7 @@ func (b *Backend) dispatchActionRequest(w http.ResponseWriter, r *http.Request, 
 	switch decision.Mode {
 	case action.ModeAutoPolicy:
 		if draft {
-			resp.Status = "PENDING_MANUAL" // held for the activating human approval
+			resp.Status = RequestPendingManual // held for the activating human approval
 		} else {
 			resp.Status, resp.WorkflowID = b.autoApproveAndDispatch(r.Context(), env, cmd, decision, now)
 		}
@@ -423,7 +306,7 @@ func (b *Backend) dispatchActionRequest(w http.ResponseWriter, r *http.Request, 
 		// Gate 2's REQUIRE_TWO_PARTY demand is frozen on the action: the approve
 		// endpoint honors it (action_approval.go) and the aggregate rejects a solo
 		// approval, so this path only reports the pending status.
-		resp.Status = "PENDING_TWO_PARTY"
+		resp.Status = RequestPendingTwoParty
 	}
 
 	// A pending action gets its durable expiry timer (02 §3: ActionExpired is
@@ -431,7 +314,7 @@ func (b *Backend) dispatchActionRequest(w http.ResponseWriter, r *http.Request, 
 	// invariant (the approve path refuses past it regardless), so a missed
 	// start only delays the stored-status transition — the startup sweep
 	// backstops it.
-	if resp.Status == "PENDING_MANUAL" || resp.Status == "PENDING_TWO_PARTY" {
+	if resp.Status == RequestPendingManual || resp.Status == RequestPendingTwoParty {
 		b.startExpiryTimer(r.Context(), cmd.ActionID, env.AggregateID, env.TenantID, cmd.ExpiresAt)
 	}
 
@@ -536,14 +419,25 @@ func (b *Backend) rerequestAction(w http.ResponseWriter, r *http.Request, priorI
 		rationale = "Re-requested after expiry — re-affirmed as still warranted."
 	}
 
+	// A re-request restates the original's grounding. When the original
+	// cited raw events only, nothing of it may be cited now (adr/0364).
+	evidenceRefs := citableRefs(prior.EvidenceRefs)
+	if len(prior.EvidenceRefs) > 0 && len(evidenceRefs) == 0 {
+		writeJSONError(w, http.StatusUnprocessableEntity,
+			"re-request action: the original cites raw events only ("+strings.Join(prior.EvidenceRefs, ", ")+"), and a new request must cite the observations made from them; request the action anew, citing them")
+		return
+	}
+
 	// Reconstruct the request from the original's FROZEN fields — a faithful
 	// "same action, fresh clock", not a client reconstruction that could drift.
+	// The one change is the grounding: a raw event id the original cited is
+	// left out, since a new citation names a STIX object (adr/0364).
 	b.dispatchActionRequest(w, r, actorFromRequest(r, claims), claims.Subject,
 		RequestActionBody{
 			ActionType:       prior.ActionType,
 			Targets:          prior.Targets,
 			Parameters:       prior.Parameters,
-			EvidenceRefs:     prior.EvidenceRefs,
+			EvidenceRefs:     evidenceRefs,
 			Rationale:        rationale,
 			InvestigationRef: prior.AggregateID.String(),
 			RetryOf:          priorID.String(),

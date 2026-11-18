@@ -1,5 +1,7 @@
 package aggregate
 
+import "github.com/sd-strax/reckon/internal/agentapi"
+
 // Investigation lifecycle states — the "Lifecycle" extension state machine
 // (design/01-domain-model.md §Extension 2). Stored lowercase in the
 // investigation_current projection; the spec writes them uppercase in prose.
@@ -22,11 +24,19 @@ package aggregate
 // aggregate accepts no further events. A draft started by mistake can be
 // discarded (draft ──discard──▶ discarded, adr/0161): terminal too, with the
 // reason on the record — never a deletion.
+//
+// The words are defined once in internal/agentapi, which the agent shares
+// (adr/0278).
 const (
-	StatusDraft     = "draft"
-	StatusActive    = "active"
-	StatusPaused    = "paused"
-	StatusConcluded = "concluded"
-	StatusArchived  = "archived"
-	StatusDiscarded = "discarded"
+	StatusDraft     = agentapi.InvestigationDraft
+	StatusActive    = agentapi.InvestigationActive
+	StatusPaused    = agentapi.InvestigationPaused
+	StatusConcluded = agentapi.InvestigationConcluded
+	StatusArchived  = agentapi.InvestigationArchived
+	StatusDiscarded = agentapi.InvestigationDiscarded
 )
+
+// InvestigationStatus is an investigation's lifecycle status as a served view
+// carries it. The words are the untyped constants above, so code that holds a
+// status as a string is unchanged.
+type InvestigationStatus = agentapi.InvestigationStatus

@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/sd-strax/reckon/internal/agentapi"
 )
 
 // maxRationaleRunes mirrors the aggregate's rationale bound (01: "terse by
@@ -118,26 +120,26 @@ type Session struct {
 	// held is turns whose commit never reached the backend, oldest first;
 	// they are committed before the next one (adr/0231). commitBackoff is the
 	// wait before each retry of a commit.
-	held          []InterpretationRequest
+	held          []agentapi.RecordInterpretationBody
 	commitBackoff []time.Duration
 	// catalogPause is the wait between attempts of the catalog fetch.
 	catalogPause time.Duration
 	// actionTypes is the action catalog the session's action tools were built
 	// from. A reset whose catalog fetch fails builds from it again.
-	actionTypes []ActionType
+	actionTypes []agentapi.ActionSummary
 
 	// Standing context (refreshContext is the only writer) and the hypothesis
 	// set as last read (refreshHypotheses, every turn). hyps never enters the
 	// system prompt: it is rendered per turn as a [reasoning state] block on
 	// the user message (state.go) so the cached prefix stays byte-stable.
-	investigation Investigation
-	caps          []Capability
+	investigation agentapi.InvestigationView
+	caps          []agentapi.CapabilitySummary
 	hyps          json.RawMessage
 
-	pendingActions []ActionResponse // actions proposed this turn, for the surface to offer approval
+	pendingActions []agentapi.RequestActionResponse // actions proposed this turn, for the surface to offer approval
 	// consulted accumulates the turn's recall_sops retrievals (by sop_id,
 	// keeping the best score) — the knowledge provenance the commit carries.
-	consulted map[consultedKey]ConsultedSOP
+	consulted map[consultedKey]agentapi.ConsultedSOP
 	// sectionPins remembers, for the session, the cut each revision of each
 	// procedure was shown under (by a recall hit, an outline or a section
 	// read), so a read_sop section read is pinned to the numbering the model
@@ -145,7 +147,7 @@ type Session struct {
 	sectionPins map[string]map[int]string
 	// consultedSimilar accumulates the turn's recall_similar_investigations
 	// retrievals (by investigation_ref, best score) — case-knowledge provenance.
-	consultedSimilar map[string]ConsultedSimilarInvestigation
+	consultedSimilar map[string]agentapi.ConsultedSimilarInvestigation
 	// turnsSinceAnchor counts turns since the engine-state anchor last rode a
 	// user message; at anchorEveryTurns the next turn re-grounds the model on
 	// the authoritative action record (countering narrative drift in long
@@ -173,7 +175,7 @@ type TurnResult struct {
 	// analyst (not just this turn's proposals) — refreshed from the backend at
 	// turn end, so an approval missed on an earlier turn is re-offered rather
 	// than stranded. The surface offers approval on each.
-	PendingActions []ActionStatus
+	PendingActions []agentapi.ActionView
 	// ToolRounds is how many model→tool rounds the turn took.
 	ToolRounds int
 	// Transcript is the turn's committed transcript — the exact bytes that were
@@ -184,7 +186,7 @@ type TurnResult struct {
 	Transcript string
 	// ToolCalls is the turn's committed tool-call log — the same slice that rode
 	// the commit transaction (05 §3.4).
-	ToolCalls []ToolCall
+	ToolCalls []agentapi.ToolCallInput
 	// Usage is the token accounting summed over every model call this turn made
 	// (a turn spans one call per tool round). Surfaces feed it to a cost readout;
 	// the eval harness aggregates it into the run report.
@@ -214,8 +216,8 @@ func NewSession(ctx context.Context, cfg Config) (*Session, error) {
 		// even when the model quotes it back (e.g. from a ticket body).
 		seenIDs:          map[string]bool{strings.ToLower(cfg.InvestigationID): true},
 		sectionPins:      map[string]map[int]string{},
-		consulted:        map[consultedKey]ConsultedSOP{},
-		consultedSimilar: map[string]ConsultedSimilarInvestigation{},
+		consulted:        map[consultedKey]agentapi.ConsultedSOP{},
+		consultedSimilar: map[string]agentapi.ConsultedSimilarInvestigation{},
 	}
 	if s.maxRounds <= 0 {
 		s.maxRounds = defaultMaxToolRounds
@@ -310,12 +312,12 @@ func (s *Session) refreshContext(ctx context.Context, reset bool) error {
 // number of attempts made; a fetch that succeeds returns zero attempts. Any
 // other error that survives is returned, so a failed fetch is never read as
 // a missing action layer.
-func (s *Session) fetchActionCatalog(ctx context.Context) ([]ActionType, int, error) {
+func (s *Session) fetchActionCatalog(ctx context.Context) ([]agentapi.ActionSummary, int, error) {
 	var err error
 	attempts := 0
 	for attempt := 1; ; attempt++ {
 		attempts = attempt
-		var actionTypes []ActionType
+		var actionTypes []agentapi.ActionSummary
 		actionTypes, err = s.backend.ListActionTypes(ctx)
 		if err == nil {
 			return actionTypes, 0, nil
@@ -384,7 +386,7 @@ func (s *Session) ResetContext(ctx context.Context) error {
 	// Durability: without the marker, the next sidecar respawn would rehydrate
 	// the discarded narration straight back. The reset is itself a recorded,
 	// attributed act on the thread.
-	if _, err := s.backend.RecordInterpretation(ctx, InterpretationRequest{
+	if _, err := s.backend.RecordInterpretation(ctx, agentapi.RecordInterpretationBody{
 		InvestigationRef:   s.investigationID,
 		InterpretationType: interpretationContextReset,
 		Rationale:          contextResetRationale,
@@ -415,7 +417,7 @@ func (s *Session) rehydrate(ctx context.Context) {
 			resetAfter = e.SequenceNo
 		}
 	}
-	var withTranscript []ThreadEntry
+	var withTranscript []agentapi.ThreadEntryView
 	for _, e := range thread {
 		if e.HasTranscript && e.SequenceNo > resetAfter {
 			withTranscript = append(withTranscript, e)
@@ -551,8 +553,8 @@ func (s *Session) HypothesisFraming() string {
 // held and committed before the next turn's.
 func (s *Session) Turn(ctx context.Context, userMsg string) (*TurnResult, error) {
 	s.pendingActions = nil
-	s.consulted = map[consultedKey]ConsultedSOP{}
-	s.consultedSimilar = map[string]ConsultedSimilarInvestigation{}
+	s.consulted = map[consultedKey]agentapi.ConsultedSOP{}
+	s.consultedSimilar = map[string]agentapi.ConsultedSimilarInvestigation{}
 	// The reasoning state must be current at every turn: between turns the
 	// analyst adopts with a restatement, frames a rival by hand, adds or
 	// withdraws predictions — and the competing-set contract asks the model to
@@ -564,7 +566,7 @@ func (s *Session) Turn(ctx context.Context, userMsg string) (*TurnResult, error)
 	var transcript strings.Builder
 	fmt.Fprintf(&transcript, "[user] %s\n", sanitizeTranscript(userMsg))
 
-	var toolLog []ToolCall
+	var toolLog []agentapi.ToolCallInput
 	var turnUsage Usage
 	var finalText strings.Builder
 
@@ -691,7 +693,7 @@ func (s *Session) Turn(ctx context.Context, userMsg string) (*TurnResult, error)
 			}
 			fmt.Fprintf(&transcript, "[tool_use %s id=%s] %s\n",
 				sanitizeTranscript(tu.ToolName), sanitizeTranscript(tu.ToolUseID), sanitizeTranscript(string(tu.Input)))
-			toolLog = append(toolLog, ToolCall{CallID: tu.ToolUseID, ToolName: tu.ToolName, Args: tu.Input})
+			toolLog = append(toolLog, agentapi.ToolCallInput{CallID: tu.ToolUseID, ToolName: tu.ToolName, Args: tu.Input})
 			if s.hooks.OnToolCall != nil {
 				s.hooks.OnToolCall(tu.ToolName, tu.Input)
 			}
@@ -777,11 +779,11 @@ func (s *Session) Turn(ctx context.Context, userMsg string) (*TurnResult, error)
 	default:
 		rationale = "(no final text — see transcript)"
 	}
-	id, err := s.commitTurn(closing, InterpretationRequest{
+	id, err := s.commitTurn(closing, agentapi.RecordInterpretationBody{
 		InvestigationRef:   s.investigationID,
 		InterpretationType: "other",
 		Rationale:          rationale,
-		Transcript:         &Transcript{TurnID: turnID, Body: transcript.String()},
+		Transcript:         &agentapi.TranscriptInput{TurnID: turnID, Body: transcript.String()},
 		ToolCalls:          toolLog,
 		ConsultedSOPs:      s.consultedList(modelText),
 		ConsultedSimilar:   s.consultedSimilarList(modelText),
@@ -934,7 +936,7 @@ func (s *Session) narrativeRecord(ctx context.Context) (narrativeRecord, error) 
 
 	verdict := sideNarrativeNoVerdict.Text
 	if v := inv.Verdict; v != nil {
-		verdict = v.Disposition
+		verdict = string(v.Disposition)
 		if r := strings.TrimSpace(v.Rationale); r != "" {
 			verdict = fmt.Sprintf(sideNarrativeVerdict.Text, v.Disposition, r)
 		}
@@ -1112,7 +1114,7 @@ type consultedKey struct {
 // aggregate's bound exceeds what a turn's tool calls can show
 // (aggregate.MaxSectionsPerToolResult per call). The cut each revision was
 // shown under is kept for the session, for pinning later reads.
-func (s *Session) recordConsulted(sops []ConsultedSOP, cases []ConsultedSimilarInvestigation) {
+func (s *Session) recordConsulted(sops []agentapi.ConsultedSOP, cases []agentapi.ConsultedSimilarInvestigation) {
 	for _, c := range sops {
 		s.pinSections(c.SOPID, c.Revision, c.Cut)
 		key := consultedKey{id: c.SOPID, revision: c.Revision, cut: c.Cut}
@@ -1175,28 +1177,17 @@ func (s *Session) sectionPinFor(id string, revision int) (sectionPin, error) {
 
 // consultedSOPs reads the procedures out of a recall_sops result: each hit's
 // id, title, revision, score and the section it carried.
-func consultedSOPs(content []byte) []ConsultedSOP {
-	var res struct {
-		Results []struct {
-			SOPID    string  `json:"sop_id"`
-			Title    string  `json:"title"`
-			Revision int     `json:"revision"`
-			Cut      string  `json:"cut"`
-			Score    float64 `json:"score"`
-			Section  struct {
-				Idx int `json:"idx"`
-			} `json:"section"`
-		} `json:"results"`
-	}
+func consultedSOPs(content []byte) []agentapi.ConsultedSOP {
+	var res agentapi.RecallResult
 	if json.Unmarshal(content, &res) != nil {
 		return nil
 	}
-	var out []ConsultedSOP
+	var out []agentapi.ConsultedSOP
 	for _, r := range res.Results {
-		if r.SOPID == "" {
+		if r.SOPID == uuid.Nil {
 			continue
 		}
-		c := ConsultedSOP{SOPID: r.SOPID, Title: r.Title, Revision: r.Revision, Cut: r.Cut, RetrievalScore: r.Score}
+		c := agentapi.ConsultedSOP{SOPID: r.SOPID.String(), Title: r.Title, Revision: r.Revision, Cut: r.Cut, RetrievalScore: r.Score}
 		if r.Section.Idx > 0 {
 			c.Sections = []int{r.Section.Idx}
 		}
@@ -1211,26 +1202,21 @@ func consultedSOPs(content []byte) []ConsultedSOP {
 // one page travels as text_parts, and a page of such a result that holds
 // none of them (the outline alone) showed the model the section's place,
 // not the section.
-func readSOPConsulted(content []byte) []ConsultedSOP {
+func readSOPConsulted(content []byte) []agentapi.ConsultedSOP {
+	// text_parts is the agent's own: sectionInParts writes it in place of a
+	// section's text too large for one page.
 	var res struct {
-		SOPID    string `json:"sop_id"`
-		Title    string `json:"title"`
-		Revision int    `json:"revision"`
-		Cut      string `json:"cut"`
-		Section  struct {
-			Idx  int    `json:"idx"`
-			Text string `json:"text"`
-		} `json:"section"`
+		agentapi.SOPSectionRead
 		TextParts []json.RawMessage `json:"text_parts"`
 	}
-	if json.Unmarshal(content, &res) != nil || res.SOPID == "" {
+	if json.Unmarshal(content, &res) != nil || res.SOPID == uuid.Nil {
 		return nil
 	}
-	c := ConsultedSOP{SOPID: res.SOPID, Title: res.Title, Revision: res.Revision, Cut: res.Cut}
+	c := agentapi.ConsultedSOP{SOPID: res.SOPID.String(), Title: res.Title, Revision: res.Revision, Cut: res.Cut}
 	if res.Section.Idx > 0 && (res.Section.Text != "" || len(res.TextParts) > 0) {
 		c.Sections = []int{res.Section.Idx}
 	}
-	return []ConsultedSOP{c}
+	return []agentapi.ConsultedSOP{c}
 }
 
 // mergeSections unions two sorted-or-not index lists into one sorted list.
@@ -1261,12 +1247,12 @@ func mergeSections(a, b []int) []int {
 // Titles are not matched (a short title is in any reply on the topic, a
 // paraphrase names none), and modelText excludes the engine footer and the
 // transcript (which holds the recall results themselves).
-func (s *Session) consultedList(modelText string) []ConsultedSOP {
+func (s *Session) consultedList(modelText string) []agentapi.ConsultedSOP {
 	if len(s.consulted) == 0 {
 		return nil
 	}
 	lower := strings.ToLower(modelText)
-	out := make([]ConsultedSOP, 0, len(s.consulted))
+	out := make([]agentapi.ConsultedSOP, 0, len(s.consulted))
 	for _, c := range s.consulted {
 		c.Cited = len(c.Sections) > 0 && strings.Contains(lower, strings.ToLower(c.SOPID))
 		out = append(out, c)
@@ -1288,28 +1274,28 @@ func (s *Session) consultedList(modelText string) []ConsultedSOP {
 
 // consultedCases reads the past cases out of a recall_similar_investigations or
 // prior_investigations result.
-func consultedCases(content []byte) []ConsultedSimilarInvestigation {
-	type hit struct {
-		InvestigationRef string  `json:"investigation_ref"`
-		Title            string  `json:"title"`
-		Score            float64 `json:"score"`
-		Band             string  `json:"band"`
-	}
-	var res struct {
-		Results []hit `json:"results"`
-		// prior_investigations answers with the exact matches here (adr/0163):
-		// consulted the same way, with no similarity score.
-		Investigations []hit `json:"investigations"`
-	}
-	if json.Unmarshal(content, &res) != nil {
+func consultedCases(content []byte) []agentapi.ConsultedSimilarInvestigation {
+	// One result is either shape: similarity recall answers results, and
+	// prior_investigations answers the exact matches as investigations
+	// (adr/0163), consulted the same way with no similarity score.
+	var (
+		similar agentapi.SimilarResult
+		prior   agentapi.PriorResult
+	)
+	if json.Unmarshal(content, &similar) != nil || json.Unmarshal(content, &prior) != nil {
 		return nil
 	}
-	var out []ConsultedSimilarInvestigation
-	for _, r := range append(res.Results, res.Investigations...) {
+	var out []agentapi.ConsultedSimilarInvestigation
+	for _, r := range similar.Results {
 		if r.InvestigationRef != "" {
-			out = append(out, ConsultedSimilarInvestigation{
+			out = append(out, agentapi.ConsultedSimilarInvestigation{
 				InvestigationRef: r.InvestigationRef, Title: r.Title, RetrievalScore: r.Score, Band: r.Band,
 			})
+		}
+	}
+	for _, r := range prior.Investigations {
+		if r.InvestigationRef != "" {
+			out = append(out, agentapi.ConsultedSimilarInvestigation{InvestigationRef: r.InvestigationRef, Title: r.Title})
 		}
 	}
 	return out
@@ -1318,12 +1304,12 @@ func consultedCases(content []byte) []ConsultedSimilarInvestigation {
 // consultedSimilarList finalizes the turn's case-knowledge provenance, with
 // consultedList's rule: Cited when the model's own text names the prior case
 // by its investigation_ref.
-func (s *Session) consultedSimilarList(modelText string) []ConsultedSimilarInvestigation {
+func (s *Session) consultedSimilarList(modelText string) []agentapi.ConsultedSimilarInvestigation {
 	if len(s.consultedSimilar) == 0 {
 		return nil
 	}
 	lower := strings.ToLower(modelText)
-	out := make([]ConsultedSimilarInvestigation, 0, len(s.consultedSimilar))
+	out := make([]agentapi.ConsultedSimilarInvestigation, 0, len(s.consultedSimilar))
 	for _, c := range s.consultedSimilar {
 		c.Cited = strings.Contains(lower, strings.ToLower(c.InvestigationRef))
 		out = append(out, c)
@@ -1337,9 +1323,9 @@ func (s *Session) consultedSimilarList(modelText string) []ConsultedSimilarInves
 // earlier turns (or earlier sessions) whose approval offer was missed. When the
 // list endpoint fails, it degrades to this turn's request responses so a
 // just-proposed action is still offered.
-func (s *Session) refreshPending(ctx context.Context) []ActionStatus {
+func (s *Session) refreshPending(ctx context.Context) []agentapi.ActionView {
 	if acts, err := s.backend.ListActions(ctx, s.investigationID); err == nil {
-		var out []ActionStatus
+		var out []agentapi.ActionView
 		for _, a := range acts {
 			if a.Pending() {
 				out = append(out, a)
@@ -1347,10 +1333,10 @@ func (s *Session) refreshPending(ctx context.Context) []ActionStatus {
 		}
 		return out
 	}
-	var out []ActionStatus
+	var out []agentapi.ActionView
 	for _, r := range s.pendingActions {
-		if r.Status == "PENDING_MANUAL" || r.Status == "PENDING_TWO_PARTY" {
-			out = append(out, ActionStatus{ActionID: r.ActionID, Tier: r.Tier, Status: r.Status})
+		if r.Status == agentapi.RequestPendingManual || r.Status == agentapi.RequestPendingTwoParty {
+			out = append(out, agentapi.ActionView{ActionID: r.ActionID, Tier: r.Tier, Status: agentapi.ActionStatus(r.Status)})
 		}
 	}
 	return out

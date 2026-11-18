@@ -26,6 +26,11 @@ type PinView struct {
 	Superseded       bool      `json:"superseded,omitempty"`
 }
 
+// PinsResponse is GET /api/investigations/{id}/pins.
+type PinsResponse struct {
+	Pins []PinView `json:"pins"`
+}
+
 // listInvestigationPins serves GET /api/investigations/{id}/pins. Any
 // authenticated reader (enforced by the caller).
 func (b *Backend) listInvestigationPins(w http.ResponseWriter, r *http.Request, invID uuid.UUID) {
@@ -53,13 +58,19 @@ func (b *Backend) listInvestigationPins(w http.ResponseWriter, r *http.Request, 
 			Superseded:       p.Superseded,
 		})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"pins": out})
+	writeJSON(w, http.StatusOK, PinsResponse{Pins: out})
 }
 
 // SupersedeBody is the POST /api/interpretations/{id}/supersede request.
 type SupersedeBody struct {
 	InvestigationRef string `json:"investigation_ref"`
 	Reason           string `json:"reason"`
+}
+
+// SupersedeResponse answers POST /api/interpretations/{id}/supersede.
+type SupersedeResponse struct {
+	SequenceNo   int64  `json:"sequence_no"`
+	SupersededID string `json:"superseded_id"`
 }
 
 func (b *Backend) supersedeInterpretation(w http.ResponseWriter, r *http.Request, interpID uuid.UUID) {
@@ -91,8 +102,8 @@ func (b *Backend) supersedeInterpretation(w http.ResponseWriter, r *http.Request
 		writeCommandError(w, "supersede interpretation", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"superseded_id": interpID.String(),
-		"sequence_no":   res.NewSequenceNo,
+	writeJSON(w, http.StatusOK, SupersedeResponse{
+		SequenceNo:   res.NewSequenceNo,
+		SupersededID: interpID.String(),
 	})
 }

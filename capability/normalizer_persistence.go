@@ -14,11 +14,11 @@ const (
 
 // registryNormalizer handles OCSF registry_key_activity (class_uid 201001)
 // and registry_value_activity (201002) → STIX (§4.6, adr/0341): the
-// host-scoped windows-registry-key, the actor process, and the host, with
-// activity_id preserved on the ObservedData. It is registered once per class
-// and reads only that class's fields: a key event names the key in
-// reg_key.path, a value event in reg_value.path, so both yield the same type
-// of object. A value event's object holds that one value in values, and its
+// host-scoped windows-registry-key, the actor process, the actor's account,
+// and the host, with activity_id preserved on the ObservedData. It is
+// registered once per class and reads only that class's fields: a key event
+// names the key in reg_key.path, a value event in reg_value.path, so both
+// yield the same type of object. A value event's object holds that one value in values, and its
 // id carries the value's name.
 type registryNormalizer struct {
 	r     *identity.Resolver
@@ -34,7 +34,8 @@ func (n *registryNormalizer) ClassUID() int { return n.class }
 // 6: STIX 2.1 output through the one serializer, an artifact for a record
 // naming nothing, and a broken record is a normalize error; a key only with a
 // full hive name, adr/0357
-func (*registryNormalizer) Version() int { return 6 }
+// 7: the actor's account, recorded in user_accounts, adr/0398
+func (*registryNormalizer) Version() int { return 7 }
 
 func (n *registryNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
@@ -43,8 +44,10 @@ func (n *registryNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, erro
 		name = "registry_value_activity"
 	}
 	b := newBuilder(n.r, evt, name, n.Version())
+	b.deviceObjects("device")
 
 	host := b.host("device")
+	b.userAccount("actor.user", "device", host)
 	var path string
 	var valueName *string
 	var value map[string]any
@@ -107,7 +110,8 @@ var stixRegistryDataTypes = map[string]bool{
 }
 
 // scheduledJobNormalizer handles OCSF scheduled_job_activity (class_uid 1006) →
-// STIX (§4.7): the host-scoped scheduled task, its principal user, and the host.
+// STIX (§4.7): the host-scoped scheduled task, its principal user, the
+// actor that changed it, and the host.
 type scheduledJobNormalizer struct{ r *identity.Resolver }
 
 func (*scheduledJobNormalizer) ClassUID() int { return 1006 }
@@ -119,7 +123,12 @@ func (*scheduledJobNormalizer) ClassUID() int { return 1006 }
 // naming nothing, and a broken record is a normalize error, adr/0357
 // 7: an account typed Windows only on a Windows signal, account type 19
 // read as one, adr/0366
-func (*scheduledJobNormalizer) Version() int { return 7 }
+// 8: the account type read by the one rule, a caption for every type and
+// the id over it, adr/0367
+// 9: the account minted for each user object recorded in user_accounts,
+// adr/0398
+// 10: the actor's account too, as the initiator, adr/0398
+func (*scheduledJobNormalizer) Version() int { return 10 }
 
 func (n *scheduledJobNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
@@ -128,6 +137,7 @@ func (n *scheduledJobNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, 
 
 	host := b.host("device")
 	principal := b.userAccount("job.user", "device", host)
+	b.userAccount("actor.user", "device", host) // initiator
 	name := pathStr(p, "job.name")
 	path := pathStr(p, "job.file.path")
 	if name != "" || path != "" {

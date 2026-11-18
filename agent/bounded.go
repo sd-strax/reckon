@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"sort"
 	"time"
+
+	"github.com/sd-strax/reckon/internal/ocsf"
 )
 
 // DefaultMaxToolResultBytes bounds one tool result fed back to the model when
@@ -293,10 +295,11 @@ type valueCount struct {
 	Count int    `json:"count"`
 }
 
-// OCSF fields the digest reads hosts and users from.
+// OCSF fields the digest reads hosts from, and the user objects it reads
+// users from.
 var (
 	hostPaths = [][]string{{"device", "hostname"}, {"dst_endpoint", "hostname"}, {"src_endpoint", "hostname"}}
-	userPaths = [][]string{{"actor", "user", "name"}, {"user", "name"}}
+	userPaths = [][]string{{"actor", "user"}, {"user"}}
 )
 
 // digestEvents summarizes a capability result's events list; nil when there
@@ -328,7 +331,7 @@ func digestEvents(events []json.RawMessage) *resultDigest {
 			}
 		}
 		countDistinct(hosts, ev.Payload, hostPaths)
-		countDistinct(users, ev.Payload, userPaths)
+		countUsers(users, ev.Payload)
 	}
 	d := &resultDigest{
 		Events:  len(events),
@@ -353,17 +356,38 @@ func countDistinct(counts map[string]int, payload map[string]any, paths [][]stri
 	}
 }
 
+// countUsers counts each distinct user the event's user objects name once.
+// A user is its login, read by the one rule (ocsf.ReadUser, adr/0367), so a
+// placeholder name drops out and "CONTOSO\jdoe" and {name: jdoe, domain:
+// CONTOSO} are one user.
+func countUsers(counts map[string]int, payload map[string]any) {
+	seen := map[string]bool{}
+	for _, p := range userPaths {
+		obj, _ := lookup(payload, p).(map[string]any)
+		login := ocsf.ReadUser(obj, func(m map[string]any, k string) any { return m[k] }).Login
+		if login != "" && !seen[login] {
+			seen[login] = true
+			counts[login]++
+		}
+	}
+}
+
 func lookupString(m map[string]any, path []string) (string, bool) {
+	s, ok := lookup(m, path).(string)
+	return s, ok && s != ""
+}
+
+// lookup is the value at path in m, or nil.
+func lookup(m map[string]any, path []string) any {
 	var cur any = m
 	for _, k := range path {
 		obj, ok := cur.(map[string]any)
 		if !ok {
-			return "", false
+			return nil
 		}
 		cur = obj[k]
 	}
-	s, ok := cur.(string)
-	return s, ok && s != ""
+	return cur
 }
 
 func toFacet(counts map[string]int) facet {

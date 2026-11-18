@@ -1,6 +1,6 @@
 # 0225 — The PR gate runs the full test suite, embedded-deps tests included
 
-Issue: #225 · PR: #263 · Status: accepted
+Issue: #225 · PR: #263 · Status: accepted · Amended by: adr/0278
 
 ## Context
 
@@ -19,6 +19,8 @@ should land with a test the PR actually runs.
 
 - `make ci` is lint + `make test-all` + build, and the CI `engine` job runs
   the same steps, so the local gate and the PR gate are one gate.
+  *Amended (adr/0278): `make ci` also runs `make workbench-ci`, which the CI
+  `workbench` job runs, so the two jobs together are the local gate.*
   `make ci-full` is kept as an alias. `make test` (`-short`) stays as the inner
   development loop.
 - CI caches the downloaded test binaries between runs: the embedded-postgres

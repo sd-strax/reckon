@@ -24,7 +24,7 @@ func TestInvestigationView_StageInputsAndStart(t *testing.T) {
 	if resp, _ := postAction(t, b, token, RequestActionBody{
 		ActionType:       "host.isolate",
 		Targets:          []aggregate.TargetSpec{{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-A"}},
-		EvidenceRefs:     []string{"observed-data--od1"},
+		EvidenceRefs:     []string{"observed-data--18ef927c-93bc-5470-b729-1b40841d3947"},
 		Rationale:        "contain",
 		InvestigationRef: invID.String(),
 	}); resp.StatusCode != http.StatusCreated {

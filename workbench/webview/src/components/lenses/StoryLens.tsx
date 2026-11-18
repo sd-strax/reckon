@@ -15,7 +15,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "../../app";
 import { collapses, fmtDay, keySpec, spanText } from "../../derive/events";
 import { hypName } from "../../derive/hyps";
-import { eventOfRecord, groupOverEvents, mergeSameEvents, viaVerbs, type EventCall, type SameEvent } from "../../derive/sameEvent";
+import { eventOfCitation, eventOfRecord, groupOverEvents, mergeSameEvents, viaVerbs, type EventCall, type SameEvent } from "../../derive/sameEvent";
 import type { EventClassKeys, EventGroup, EventRow, SentenceToken } from "../../../../src/viewTypes";
 import { EventStrip, EvidenceGraph } from "../DerivedViews";
 import { Empty, EventSentence, RefChip, fmtDateTime } from "../shared";
@@ -44,8 +44,10 @@ interface TimelineItem {
   verb?: string;
   /** Every call that returned the event, in retrieval order (adr/0348). */
   calls?: EventCall[];
-  /** Every record the row stands for: the event's records, or every member's for a group. A citation of any one marks the row. */
+  /** Every record the row stands for: the event's records, or every member's for a group. An older citation of any one marks the row. */
   ids: string[];
+  /** The observations made from the row's records (adr/0364). A citation of any one marks the row. */
+  observations: string[];
   /** The server's sentence (adr/0090); absent when the class has no template or the row is a cited ref alone. */
   sentence?: SentenceToken[];
   /** A collapsed group (adr/0095) over the merged rows: the members newest first, `ref` being the newest. The row sits at the group's first event. */
@@ -56,7 +58,7 @@ interface TimelineItem {
 
 function rowItem(s: SameEvent): TimelineItem {
   const e = s.row;
-  const it: TimelineItem = { ref: e.id, time: e.time, label: e.className, category: e.view.category, callId: e.callId, verb: e.verb, calls: s.calls, ids: s.ids };
+  const it: TimelineItem = { ref: e.id, time: e.time, label: e.className, category: e.view.category, callId: e.callId, verb: e.verb, calls: s.calls, ids: s.ids, observations: [...(e.observedDataRefs ?? [])] };
   if (e.view.sentence?.length) it.sentence = e.view.sentence;
   return it;
 }
@@ -71,6 +73,9 @@ export function timelineItems(events: EventRow[] | null | undefined, strip: { re
   const out = new Map<string, TimelineItem>();
   const merged = mergeSameEvents(events);
   const of = eventOfRecord(merged);
+  // A cited observation of a held event is that event's row, not a row of
+  // its own (adr/0364).
+  const cited = eventOfCitation(merged);
   const folded = new Set<string>();
   for (const raw of groups ?? []) {
     const g = groupOverEvents(raw, of);
@@ -83,6 +88,7 @@ export function timelineItems(events: EventRow[] | null | undefined, strip: { re
     it.group = g;
     it.members = members;
     it.ids = members.flatMap((s) => s.ids);
+    it.observations = [...new Set(members.flatMap((s) => s.row.observedDataRefs ?? []))];
     out.set(newest.row.id, it);
     for (const id of raw.eventIds) folded.add(id);
     for (const id of it.ids) folded.add(id);
@@ -91,9 +97,20 @@ export function timelineItems(events: EventRow[] | null | undefined, strip: { re
     if (!folded.has(s.row.id)) out.set(s.row.id, rowItem(s));
   }
   for (const it of strip) {
-    if (!out.has(it.ref) && !folded.has(it.ref) && !of.has(it.ref)) out.set(it.ref, { ref: it.ref, time: it.time, label: it.label, category: CATEGORY[it.label] || "other", ids: [it.ref] });
+    if (!out.has(it.ref) && !folded.has(it.ref) && !cited.has(it.ref)) out.set(it.ref, { ref: it.ref, time: it.time, label: it.label, category: CATEGORY[it.label] || "other", ids: [it.ref], observations: [] });
   }
   return [...out.values()].sort((a, b) => Date.parse(a.time) - Date.parse(b.time));
+}
+
+/**
+ * The predictions that cite a timeline row (adr/0348, adr/0364): those whose
+ * test results name an observation made from the row, or, on a record made
+ * before adr/0364, a raw record the row stands for. For a group, any
+ * member's.
+ */
+export function citingPredictions(it: Pick<TimelineItem, "ids" | "observations">, hs: Hypothesis[]): { h: Hypothesis; p: Hypothesis["predictions"][number] }[] {
+  const refs = new Set([...it.ids, ...it.observations]);
+  return hs.flatMap((h) => h.predictions.filter((p) => (p.testResultRefs || []).some((r) => refs.has(r))).map((p) => ({ h, p })));
 }
 
 /**
@@ -202,10 +219,8 @@ export function StoryLens() {
   const hs = snap?.hypotheses ?? NO_HYPOTHESES;
   const folded = (snap?.eventGroups ?? null) !== null;
   const rows = useMemo(() => {
-    // Citing predictions: whose test results include any record the row stands for (adr/0348), or any member of a group.
     return timelineItems(snap?.events, snap?.derived?.strip || [], snap?.eventGroups).map((it) => {
-      const refs = it.ids;
-      const citing = hs.flatMap((h) => h.predictions.filter((p) => (p.testResultRefs || []).some((r) => refs.includes(r))).map((p) => ({ h, p })));
+      const citing = citingPredictions(it, hs);
       const emphasis = citing.some(({ h, p }) => p.status === "CONFIRMED" && h.status === "SUPPORTED") ? "emphasized" : citing.some(({ p }) => p.status === "DISCONFIRMED") ? "against" : "plain";
       return { ...it, citing, emphasis };
     });

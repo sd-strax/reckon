@@ -1,6 +1,6 @@
 # 0348 — The Story timeline shows an event once, however many queries returned it
 
-Issue: #348 · PR: #349 · Status: accepted
+Issue: #348 · PR: #349 · Status: accepted · Amended by: adr/0364 (a citation names the observation made from an event)
 
 ## Context
 
@@ -31,7 +31,9 @@ the same `observed_data_refs`.
   single "via" did.
 - **Citations and pins** count against every record the row stands for. A prediction that
   cites any one of them marks the row. Groups (`adr/0095`) are built from the merged rows,
-  so a repeat group counts events, not retrievals.
+  so a repeat group counts events, not retrievals. *Amended (adr/0364):* a new citation
+  names the observation made from an event, so a prediction that cites one of the row's
+  observations marks the row too. An older record that cites a raw record still marks it.
 - **The record does not change.** The telemetry records, their ids and their call
   membership stay as they are, and the thread and the export still show each retrieval.
   This decision covers what the timeline presents.

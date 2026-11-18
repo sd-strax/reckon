@@ -28,9 +28,12 @@ const bindingPriority = 200
 // always offers all three verbs, and an instance configured without AWS
 // Config declines config.resource_context at invoke with FALLTHROUGH. The
 // verb descriptors are the engine's own catalog entries, so they cannot
-// drift from it.
-func describe() adapterplugin.DescribeResult {
-	catalog := capability.DefaultCatalog()
+// drift from it. It fails only when the engine's catalog does (adr/0382).
+func describe() (adapterplugin.DescribeResult, error) {
+	catalog, err := capability.DefaultCatalog()
+	if err != nil {
+		return adapterplugin.DescribeResult{}, err
+	}
 	var verbs []capability.CapabilityDescriptor
 	for _, v := range []string{verbActivity, verbHistory, verbContext} {
 		if d, ok := catalog.Descriptor(v); ok {
@@ -88,7 +91,7 @@ func describe() adapterplugin.DescribeResult {
 		},
 		ConfigSchema: configSchema(),
 		SchemaSource: schemaSource(),
-	}
+	}, nil
 }
 
 // Profile identity (11 §4.4): the Security Lake CloudTrail management-events

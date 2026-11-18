@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/sd-strax/reckon/internal/agentapi"
 )
 
 const toolsGolden = "testdata/intrinsic_tools.golden.json"
@@ -106,17 +108,17 @@ func TestBuildTools_ListAndMapAreOneSet(t *testing.T) {
 }
 
 func TestBuildTools_RefusesASharedName(t *testing.T) {
-	var verb Capability
+	var verb agentapi.CapabilitySummary
 	verb.Status = "available"
 	verb.Descriptor.Verb = ToolListActions
-	_, _, err := buildTools([]Capability{verb}, nil)
+	_, _, err := buildTools([]agentapi.CapabilitySummary{verb}, nil)
 	if err == nil || !strings.Contains(err.Error(), ToolListActions) {
 		t.Fatalf("err = %v; want a refusal naming the tool", err)
 	}
 	// An action tool goes through the same check: a verb that takes its name
 	// is refused (adr/0380).
 	verb.Descriptor.Verb = actionToolName("host.isolate")
-	_, _, err = buildTools([]Capability{verb}, exampleCatalog())
+	_, _, err = buildTools([]agentapi.CapabilitySummary{verb}, exampleCatalog())
 	if err == nil || !strings.Contains(err.Error(), verb.Descriptor.Verb) {
 		t.Fatalf("err = %v; want a refusal naming the action tool", err)
 	}
@@ -125,11 +127,11 @@ func TestBuildTools_RefusesASharedName(t *testing.T) {
 // TestBuildTools_RefusesActionTypesOfOneName: two action types whose names
 // map to one tool name fail tool building; the loop could not tell them apart.
 func TestBuildTools_RefusesActionTypesOfOneName(t *testing.T) {
-	var dotted, underscored ActionType
+	var dotted, underscored agentapi.ActionSummary
 	dotted.Status, underscored.Status = "available", "available"
 	dotted.Descriptor.ActionType = "host.isolate"
 	underscored.Descriptor.ActionType = "host_isolate"
-	_, _, err := buildTools(nil, []ActionType{dotted, underscored})
+	_, _, err := buildTools(nil, []agentapi.ActionSummary{dotted, underscored})
 	if err == nil || !strings.Contains(err.Error(), "request_host_isolate") {
 		t.Fatalf("err = %v; want a refusal naming the shared tool name", err)
 	}
@@ -139,14 +141,14 @@ func TestBuildTools_RefusesActionTypesOfOneName(t *testing.T) {
 // reach the list the prompt cache matches on (adr/0232). Every order of the
 // same capabilities gives the same bytes: verbs by name, then the intrinsics.
 func TestBuildTools_OrderIsTheSessions(t *testing.T) {
-	var caps []Capability
+	var caps []agentapi.CapabilitySummary
 	for _, v := range []string{"verb_c", "verb_a", "verb_b"} {
-		var c Capability
+		var c agentapi.CapabilitySummary
 		c.Status = "available"
 		c.Descriptor.Verb = v
 		caps = append(caps, c)
 	}
-	render := func(caps []Capability) string {
+	render := func(caps []agentapi.CapabilitySummary) string {
 		defs, _, err := buildTools(caps, exampleCatalog())
 		if err != nil {
 			t.Fatal(err)
@@ -159,7 +161,7 @@ func TestBuildTools_OrderIsTheSessions(t *testing.T) {
 	}
 	want := render(caps)
 	for _, order := range [][]int{{0, 1, 2}, {0, 2, 1}, {1, 0, 2}, {1, 2, 0}, {2, 0, 1}, {2, 1, 0}} {
-		shuffled := []Capability{caps[order[0]], caps[order[1]], caps[order[2]]}
+		shuffled := []agentapi.CapabilitySummary{caps[order[0]], caps[order[1]], caps[order[2]]}
 		if got := render(shuffled); got != want {
 			t.Errorf("order %v gives a different tool list", order)
 		}
@@ -271,7 +273,7 @@ func TestRecall_ConsultedIsWhatTheModelWasShown(t *testing.T) {
 	const total = 40
 	f := newFakeBackend(t)
 	raw := bigRecall(t, total, func(i int) map[string]any {
-		return map[string]any{"sop_id": fmt.Sprintf("sop-%d", i), "title": "T", "score": 0.5, "body": strings.Repeat("x", 300)}
+		return map[string]any{"sop_id": fmt.Sprintf("00000000-0000-4000-8000-%012d", i), "title": "T", "score": 0.5, "body": strings.Repeat("x", 300)}
 	})
 	f.override = func(w http.ResponseWriter, r *http.Request) bool {
 		if r.URL.Path != "/api/knowledge/recall_sops" {
@@ -301,10 +303,10 @@ func TestRecall_ConsultedIsWhatTheModelWasShown(t *testing.T) {
 // TestRecordConsulted_KeepsBestScore: the same hit from two calls of a turn is
 // one entry at its best score, whichever came first.
 func TestRecordConsulted_KeepsBestScore(t *testing.T) {
-	s := &Session{consulted: map[consultedKey]ConsultedSOP{}, consultedSimilar: map[string]ConsultedSimilarInvestigation{}}
-	s.recordConsulted([]ConsultedSOP{{SOPID: "a", RetrievalScore: 0.4}}, []ConsultedSimilarInvestigation{{InvestigationRef: "c", RetrievalScore: 0.9}})
-	s.recordConsulted([]ConsultedSOP{{SOPID: "a", RetrievalScore: 0.8}}, []ConsultedSimilarInvestigation{{InvestigationRef: "c", RetrievalScore: 0.95}})
-	s.recordConsulted([]ConsultedSOP{{SOPID: "a", RetrievalScore: 0.2}}, []ConsultedSimilarInvestigation{{InvestigationRef: "c", RetrievalScore: 0.2}})
+	s := &Session{consulted: map[consultedKey]agentapi.ConsultedSOP{}, consultedSimilar: map[string]agentapi.ConsultedSimilarInvestigation{}}
+	s.recordConsulted([]agentapi.ConsultedSOP{{SOPID: "a", RetrievalScore: 0.4}}, []agentapi.ConsultedSimilarInvestigation{{InvestigationRef: "c", RetrievalScore: 0.9}})
+	s.recordConsulted([]agentapi.ConsultedSOP{{SOPID: "a", RetrievalScore: 0.8}}, []agentapi.ConsultedSimilarInvestigation{{InvestigationRef: "c", RetrievalScore: 0.95}})
+	s.recordConsulted([]agentapi.ConsultedSOP{{SOPID: "a", RetrievalScore: 0.2}}, []agentapi.ConsultedSimilarInvestigation{{InvestigationRef: "c", RetrievalScore: 0.2}})
 	if got := s.consulted[consultedKey{id: "a"}].RetrievalScore; got != 0.8 {
 		t.Errorf("sop score = %v", got)
 	}
@@ -327,7 +329,7 @@ func TestConsultedCases_BothShapes(t *testing.T) {
 // reaches the binding as a number and a fleet-wide verb can be called with no
 // entity at all (03 §2, #210).
 func TestVerbToolDef_InputShapes(t *testing.T) {
-	var c Capability
+	var c agentapi.CapabilitySummary
 	if err := json.Unmarshal([]byte(`{"status":"available","descriptor":{
 		"verb":"get_process_executions","intent":"Search.","output":"list<observed_data>",
 		"inputs":[

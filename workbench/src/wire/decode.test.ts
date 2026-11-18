@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { anything, bool, decode, DecodeError, lazy, list, namedButAbsent, nullable, num, object, optional, record, str, type Decoder } from "./decode";
-import * as backend from "./backendShapes";
+import { anything, bool, decode, DecodeError, lazy, list, namedButAbsent, nullable, num, object, oneOf, optional, record, recordOf, str, type Decoder } from "./decode";
+import * as backend from "./backendShapes.generated";
 
 const shape = object({ title: str, n: optional(num), tags: list(str), nested: optional(object({ ok: bool })) });
 
@@ -79,5 +79,21 @@ describe("namedButAbsent", () => {
   it("does not listen outside a call", () => {
     decode("x", object({ a: optional(str) }), {});
     expect(namedButAbsent(object({ a: optional(str) }), { a: "x" })).toEqual([]);
+  });
+
+  it("reads a word from its list and refuses any other word (adr/0278)", () => {
+    const tier = oneOf("T1", "T2");
+    expect(decode("x", object({ tier }), { tier: "T2" })).toEqual({ tier: "T2" });
+    expect(() => decode("x", object({ tier }), { tier: "T9" })).toThrow('tier is "T9", not one of T1, T2');
+    expect(() => decode("x", object({ tier }), { tier: "" })).toThrow("not one of T1, T2");
+    expect(() => decode("x", object({ tier }), { tier: 1 })).toThrow("tier is not a string");
+    expect(() => decode("x", object({ tier }), {})).toThrow("tier missing");
+  });
+
+  it("reads a map keyed by words and refuses a key off the list", () => {
+    const counts = recordOf(oneOf("T1", "T2"), num);
+    expect(decode("x", object({ counts }), { counts: { T1: 1 } })).toEqual({ counts: { T1: 1 } });
+    expect(decode("x", object({ counts }), { counts: null })).toEqual({ counts: {} });
+    expect(() => decode("x", object({ counts }), { counts: { T9: 1 } })).toThrow('counts key T9 is "T9", not one of T1, T2');
   });
 });

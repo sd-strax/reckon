@@ -26,7 +26,7 @@ func recordVerdictCmd(disposition string) (RecordInterpretation, uuid.UUID) {
 		InterpretationID:   id,
 		InterpretationType: InterpretationVerdict,
 		Verdict:            &VerdictNode{Disposition: disposition},
-		InputRefs:          []string{"observed-data--x"},
+		InputRefs:          []string{"observed-data--0d000000-0000-4000-8000-000000000001"},
 		Rationale:          "cited by the pinned finding",
 	}, id
 }

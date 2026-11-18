@@ -452,6 +452,9 @@ func TestIsCloudPrincipal(t *testing.T) {
 		{"Linux caption with an ARN", "aws", user("uid", deployARN, "account", map[string]any{"type": "Linux Account"}), false},
 		{"IAM User caption", "aws", user("uid", "x", "account", map[string]any{"type": "aws iam user"}), true},
 		{"the id over the caption", "aws", user("uid", "x", "account", map[string]any{"type_id": 3, "type": "Linux Account"}), true},
+		// adr/0367: the type is read as ocsf.ReadUser reads it, so a type_id
+		// that is no number falls back to the caption.
+		{"a type_id that is no number beside its caption", "azure", user("uid", "x", "account", map[string]any{"type_id": "6", "type": "Azure AD Account"}), true},
 		{"AIDA unique id", "aws", user("uid", "AIDAIOSFODNN7EXAMPLE"), true},
 		{"AROA unique id", "aws", user("uid", "AROAIOSFODNN7EXAMPLE"), true},
 		{"AIDA unique id in uid_alt", "aws", user("uid_alt", "AIDAIOSFODNN7EXAMPLE"), true},

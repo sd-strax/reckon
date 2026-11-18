@@ -100,7 +100,7 @@ func TestLookupsAreRecorded(t *testing.T) {
 			"owner": map[string]any{"name": "alice"},
 			"group": map[string]any{"name": "rg"},
 		}},
-	}}, nil)
+	}}, nil, nil)
 
 	got := map[ocsfschema.Lookup]bool{}
 	for _, l := range rec.Lookups() {

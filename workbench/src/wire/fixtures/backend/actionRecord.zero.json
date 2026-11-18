@@ -2,8 +2,8 @@
   "action": {
     "action_id": "",
     "action_type": "",
-    "tier": "",
-    "status": ""
+    "tier": "T1",
+    "status": "REQUESTED"
   },
   "history": null,
   "authorization": {},

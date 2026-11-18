@@ -17,7 +17,11 @@ func (*fileActivityNormalizer) ClassUID() int { return 1001 }
 // names and sizes STIX can hold, adr/0357
 // 7: an account typed Windows only on a Windows signal, account type 19
 // read as one, adr/0366
-func (*fileActivityNormalizer) Version() int { return 7 }
+// 8: the account type read by the one rule, a caption for every type and
+// the id over it, adr/0367
+// 9: the account minted for each user object recorded in user_accounts,
+// adr/0398
+func (*fileActivityNormalizer) Version() int { return 9 }
 
 func (n *fileActivityNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload

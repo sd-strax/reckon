@@ -37,9 +37,20 @@ func (b *Backend) getPipelineStarter() pipelineStarter {
 
 // ExportResponse reports the triggered post-conclusion export.
 type ExportResponse struct {
-	InvestigationRef string `json:"investigation_ref"`
-	WorkflowID       string `json:"workflow_id"`
-	Status           string `json:"status"` // "STARTED"
+	InvestigationRef string       `json:"investigation_ref"`
+	WorkflowID       string       `json:"workflow_id"`
+	Status           ExportStatus `json:"status"`
+}
+
+// ExportStatus is the one word a triggered export answers with.
+type ExportStatus string
+
+// ExportStarted is the export workflow started.
+const ExportStarted ExportStatus = "STARTED"
+
+// WireValues lists the one word.
+func (ExportStatus) WireValues() []string {
+	return []string{string(ExportStarted)}
 }
 
 // exportInvestigation handles POST /api/investigations/{id}/export: the
@@ -90,7 +101,7 @@ func (b *Backend) exportInvestigation(w http.ResponseWriter, r *http.Request, id
 	writeJSON(w, http.StatusAccepted, ExportResponse{
 		InvestigationRef: id.String(),
 		WorkflowID:       wfID,
-		Status:           "STARTED",
+		Status:           ExportStarted,
 	})
 }
 

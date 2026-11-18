@@ -4,19 +4,24 @@
 // only: the pin's refs are unchanged.
 import type { AccountAlias } from "../../../src/protocol";
 import type { EventRow } from "../../../src/viewTypes";
-import { eventOfRecord, mergeSameEvents } from "./sameEvent";
+import { eventOfCitation, eventOfRecord, mergeSameEvents } from "./sameEvent";
 
 /**
- * The events a pin cites that the workbench holds, each once, in pin order. A
- * ref to any record of a merged event (adr/0348) stands for that event.
+ * The events a pin cites that the workbench holds, each once: those it names
+ * by a record, in pin order, then those it names by an observation. A ref to
+ * any record of a merged event (adr/0348) stands for that event, and so does
+ * an observation made from it (adr/0364), unless the pin already names a
+ * record that observation was made from.
  */
 export function pinnedEvents(refs: string[], events: EventRow[] | null | undefined): EventRow[] {
-  const of = eventOfRecord(mergeSameEvents(events));
+  const merged = mergeSameEvents(events);
+  const ofRecord = eventOfRecord(merged);
+  const ofCitation = eventOfCitation(merged);
   const out: EventRow[] = [];
-  for (const r of refs) {
-    const e = of.get(r)?.row;
-    if (e && !out.includes(e)) out.push(e);
-  }
+  const add = (e: EventRow | undefined) => { if (e && !out.includes(e)) out.push(e); };
+  for (const r of refs) add(ofRecord.get(r)?.row);
+  const shown = new Set(out.flatMap((e) => e.observedDataRefs ?? []));
+  for (const r of refs) if (!ofRecord.has(r) && !shown.has(r)) add(ofCitation.get(r)?.row);
   return out;
 }
 

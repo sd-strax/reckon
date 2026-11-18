@@ -54,8 +54,8 @@ func (s decodedEvidence) Event(context.Context, uuid.UUID) (evidence.Event, erro
 	return s.event, nil
 }
 
-func (s decodedEvidence) EventEntities(context.Context, uuid.UUID) ([]evidence.Object, error) {
-	return nil, nil
+func (s decodedEvidence) EventDerived(context.Context, uuid.UUID) (evidence.Derived, error) {
+	return evidence.Derived{}, nil
 }
 
 func processEvent(id uuid.UUID, process string) evidence.Event {

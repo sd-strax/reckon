@@ -53,7 +53,7 @@ type ActionHistoryEntry struct {
 	Actor      ThreadActorView `json:"actor"`
 	// Status is the lifecycle status the event moved the action to, when it
 	// moved one ("" for policy_evaluated and reversal_attempted).
-	Status string `json:"status,omitempty"`
+	Status aggregate.ActionStatus `json:"status,omitempty"`
 	// Detail is the event's one-line fact: the adapter dispatched to, the
 	// rejection reason, the final outcome with its target tally, the policy
 	// decision.
@@ -70,9 +70,9 @@ type ActionApproverView struct {
 
 // ActionAuthorization is the frozen Gate 2 requirement and how it was met.
 type ActionAuthorization struct {
-	RequiredMode          string                             `json:"required_mode,omitempty"`
-	Mode                  string                             `json:"mode,omitempty"`
-	Stage                 string                             `json:"stage,omitempty"`
+	RequiredMode          aggregate.AuthMode                 `json:"required_mode,omitempty"`
+	Mode                  aggregate.AuthMode                 `json:"mode,omitempty"`
+	Stage                 aggregate.AuthStage                `json:"stage,omitempty"`
 	PrimaryApprover       *ActionApproverView                `json:"primary_approver,omitempty"`
 	SecondaryApprover     *ActionApproverView                `json:"secondary_approver,omitempty"`
 	SecondaryApproverPool []string                           `json:"secondary_approver_pool,omitempty"`
@@ -138,8 +138,8 @@ func (b *Backend) loadActionRecord(ctx context.Context, actionID uuid.UUID) (Act
 	out := ActionRecordView{
 		Action: b.actionView(cur),
 		Authorization: ActionAuthorization{
-			RequiredMode:          cur.RequiredMode,
-			Mode:                  cur.Mode,
+			RequiredMode:          aggregate.AuthMode(cur.RequiredMode),
+			Mode:                  aggregate.AuthMode(cur.Mode),
 			SecondaryApproverPool: cur.SecondaryApproverPool,
 		},
 		Links: ActionLinks{},
@@ -174,7 +174,7 @@ func (b *Backend) loadActionRecord(ctx context.Context, actionID uuid.UUID) (Act
 	}
 	for _, e := range history {
 		actor := e.Actor
-		entry := ActionHistoryEntry{SequenceNo: e.SequenceNo, EventType: e.Type, OccurredAt: e.OccurredAt, Actor: threadActor(actor), Status: e.Status}
+		entry := ActionHistoryEntry{SequenceNo: e.SequenceNo, EventType: e.Type, OccurredAt: e.OccurredAt, Actor: threadActor(actor), Status: aggregate.ActionStatus(e.Status)}
 		switch p := e.Event.(type) {
 		case aggregate.ActionRequested:
 			entry.Detail = fmt.Sprintf("%s · %s · %d target(s)", p.ActionType, p.Tier, len(p.Targets))
@@ -187,7 +187,7 @@ func (b *Backend) loadActionRecord(ctx context.Context, actionID uuid.UUID) (Act
 			entry.Detail = policyDecisionLine(cur.RequiredMode, p)
 		case aggregate.ActionApproved:
 			a := p.Authorization
-			out.Authorization.Mode, out.Authorization.Stage = a.Mode, a.Stage
+			out.Authorization.Mode, out.Authorization.Stage = aggregate.AuthMode(a.Mode), aggregate.AuthStage(a.Stage)
 			out.Authorization.PolicyRef, out.Authorization.PolicyVersion = a.PolicyRef, a.PolicyVersion
 			out.Authorization.ChallengeAnswered = out.Authorization.ChallengeAnswered || a.ChallengeResponse != ""
 			approver := ActionApproverView{Principal: a.PrimaryApproverRef, At: a.PrimaryApprovedAt}

@@ -9,44 +9,6 @@ import (
 	"github.com/sd-strax/reckon/knowledge/substrate"
 )
 
-// SOPSection is one section of a procedure (design/06 §4.2): its place in
-// the document and, when read singly, its text. Runes is the text's length
-// whether or not the text is carried, so a reader can budget before reading.
-type SOPSection struct {
-	Idx         int      `json:"idx"`
-	Of          int      `json:"of"`
-	HeadingPath []string `json:"heading_path"`
-	Part        int      `json:"part,omitempty"`
-	Parts       int      `json:"parts,omitempty"`
-	Location    string   `json:"location"`
-	Runes       int      `json:"runes"`
-	Text        string   `json:"text,omitempty"`
-}
-
-// SOPOutline is a procedure's table of contents: every section without its
-// text (GET /api/sops/{id}/sections).
-type SOPOutline struct {
-	SOPID    uuid.UUID    `json:"sop_id"`
-	Title    string       `json:"title"`
-	Revision int          `json:"revision"`
-	Cut      string       `json:"cut"`
-	Status   string       `json:"status"`
-	Sections []SOPSection `json:"sections"`
-}
-
-// SOPSectionRead is one section read whole, with the outline around it
-// (GET /api/sops/{id}/sections/{n}), so one call answers "what does this part
-// say and what else is there".
-type SOPSectionRead struct {
-	SOPID    uuid.UUID  `json:"sop_id"`
-	Title    string     `json:"title"`
-	Revision int        `json:"revision"`
-	Cut      string     `json:"cut"`
-	Status   string     `json:"status"`
-	Section  SOPSection `json:"section"`
-	Outline  []string   `json:"outline"`
-}
-
 // SectionPin is what a section index is read against: the revision and the
 // cut a recall hit (or an earlier read) reported. Section indexes are stable
 // only within one revision and one cut, so a pinned read is refused

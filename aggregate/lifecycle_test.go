@@ -38,14 +38,14 @@ func recordVerdictFixture(t *testing.T, h *Handler, aggID uuid.UUID) {
 	mustHandle(t, h, cmdEnv(aggID), RecordInterpretation{
 		InterpretationID:   uuid.New(),
 		InterpretationType: InterpretationEvidencePin,
-		InputRefs:          []string{"observed-data--fixture"},
+		InputRefs:          []string{"observed-data--0d000000-0000-4000-8000-00000000f1c5"},
 		Rationale:          "load-bearing finding",
 	})
 	mustHandle(t, h, cmdEnv(aggID), RecordInterpretation{
 		InterpretationID:   uuid.New(),
 		InterpretationType: InterpretationVerdict,
 		Verdict:            &VerdictNode{Disposition: VerdictMalicious},
-		InputRefs:          []string{"observed-data--fixture"},
+		InputRefs:          []string{"observed-data--0d000000-0000-4000-8000-00000000f1c5"},
 		Rationale:          "confirmed by the pinned finding",
 	})
 }

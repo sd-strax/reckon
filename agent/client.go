@@ -10,307 +10,25 @@ import (
 	"net/url"
 	"strconv"
 	"time"
+
+	"github.com/sd-strax/reckon/internal/agentapi"
 )
 
-// The wire types below mirror the backend's JSON contract (the seam is the
-// HTTP API, exactly as the future extension consumes it — not Go types shared
-// with the server package, which the v2 server-side loop must be able to
-// import without a cycle). Only the fields the loop reads are mirrored.
-
-// Capability is one /api/capabilities entry.
-type Capability struct {
-	Descriptor struct {
-		Verb   string `json:"verb"`
-		Intent string `json:"intent"`
-		Inputs []struct {
-			Name     string `json:"name"`
-			Type     string `json:"type"`
-			Required bool   `json:"required"`
-			Desc     string `json:"desc,omitempty"`
-		} `json:"inputs"`
-		Output string `json:"output"`
-	} `json:"descriptor"`
-	Status string `json:"status"`
-}
-
-// ActionType is one /api/action-types entry — a frozen catalog descriptor plus
-// its current dispatchability. The agent uses this to request real action types
-// (host.isolate, ioc.block, …) instead of guessing action_type strings.
-type ActionType struct {
-	Descriptor struct {
-		ActionType string `json:"action_type"`
-		Intent     string `json:"intent"`
-		// Inputs is the declared schema for request_action.parameters (08 §3).
-		// Entity-typed inputs ride the targets list; the rest are parameter
-		// keys the backend validates at request time. The loop renders them
-		// as the top-level inputs of the type's action tool (adr/0380).
-		Inputs        []ActionInput `json:"inputs"`
-		DefaultTier   string        `json:"default_tier"`
-		Reversibility string        `json:"reversibility"`
-		ReversibleBy  string        `json:"reversible_by,omitempty"`
-		D3FEND        string        `json:"d3fend,omitempty"`
-	} `json:"descriptor"`
-	Status string `json:"status"` // available | degraded | unavailable
-}
-
-// ActionInput is one declared input of an action type (08 §3).
-type ActionInput struct {
-	Name     string `json:"name"`
-	Type     string `json:"type"`
-	Required bool   `json:"required"`
-	Desc     string `json:"desc,omitempty"`
-}
-
-// InvokeInput is the body of POST /api/capability/{verb}.
-type InvokeInput struct {
-	Entity map[string]any `json:"entity,omitempty"`
-	Window *Window        `json:"window,omitempty"`
-	Extra  map[string]any `json:"extra,omitempty"`
-	// InvestigationRef makes the events the call returns members of the
-	// investigation (adr/0092).
-	InvestigationRef string `json:"investigation_ref,omitempty"`
-}
-
-// Window is a verb call's time bound.
-type Window struct {
-	From time.Time `json:"from"`
-	To   time.Time `json:"to"`
-}
-
-// ConsultedSOP is one SOP surfaced by recall_sops during the turn — the
-// knowledge-retrieval provenance the commit carries (01 schema). Cited is set
-// when the model's own text for the turn names it by ref (adr/0236).
-type ConsultedSOP struct {
-	SOPID          string  `json:"sop_id"`
-	Title          string  `json:"title,omitempty"`
-	RetrievalScore float64 `json:"retrieval_score,omitempty"`
-	// Revision and Cut are the SOP revision and section cut the sections
-	// belong to, as recall or read_sop returned them; a turn records one
-	// entry per procedure and revision shown.
-	Revision int    `json:"revision,omitempty"`
-	Cut      string `json:"cut,omitempty"`
-	// Sections are the 1-based indexes of the procedure's sections the model
-	// was shown this turn: carried by a recall hit or read with read_sop.
-	// Cited requires at least one (adr/0303).
-	Sections []int `json:"sections,omitempty"`
-	Cited    bool  `json:"cited"`
-}
-
-// ConsultedSimilarInvestigation is one concluded-investigation summary surfaced
-// by recall_similar_investigations during the turn (06 §6) — the case-knowledge
-// counterpart of ConsultedSOP.
-type ConsultedSimilarInvestigation struct {
-	InvestigationRef string  `json:"investigation_ref"`
-	Title            string  `json:"title,omitempty"`
-	RetrievalScore   float64 `json:"retrieval_score,omitempty"`
-	Band             string  `json:"band,omitempty"`
-	Cited            bool    `json:"cited"`
-}
-
-// InterpretationRequest is the body of POST /api/interpretations (the loop's
-// write into the reasoning thread).
-type InterpretationRequest struct {
-	InvestigationRef   string                          `json:"investigation_ref"`
-	InterpretationType string                          `json:"interpretation_type"`
-	InputRefs          []string                        `json:"input_refs,omitempty"`
-	OutputRefs         []string                        `json:"output_refs,omitempty"`
-	Rationale          string                          `json:"rationale"`
-	Confidence         string                          `json:"confidence,omitempty"`
-	Transcript         *Transcript                     `json:"transcript,omitempty"`
-	ToolCalls          []ToolCall                      `json:"tool_calls,omitempty"`
-	Hypothesis         *Hypothesis                     `json:"hypothesis,omitempty"`
-	HypothesisRef      string                          `json:"hypothesis_ref,omitempty"`
-	Abandoned          bool                            `json:"abandoned,omitempty"`
-	Prediction         *Prediction                     `json:"prediction,omitempty"`
-	PredictionRef      string                          `json:"prediction_ref,omitempty"`
-	PredictionStatus   string                          `json:"prediction_status,omitempty"`
-	ConsultedSOPs      []ConsultedSOP                  `json:"consulted_sops,omitempty"`
-	ConsultedSimilar   []ConsultedSimilarInvestigation `json:"consulted_similar_investigations,omitempty"`
-	TestResultRefs     []string                        `json:"test_result_refs,omitempty"`
-}
-
-// Transcript carries a turn's raw transcript bytes for side-store hashing.
-type Transcript struct {
-	TurnID string `json:"turn_id,omitempty"`
-	Body   string `json:"body"`
-}
-
-// ToolCall is one tool dispatch the model made during the turn.
-type ToolCall struct {
-	CallID   string          `json:"call_id"`
-	ToolName string          `json:"tool_name"`
-	Args     json.RawMessage `json:"args,omitempty"`
-	// CapabilityCallID is the engine's id for the capability call this dispatch
-	// made, read from the envelope (adr/0092); empty for every other tool.
-	CapabilityCallID string `json:"capability_call_id,omitempty"`
-}
-
-// Hypothesis is the creation payload of a new reckon-hypothesis.
-type Hypothesis struct {
-	Statement   string   `json:"statement"`
-	Handle      string   `json:"handle,omitempty"`
-	ParentRef   string   `json:"parent_ref,omitempty"`
-	RootedAtRef string   `json:"rooted_at_ref,omitempty"`
-	Labels      []string `json:"labels,omitempty"`
-}
-
-// Prediction is the creation payload of a new reckon-prediction. Discriminates
-// names the rival hypotheses whose expectation for it is the opposite of the
-// owner's (01 §reckon-prediction).
-type Prediction struct {
-	HypothesisRef string     `json:"hypothesis_ref"`
-	Statement     string     `json:"statement"`
-	Title         string     `json:"title,omitempty"` // the short name; the engine derives one when absent (adr/0090)
-	TestQuery     *QuerySpec `json:"test_query,omitempty"`
-	Discriminates []string   `json:"discriminates,omitempty"`
-	TestKind      string     `json:"test_kind,omitempty"` // tool (default) | manual — a person tests it (adr/0054)
-}
-
-// QuerySpec is a prediction's declared test.
-type QuerySpec struct {
-	Tool       string         `json:"tool"`
-	QueryText  string         `json:"query_text"`
-	Parameters map[string]any `json:"parameters,omitempty"`
-}
-
-// InterpretationResponse reports the appended reasoning act.
-type InterpretationResponse struct {
-	InterpretationID string `json:"interpretation_id"`
-	SequenceNo       int64  `json:"sequence_no"`
-	NodeID           string `json:"node_id,omitempty"`
-}
-
-// ActionRequest is the body of POST /api/actions (request_action, 08 §2).
-type ActionRequest struct {
-	ActionType       string          `json:"action_type"`
-	Targets          []ActionTarget  `json:"targets"`
-	Parameters       json.RawMessage `json:"parameters,omitempty"`
-	EvidenceRefs     []string        `json:"evidence_refs,omitempty"`
-	Rationale        string          `json:"rationale"`
-	InvestigationRef string          `json:"investigation_ref"`
-	// RetryOf: the prior FAILED/EXPIRED action id this request replaces
-	// (lineage; a retry is always a new action).
-	RetryOf string `json:"retry_of,omitempty"`
-}
-
-// ActionTarget names one target of an action.
-type ActionTarget struct {
-	EntityRef          string `json:"entity_ref"`
-	ResolvedIdentifier string `json:"resolved_identifier"`
-	AssetCriticality   string `json:"asset_criticality,omitempty"`
-}
-
-// ActionResponse reports the created reckon-action and how authorization resolved.
-type ActionResponse struct {
-	ActionID   string `json:"action_id"`
-	Tier       string `json:"tier"`
-	Status     string `json:"status"`
-	Mode       string `json:"mode"`
-	WorkflowID string `json:"workflow_id,omitempty"`
-}
-
-// ActionStatus is one row of GET /api/investigations/{id}/actions — the
-// durable action queue, unlike ActionResponse which only reports the moment of
-// request. Status is the engine's raw lifecycle status; the fallback path may
-// also carry the request-time PENDING_* labels.
-type ActionStatus struct {
-	ActionID     string         `json:"action_id"`
-	ActionType   string         `json:"action_type"`
-	Tier         string         `json:"tier"`
-	Status       string         `json:"status"`
-	RequiredMode string         `json:"required_mode,omitempty"`
-	IsReversal   bool           `json:"is_reversal,omitempty"`
-	Targets      []ActionTarget `json:"targets,omitempty"`
-	// ExpiresAt is the approval deadline frozen at request time (04). The
-	// status may still read REQUESTED past it until the expiry timer fires
-	// (its start is best-effort); the engine refuses at the approve attempt
-	// regardless — so every surface (and
-	// the model, via the list_actions tool result) must judge approvability
-	// from this field, not the status. Dropping it here once made the agent
-	// and the workbench disagree about the same action.
-	ExpiresAt *time.Time `json:"expires_at,omitempty"`
-	// EvidenceRefs are the refs that grounded the request (08 §2) — the eval
-	// harness's G1 grader reads them from this durable view.
-	EvidenceRefs []string `json:"evidence_refs,omitempty"`
-}
-
-// Expired reports whether the approval window has elapsed — the engine will
-// refuse an approve regardless of Status.
-func (a ActionStatus) Expired(now time.Time) bool {
-	return a.ExpiresAt != nil && now.After(*a.ExpiresAt)
-}
-
-// ApprovalLapsed is the one definition of an expired action (adr/0339): an
-// action is expired when it still awaits approval and its approval deadline
-// has passed; a decided action is not, whatever its deadline. The
-// engine-state block and list_actions both read it, so they never disagree.
-func (a ActionStatus) ApprovalLapsed(now time.Time) bool {
-	return a.Pending() && a.Expired(now)
-}
-
-// Pending reports whether the action still awaits a human approval.
-func (a ActionStatus) Pending() bool {
-	switch a.Status {
-	case "REQUESTED", "PENDING_SECONDARY", "PENDING_MANUAL", "PENDING_TWO_PARTY":
-		return true
-	}
-	return false
-}
-
-// PendingLabel renders the awaiting state in the request-time vocabulary
-// (PENDING_MANUAL / PENDING_TWO_PARTY) surfaces already speak.
-func (a ActionStatus) PendingLabel() string {
-	switch {
-	case a.Status == "REQUESTED" && a.RequiredMode == "TWO_PARTY":
-		return "PENDING_TWO_PARTY"
-	case a.Status == "REQUESTED":
-		return "PENDING_MANUAL"
-	case a.Status == "PENDING_SECONDARY":
-		return "PENDING_TWO_PARTY"
-	}
-	return a.Status
-}
-
-// Investigation is the GET /api/investigations/{id} view.
-type Investigation struct {
-	AggregateID string `json:"aggregate_id"`
-	Title       string `json:"title"`
-	Status      string `json:"status"`
-	// Seed is what kicked the investigation off (01 §Extension 1) — rendered into
-	// the session prompt so the agent's opening move fits the entry point (an
-	// alert to triage, an entity to pivot on, a case to read). Absent on pre-seed
-	// investigations.
-	Seed        *Seed  `json:"seed,omitempty"`
-	SeedSummary string `json:"seed_summary,omitempty"`
-	// HypothesisFraming is the tenant's competing-hypotheses dial (01
-	// §reckon-hypothesis): "leading_null" (default) or "leading_only". Empty is
-	// treated as leading_null.
-	HypothesisFraming string `json:"hypothesis_framing,omitempty"`
-	// AIReasoning is the tenant's autonomous-reasoning dial (trust.ai_reasoning).
-	// False means the engine refuses the agent's outcome on a PROPOSED
-	// hypothesis, which the reasoning-state block then says.
-	AIReasoning bool `json:"ai_reasoning,omitempty"`
-	// Verdict is the disposition of record (01 §Verdict), absent when none.
-	// The narrative draft reads it so an account written between turns says
-	// what the record holds, not what the conversation last heard.
-	Verdict *InvestigationVerdict `json:"verdict,omitempty"`
-}
-
-// InvestigationVerdict is the verdict as the detail serves it.
-type InvestigationVerdict struct {
-	Disposition string `json:"disposition"`
-	Rationale   string `json:"rationale,omitempty"`
-}
-
-// Seed is the subset of the investigation's root the prompt renders (the fields
-// that shape the agent's opening move). CaseID/Source drive the case-seed
-// directive (14-case-seed.md §4.3).
-type Seed struct {
-	Type    string `json:"type"`
-	Source  string `json:"source,omitempty"`
-	CaseID  string `json:"case_id,omitempty"`
-	CaseRef string `json:"case_ref,omitempty"`
-}
+// Most shapes the client sends and reads are the backend's own, from
+// internal/agentapi (adr/0278). The seam is the HTTP API, and the agent
+// imports no engine package (adr/0385).
+//
+// Four bodies are still sent as maps: RecallSOPs, RecallSimilar,
+// PriorInvestigations and SubmitSummaryNarrative. Their request types are the
+// knowledge service's and the server's, and were not moved. For three of them
+// the type would also change the bytes the agent sends. The two recall types
+// always send limit and include_retired, which the agent leaves out. The
+// summary narrative type orders its keys differently and drops an empty
+// generator_model, which the agent always sends. The prior-investigations
+// type would send the same bytes.
+//
+// The recall and capability results the model reads are passed through as the
+// backend sent them. The agent decodes them only to record what was consulted.
 
 // APIError is a non-2xx backend response, surfaced with its body so the model
 // (or analyst) sees the engine's explanation — a Gate 2 denial or a guarded
@@ -420,10 +138,8 @@ func (c *Client) do(ctx context.Context, method, path string, src TokenSource, i
 }
 
 // ListCapabilities fetches the verb catalog with availability (agent token).
-func (c *Client) ListCapabilities(ctx context.Context) ([]Capability, error) {
-	var out struct {
-		Capabilities []Capability `json:"capabilities"`
-	}
+func (c *Client) ListCapabilities(ctx context.Context) ([]agentapi.CapabilitySummary, error) {
+	var out agentapi.CapabilitiesResponse
 	if err := c.do(ctx, http.MethodGet, "/api/capabilities", c.agentSrc, nil, &out); err != nil {
 		return nil, err
 	}
@@ -432,7 +148,7 @@ func (c *Client) ListCapabilities(ctx context.Context) ([]Capability, error) {
 
 // InvokeCapability executes one read verb (agent token) and returns the raw
 // envelope JSON — the loop feeds it to the model as the tool result verbatim.
-func (c *Client) InvokeCapability(ctx context.Context, verb string, in InvokeInput) (json.RawMessage, error) {
+func (c *Client) InvokeCapability(ctx context.Context, verb string, in agentapi.CapabilityInvokeBody) (json.RawMessage, error) {
 	var out json.RawMessage
 	if err := c.do(ctx, http.MethodPost, "/api/capability/"+verb, c.agentSrc, in, &out); err != nil {
 		return nil, err
@@ -444,10 +160,8 @@ func (c *Client) InvokeCapability(ctx context.Context, verb string, in InvokeInp
 // (agent token). The loop builds one action tool per catalog type from it,
 // and refuses the calls of an unavailable one. A 503 (action layer off) surfaces as an *APIError the session reads as
 // "no action tools"; any other error fails the session start.
-func (c *Client) ListActionTypes(ctx context.Context) ([]ActionType, error) {
-	var out struct {
-		ActionTypes []ActionType `json:"action_types"`
-	}
+func (c *Client) ListActionTypes(ctx context.Context) ([]agentapi.ActionSummary, error) {
+	var out agentapi.ActionTypesResponse
 	if err := c.do(ctx, http.MethodGet, "/api/action-types", c.agentSrc, nil, &out); err != nil {
 		return nil, err
 	}
@@ -543,35 +257,30 @@ func (c *Client) SubmitSummaryNarrative(ctx context.Context, investigationRef, n
 // (agent token, adr/0103): the record attributes it to the model under the
 // principal. Returns the revision recorded.
 func (c *Client) RecordNarrative(ctx context.Context, investigationID, body, model string) (int, error) {
-	var out struct {
-		Revision int `json:"revision"`
-	}
-	req := map[string]any{"body": body}
-	if model != "" {
-		req["model"] = model
-	}
+	var out agentapi.NarrativeView
+	req := agentapi.NarrativeRequestBody{Body: body, Model: model}
 	err := c.do(ctx, http.MethodPost, "/api/investigations/"+url.PathEscape(investigationID)+"/narrative", c.agentSrc, req, &out)
 	return out.Revision, err
 }
 
 // RecordInterpretation appends one reasoning act (agent token).
-func (c *Client) RecordInterpretation(ctx context.Context, body InterpretationRequest) (InterpretationResponse, error) {
-	var out InterpretationResponse
+func (c *Client) RecordInterpretation(ctx context.Context, body agentapi.RecordInterpretationBody) (agentapi.RecordInterpretationResponse, error) {
+	var out agentapi.RecordInterpretationResponse
 	err := c.do(ctx, http.MethodPost, "/api/interpretations", c.agentSrc, body, &out)
 	return out, err
 }
 
 // RequestAction proposes a state-changing action (agent token; Gate 2 and the
 // baseline DENY apply server-side).
-func (c *Client) RequestAction(ctx context.Context, body ActionRequest) (ActionResponse, error) {
-	var out ActionResponse
+func (c *Client) RequestAction(ctx context.Context, body agentapi.RequestActionBody) (agentapi.RequestActionResponse, error) {
+	var out agentapi.RequestActionResponse
 	err := c.do(ctx, http.MethodPost, "/api/actions", c.agentSrc, body, &out)
 	return out, err
 }
 
 // GetInvestigation loads the investigation header (agent token — a read).
-func (c *Client) GetInvestigation(ctx context.Context, id string) (Investigation, error) {
-	var out Investigation
+func (c *Client) GetInvestigation(ctx context.Context, id string) (agentapi.InvestigationView, error) {
+	var out agentapi.InvestigationView
 	err := c.do(ctx, http.MethodGet, "/api/investigations/"+id, c.agentSrc, nil, &out)
 	return out, err
 }
@@ -584,38 +293,10 @@ func (c *Client) ListHypotheses(ctx context.Context, id string) (json.RawMessage
 	return out, err
 }
 
-// ThreadEntry is one committed reasoning act (subset of server.ThreadEntryView)
-// — enough to rehydrate a session's conversation on reconnect.
-type ThreadEntry struct {
-	SequenceNo       int64  `json:"sequence_no"`
-	InterpretationID string `json:"interpretation_id"`
-	HasTranscript    bool   `json:"has_transcript"`
-	// InterpretationType is the act's type — rehydrate reads it to honor a
-	// durable context-reset marker (entries before the newest marker are not
-	// replayed; adr/0235).
-	InterpretationType string `json:"interpretation_type"`
-	// Summary is the act's rationale.
-	Summary string `json:"summary"`
-	// Actor is who recorded the act; the narrative draft says so.
-	Actor ThreadActor `json:"actor"`
-	// Superseded reports that a later act retracted this one; it stays on the
-	// thread but is not current.
-	Superseded bool `json:"superseded,omitempty"`
-	// Disposition is a verdict act's disposition.
-	Disposition string `json:"disposition,omitempty"`
-}
-
-// ThreadActor is the actor of a thread entry: HUMAN, AI_DELEGATED or SYSTEM.
-type ThreadActor struct {
-	Kind string `json:"kind"`
-}
-
 // Thread returns the investigation's committed reasoning thread in sequence
 // order (agent token — a read).
-func (c *Client) Thread(ctx context.Context, id string) ([]ThreadEntry, error) {
-	var out struct {
-		Thread []ThreadEntry `json:"thread"`
-	}
+func (c *Client) Thread(ctx context.Context, id string) ([]agentapi.ThreadEntryView, error) {
+	var out agentapi.ThreadResponse
 	if err := c.do(ctx, http.MethodGet, "/api/investigations/"+id+"/thread", c.agentSrc, nil, &out); err != nil {
 		return nil, err
 	}
@@ -625,19 +306,15 @@ func (c *Client) Thread(ctx context.Context, id string) ([]ThreadEntry, error) {
 // Transcript returns the committed turn transcript behind one interpretation
 // (agent token — a read). The line-framed body is what the loop rehydrates.
 func (c *Client) Transcript(ctx context.Context, interpretationID string) (string, error) {
-	var out struct {
-		Body string `json:"body"`
-	}
+	var out agentapi.TranscriptResponse
 	err := c.do(ctx, http.MethodGet, "/api/interpretations/"+interpretationID+"/transcript", c.agentSrc, nil, &out)
 	return out.Body, err
 }
 
 // ListActions returns the investigation's reckon-actions with their current status
 // (agent token — a read). The durable source of the pending-approval queue.
-func (c *Client) ListActions(ctx context.Context, id string) ([]ActionStatus, error) {
-	var out struct {
-		Actions []ActionStatus `json:"actions"`
-	}
+func (c *Client) ListActions(ctx context.Context, id string) ([]agentapi.ActionView, error) {
+	var out agentapi.ActionsResponse
 	if err := c.do(ctx, http.MethodGet, "/api/investigations/"+id+"/actions", c.agentSrc, nil, &out); err != nil {
 		return nil, err
 	}
@@ -648,10 +325,7 @@ func (c *Client) ListActions(ctx context.Context, id string) ([]ActionStatus, er
 // is the analyst's act, never the delegate's — the backend rejects an agent
 // token here regardless.
 func (c *Client) ApproveAction(ctx context.Context, actionID, challengeResponse string) (json.RawMessage, error) {
-	body := map[string]any{}
-	if challengeResponse != "" {
-		body["challenge_response"] = challengeResponse
-	}
+	body := agentapi.ApproveActionBody{ChallengeResponse: challengeResponse}
 	var out json.RawMessage
 	err := c.do(ctx, http.MethodPost, "/api/actions/"+actionID+"/approve", c.humanSrc, body, &out)
 	return out, err
@@ -659,7 +333,7 @@ func (c *Client) ApproveAction(ctx context.Context, actionID, challengeResponse 
 
 // RejectAction rejects a pending action as the human.
 func (c *Client) RejectAction(ctx context.Context, actionID, reason string) (json.RawMessage, error) {
-	body := map[string]any{"reason": reason}
+	body := agentapi.RejectActionBody{Reason: reason}
 	var out json.RawMessage
 	err := c.do(ctx, http.MethodPost, "/api/actions/"+actionID+"/reject", c.humanSrc, body, &out)
 	return out, err

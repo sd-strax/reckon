@@ -4,7 +4,7 @@
       "id": "x",
       "statement": "x",
       "handle": "x",
-      "status": "x",
+      "status": "PROPOSED",
       "parent_ref": "x",
       "rooted_at_ref": "x",
       "labels": [
@@ -16,7 +16,7 @@
           "statement": "x",
           "title": "x",
           "title_derived": true,
-          "status": "x",
+          "status": "UNTESTED",
           "ordinal": 1,
           "test_query": {
             "tool": "x",
@@ -31,7 +31,7 @@
           "test_result_refs": [
             "x"
           ],
-          "test_kind": "x",
+          "test_kind": "tool",
           "attestation": {
             "note_ref": "x",
             "author": "x",

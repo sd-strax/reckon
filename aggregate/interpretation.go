@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
 
+	"github.com/sd-strax/reckon/internal/agentapi"
 	"github.com/sd-strax/reckon/stix"
 )
 
@@ -99,29 +101,69 @@ func validateRefList(field string, refs []string) error {
 	return nil
 }
 
-// validateCitations refuses a cited ref that is neither a STIX id
-// (<type>--<UUID>) nor a raw OCSF event id (a bare UUID), the two forms a
-// citation can take (adr/0357). The stored object keeps each form in its own
-// list.
-func validateCitations(field string, refs []string) error {
+// EventCitedError is the refusal of a new citation that names raw OCSF events
+// (bare event ids) instead of STIX objects (adr/0364). Field is the list the
+// entries were in, and Refs are every event id it held, in list order. An
+// event is cited through the observation made from it.
+type EventCitedError struct {
+	Field string
+	Refs  []string
+}
+
+func (e *EventCitedError) Error() string {
+	return fmt.Sprintf("%s cites raw event ids %s; cite the observation (observed-data) made from each event instead", e.Field, strings.Join(e.Refs, ", "))
+}
+
+// isEventID reports whether a ref is a bare UUID, the form a raw OCSF event's
+// id takes.
+func isEventID(ref string) bool {
+	_, err := uuid.Parse(ref)
+	return err == nil && len(ref) == 36
+}
+
+// CheckCitedRefs refuses any entry of a citation list that is not a STIX id
+// (<type>--<UUID>). An entry in neither form is refused with a plain error.
+// Otherwise every bare event id in the list is refused together, with an
+// *EventCitedError, so a caller can name the observations to cite instead
+// (adr/0364).
+func CheckCitedRefs(field string, refs []string) error {
+	var events []string
 	for _, r := range refs {
 		if stix.IsIdentifier(r) {
 			continue
 		}
-		if _, err := uuid.Parse(r); err == nil && len(r) == 36 {
+		if isEventID(r) {
+			events = append(events, r)
 			continue
 		}
-		return fmt.Errorf("RecordInterpretation: %s entry %q is neither a STIX id (<type>--<UUID>) nor an event id (a UUID); cite the observation or the event the tool result names", field, r)
+		return fmt.Errorf("%s entry %q is not a STIX id (<type>--<UUID>); cite the observation or the entity the tool result names", field, r)
+	}
+	if len(events) > 0 {
+		return &EventCitedError{Field: field, Refs: events}
+	}
+	return nil
+}
+
+// validateCitations refuses a cited ref that is not a STIX id. A raw event id
+// was accepted until adr/0364; the stored object still keeps the event ids an
+// older record cites in their own list (adr/0357).
+func validateCitations(field string, refs []string) error {
+	if err := CheckCitedRefs(field, refs); err != nil {
+		return fmt.Errorf("RecordInterpretation: %w", err)
 	}
 	return nil
 }
 
 // Confidence values (01-domain-model.md §Interpretation schema). Optional.
+// The words are defined once in internal/agentapi (adr/0278).
 const (
-	ConfidenceHigh   = "HIGH"
-	ConfidenceMedium = "MEDIUM"
-	ConfidenceLow    = "LOW"
+	ConfidenceHigh   = agentapi.ConfidenceHigh
+	ConfidenceMedium = agentapi.ConfidenceMedium
+	ConfidenceLow    = agentapi.ConfidenceLow
 )
+
+// Confidence is an act's confidence as a served view carries it.
+type Confidence = agentapi.Confidence
 
 // Derivation mode (01-domain-model.md §Interpretation schema): DIRECT = produced
 // by a tool through the capability layer; INFERRED = derived/reasoned by the
@@ -133,25 +175,9 @@ const (
 )
 
 // ConsultedSOP records one SOP surfaced by knowledge-service retrieval during
-// a reasoning act (01 INTERPRETATION schema; 06 §6): retrieval provenance.
-// Cited distinguishes an SOP the act named by ref from one merely retrieved
-// (adr/0236). It records that the actor cited it, not that it applied it.
-type ConsultedSOP struct {
-	SOPID          string  `json:"sop_id"`
-	Title          string  `json:"title,omitempty"`
-	RetrievalScore float64 `json:"retrieval_score,omitempty"`
-	// Revision and Cut are the SOP revision and section cut the sections
-	// belong to, as recall returned them: section indexes are stable only
-	// within one revision and one cut, so the record names both. One act
-	// records a procedure once per revision and cut shown.
-	Revision int    `json:"revision,omitempty"`
-	Cut      string `json:"cut,omitempty"`
-	// Sections are the 1-based indexes of the procedure's sections the act
-	// had in front of it: what was read, which the inspector shows as
-	// "excerpt k of n" (adr/0303). Cited requires at least one.
-	Sections []int `json:"sections,omitempty"`
-	Cited    bool  `json:"cited"`
-}
+// a reasoning act (01 INTERPRETATION schema; 06 §6). The thread serves it as
+// recorded, so it is defined in internal/agentapi (adr/0278).
+type ConsultedSOP = agentapi.ConsultedSOP
 
 // MaxSectionsPerToolResult is the most sections of one procedure one tool
 // result can show the actor: the recall limit the agent asks for. With
@@ -175,18 +201,10 @@ type consultedSOPKey struct {
 }
 
 // ConsultedSimilarInvestigation records one concluded-investigation summary
-// surfaced by similarity retrieval during a reasoning act (06 §3, §6): the
-// case-knowledge counterpart of ConsultedSOP. InvestigationRef is the source
-// investigation's grouping ref (from the summary's provenance), Band the
-// substrate similarity band. Cited is as ConsultedSOP.Cited: the act named
-// the case by ref.
-type ConsultedSimilarInvestigation struct {
-	InvestigationRef string  `json:"investigation_ref"`
-	Title            string  `json:"title,omitempty"`
-	RetrievalScore   float64 `json:"retrieval_score,omitempty"`
-	Band             string  `json:"band,omitempty"`
-	Cited            bool    `json:"cited"`
-}
+// surfaced by similarity retrieval during a reasoning act (06 §3, §6). The
+// thread serves it as recorded, so it is defined in internal/agentapi
+// (adr/0278).
+type ConsultedSimilarInvestigation = agentapi.ConsultedSimilarInvestigation
 
 // maxConsultedPerInterpretation bounds the consulted lists (refs are ids +
 // scores, not bulk; a runaway retrieval must not bloat the event).

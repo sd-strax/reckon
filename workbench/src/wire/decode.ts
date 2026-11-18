@@ -32,6 +32,18 @@ export const bool: Decoder<boolean> = (value, at) => {
   return value;
 };
 
+/**
+ * A word from a fixed list: a Go string type that lists its words
+ * (WireValues, adr/0278). Any other word is an error, not a silent default.
+ */
+export function oneOf<W extends string>(...words: W[]): Decoder<W> {
+  return (value, at) => {
+    if (typeof value !== "string") throw wrong(value, at, "a string");
+    if (!(words as string[]).includes(value)) throw new DecodeError(`${at || "the response"} is ${JSON.stringify(value)}, not one of ${words.join(", ")}`);
+    return value as W;
+  };
+}
+
 /** Opaque data, passed through unread. It must be there; null is a value. */
 export const anything: Decoder<unknown> = (value, at) => {
   if (value === undefined) throw wrong(value, at, "");
@@ -71,6 +83,16 @@ export function record<T>(item: Decoder<T>): Decoder<Record<string, T>> {
     if (value === null) return {};
     if (typeof value !== "object" || Array.isArray(value)) throw wrong(value, at, "an object");
     return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, item(v, `${at}.${k}`)]));
+  };
+}
+
+/** A map whose keys are words from a fixed list: a key off the list is an error. */
+export function recordOf<K extends string, T>(key: Decoder<K>, item: Decoder<T>): Decoder<Partial<Record<K, T>>> {
+  const read = record(item);
+  return (value, at) => {
+    const out = read(value, at);
+    for (const k of Object.keys(out)) key(k, `${at} key ${k}`);
+    return out as Partial<Record<K, T>>;
   };
 }
 

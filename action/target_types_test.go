@@ -15,13 +15,13 @@ import (
 // names the declared types; a destination action does not read entity_ref
 // (adr/0354).
 func TestBuildRequestCommand_TargetTypes(t *testing.T) {
-	catalog := DefaultActionCatalog()
+	catalog := defaultActionCatalog(t)
 	now := time.Date(2026, 11, 17, 9, 0, 0, 0, time.UTC)
 	req := func(actionType, ref string) ActionRequest {
 		return ActionRequest{
 			ActionType:   actionType,
 			Targets:      []aggregate.TargetSpec{{EntityRef: ref, ResolvedIdentifier: "x"}},
-			EvidenceRefs: []string{"observed-data--od1"},
+			EvidenceRefs: []string{"observed-data--0d000000-0000-4000-8000-000000000354"},
 			Rationale:    "r",
 		}
 	}
@@ -77,9 +77,9 @@ func TestBuildRequestCommand_TargetTypes(t *testing.T) {
 	// A destination action does not read entity_ref.
 	for _, r := range []ActionRequest{
 		{ActionType: "ticket.comment", Targets: []aggregate.TargetSpec{{ResolvedIdentifier: "INC-1"}},
-			Parameters: []byte(`{"body":"b"}`), EvidenceRefs: []string{"observed-data--od1"}, Rationale: "r"},
+			Parameters: []byte(`{"body":"b"}`), EvidenceRefs: []string{"observed-data--0d000000-0000-4000-8000-000000000354"}, Rationale: "r"},
 		{ActionType: "notify.slack", Targets: []aggregate.TargetSpec{{ResolvedIdentifier: "#soc"}},
-			Parameters: []byte(`{"message":"m"}`), EvidenceRefs: []string{"observed-data--od1"}, Rationale: "r"},
+			Parameters: []byte(`{"message":"m"}`), EvidenceRefs: []string{"observed-data--0d000000-0000-4000-8000-000000000354"}, Rationale: "r"},
 	} {
 		if _, err := BuildRequestCommand(catalog, r, now); err != nil {
 			t.Errorf("%s with no entity_ref: unexpected refusal: %v", r.ActionType, err)

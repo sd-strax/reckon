@@ -10,19 +10,21 @@ import (
 	"time"
 
 	"github.com/sd-strax/reckon/identity"
+	"github.com/sd-strax/reckon/internal/agentapi"
 	"github.com/sd-strax/reckon/stix"
 )
 
 // Coverage is the structured outcome of a capability call (§2, §6.1). The agent
-// loop branches on it without parsing prose.
-type Coverage string
+// loop branches on it without parsing prose. The words are defined once in
+// internal/agentapi, which the agent and the sidecar share (adr/0278).
+type Coverage = agentapi.Coverage
 
 const (
-	CoverageComplete             Coverage = "COMPLETE"              // all eligible bindings invoked and succeeded
-	CoveragePartial              Coverage = "PARTIAL"               // fan-out: some succeeded, some failed
-	CoverageUnavailableTenant    Coverage = "UNAVAILABLE_TENANT"    // no configured/applicable binding
-	CoverageUnavailableTransient Coverage = "UNAVAILABLE_TRANSIENT" // applicable bindings exist but all unhealthy
-	CoverageFailed               Coverage = "FAILED"                // healthy bindings called, all errored
+	CoverageComplete             = agentapi.CoverageComplete             // all eligible bindings invoked and succeeded
+	CoveragePartial              = agentapi.CoveragePartial              // fan-out: some succeeded, some failed
+	CoverageUnavailableTenant    = agentapi.CoverageUnavailableTenant    // no configured/applicable binding
+	CoverageUnavailableTransient = agentapi.CoverageUnavailableTransient // applicable bindings exist but all unhealthy
+	CoverageFailed               = agentapi.CoverageFailed               // healthy bindings called, all errored
 )
 
 // TimeWindow is a verb's [from, to] time bound.
@@ -363,7 +365,7 @@ func nullObservation(ids *identity.Resolver, verb string, input CallInput, sourc
 		Subject:    input.Entity,
 		Parameters: params,
 		Sources:    append([]string(nil), sources...),
-		Coverage:   string(CoverageComplete),
+		Coverage:   CoverageComplete,
 		ObjectRefs: subjectRefs(ids, input.Entity),
 		ObservedAt: now.UTC(),
 		Provenance: Provenance{

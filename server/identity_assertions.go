@@ -183,10 +183,10 @@ func (b *Backend) otherByHint(w http.ResponseWriter, r *http.Request, typ, hint 
 			return persons[0], true
 		}
 		shown, more := capped(persons)
-		writeJSON(w, http.StatusConflict, map[string]any{
-			"error":   fmt.Sprintf("%q names %d persons; name one by other_ref", hint, len(persons)),
-			"persons": shown,
-			"more":    more,
+		writeJSON(w, http.StatusConflict, PersonCandidatesResponse{
+			Error:   fmt.Sprintf("%q names %d persons; name one by other_ref", hint, len(persons)),
+			More:    more,
+			Persons: shown,
 		})
 		return "", false
 	}
@@ -203,14 +203,14 @@ func (b *Backend) otherByHint(w http.ResponseWriter, r *http.Request, typ, hint 
 		return accounts[0].Ref, true
 	}
 	shown, more := capped(accounts)
-	listed := make([]map[string]string, 0, len(shown))
+	listed := make([]KnownAccountView, 0, len(shown))
 	for _, a := range shown {
-		listed = append(listed, map[string]string{"ref": a.Ref, "account_type": a.Type, "account_login": a.Login})
+		listed = append(listed, KnownAccountView{AccountLogin: a.Login, AccountType: a.Type, Ref: a.Ref})
 	}
-	writeJSON(w, http.StatusConflict, map[string]any{
-		"error":    fmt.Sprintf("%q names %d accounts; name one by other_ref", hint, len(accounts)),
-		"accounts": listed,
-		"more":     more,
+	writeJSON(w, http.StatusConflict, AccountCandidatesResponse{
+		Accounts: listed,
+		Error:    fmt.Sprintf("%q names %d accounts; name one by other_ref", hint, len(accounts)),
+		More:     more,
 	})
 	return "", false
 }
@@ -219,6 +219,22 @@ func (b *Backend) otherByHint(w http.ResponseWriter, r *http.Request, typ, hint 
 // are several is made over every match, and the count of the rest is sent
 // beside the list.
 const candidateCap = 10
+
+// PersonCandidatesResponse is the 409 a hint that names several persons
+// answers: the first of them, and how many more there are.
+type PersonCandidatesResponse struct {
+	Error   string   `json:"error"`
+	More    int      `json:"more"`
+	Persons []string `json:"persons"`
+}
+
+// AccountCandidatesResponse is the 409 a hint that names several accounts
+// answers: the first of them, and how many more there are.
+type AccountCandidatesResponse struct {
+	Accounts []KnownAccountView `json:"accounts"`
+	Error    string             `json:"error"`
+	More     int                `json:"more"`
+}
 
 // capped is the first candidateCap of all, and how many more there are.
 func capped[T any](all []T) ([]T, int) {
@@ -347,10 +363,10 @@ func (b *Backend) assertOwner(w http.ResponseWriter, r *http.Request) {
 			person = persons[0]
 		default:
 			shown, more := capped(persons)
-			writeJSON(w, http.StatusConflict, map[string]any{
-				"error":   fmt.Sprintf("%q names %d persons; name one by person_ref", hint, len(persons)),
-				"persons": shown,
-				"more":    more,
+			writeJSON(w, http.StatusConflict, PersonCandidatesResponse{
+				Error:   fmt.Sprintf("%q names %d persons; name one by person_ref", hint, len(persons)),
+				More:    more,
+				Persons: shown,
 			})
 			return
 		}

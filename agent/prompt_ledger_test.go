@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/sd-strax/reckon/internal/agentapi"
 )
 
 // pointerRe is the one form a ledger provenance pointer takes: a GitHub issue
@@ -22,8 +24,8 @@ var pointerRe = regexp.MustCompile(`^(#[1-9][0-9]*|[0-9a-f]{7})$`)
 // the text.
 func TestPrompt_Frozen(t *testing.T) {
 	golden := map[string]string{
-		framingLeadingNull: "44e3271bfc64bc0256d52f8aeae31cb999cc00daf6aac816772ae38b5eb5c30b",
-		framingLeadingOnly: "f4e5d2c6fd11a67f4906a1f900ffea4de5fa7b247dccdb38c802ee0703abaf74",
+		framingLeadingNull: "b92c244d682b7f12a802102ea39e5376e3287a94b5532337f009e8a10ce494ca",
+		framingLeadingOnly: "69c5282613724dd54a328dbf73831606262b3e7a8576ead021ccc3b36046cd01",
 	}
 	for dial, want := range golden {
 		if got := PromptVersion(dial); got != want {
@@ -70,21 +72,21 @@ func TestSideInstructions_Frozen(t *testing.T) {
 // moved version says what moved: the prompt, a tool, an engine text, or a side
 // instruction.
 var componentGolden = map[string]string{
-	"prompt":                                           "28bc09c87cfee965bdd38f37ddcc237926204d1fe094147e066a6d83ec29bd6c",
-	"prompt/leading_only":                              "01c4eb2c8a530e6fb5cc57b916b58061207e013d8e3afdf565718ad289f7d1ce",
+	"prompt":                                           "bfea5e6b4ff601999bd4866b9c9abbcf93757c4e0d0f3d04f48b31d63d0f4982",
+	"prompt/leading_only":                              "7c9297d16db3992f2cf40057ee4cbfb417aa10855810d2511823c664a340377b",
 	"tools/recall_sops":                                "8c6809eb0dd1c94cbeb3a8e14fcae26eb627b2ca29785cc9b4fddfdcb347861c",
 	"tools/read_sop":                                   "d2a3d735e2d12528e5f651c56b8403778179d882ddb5a9405f88326d358a1b28",
 	"tools/recall_similar_investigations":              "013a01bbff06558a7d972be60d2e93248f23e54e71e1f5ce87196e800d45d711",
 	"tools/prior_investigations":                       "433c5d17cb369e9f19d36a54571b007c5230278d076c129006b037d61341f49e",
 	"tools/propose_hypothesis":                         "f9f8bddb979a6e836c1168e139973b63efcb7c8dddaa079436b9910b2ebcdf0c",
 	"tools/record_prediction":                          "dab8d176db49bd8468f80c619155c7d43eb98eaf43b3d2bc3d0c7fbc45ccd0ad",
-	"tools/evaluate_hypothesis":                        "6d7ba1b58f94d4dbc22f1f766efefe8793a260a99901a0f6d3fab5da3938f2be",
-	"tools/record_prediction_outcome":                  "1ca1335b3341d5ba553423d74b53b7960ae89b6d8078bc72fda2aa2c5605ad9e",
+	"tools/evaluate_hypothesis":                        "2ae6bc507319be86d07faa3b48606e261db7f58d5a550d76ef90f7e54dd5b842",
+	"tools/record_prediction_outcome":                  "9bf593463e58daf10445a2f67b245396355612750832d7216fc5f1ac23fecec1",
 	"tools/list_actions":                               "149708b898187a9bf3a486e36bd969630944a5fa234e72a4c40cf1f90a77cbea",
 	"tools/read_result":                                "e8a77530cd8f75be5ce8c3d39c8fbc1a777defb2a5e04b4ee86e2b37e4fb4f3b",
-	"tools/request_ticket_create+catalog":              "2000208dd097e1bb0c563f035cb7050d6389afd755641fd52d4573f913383ba4",
-	"tools/request_host_isolate+catalog":               "7030405d391ef564f1e7246617476a3cf504138cea14d4f0f317073e04f2bbe1",
-	"tools/request_ioc_block+catalog":                  "4665486edc22e829a81fa60594d8e1c3f3ad2b9d8c64d60b47b4d4c300977b31",
+	"tools/request_ticket_create+catalog":              "e939ebd07bb64a3cf743907f38fc02f46dede53593e3e62d3fe9a64549f69c3f",
+	"tools/request_host_isolate+catalog":               "96ccb195f71fde3c8b15a09aed3bff802ee3cd8df5a0381e909c9b54146164da",
+	"tools/request_ioc_block+catalog":                  "5fd3a89f49a02c2381b9519a23a9294fd55fb2b36ae5eb52893053c9abb838e7",
 	"tools/<verb>":                                     "795672a811bcaa201639fa7f3626615ddc873c0aa69c025d072486b773f95bf0",
 	"engine-text/clock":                                "9d82e0ccdff304d70aafa9f32ea959243dd87ef82b25b1919c0ea2ddde472f06",
 	"engine-text/reasoning-state":                      "e1aec4e82563e9898ba2876b6a9fa94d9bf4cc3842a259177a7b5c50cb1fed23",
@@ -129,6 +131,7 @@ var componentGolden = map[string]string{
 	"engine-text/prompt-degraded":                      "4dcc300552c6f82cff49a819b33069beacef67fa399d0ce3052292e14383d00b",
 	"engine-text/action-tool-guidance":                 "3719660b50d15c3161de7d44956e95e4cc861b977d73572697c3436874f42a4d",
 	"engine-text/action-tool-degraded":                 "eeecf7894d29e316071b613293c1d2193de17bf3b4bff50dadcdbad1036b11ce",
+	"engine-text/action-tool-type":                     "1cb40e5c4cde92ca1942ac61441e27a5bf9c921e0e747cae1e61083f47e51d46",
 	"engine-text/action-tool":                          "ef8e6aee59f6cdda0e3290ff7ecfebee426af66a27a5eb6d6024505f7acf6096",
 	"engine-text/action-tool-unavailable":              "c2e9905fd044cfb90f2b69526b4d439a600cda31407d85d90832895cf4a155bf",
 	"engine-text/list-separator":                       "0a07f659461970d8d8dcefe4fff96a1745599810dc7d47391e95c803b7b2072c",
@@ -263,7 +266,7 @@ func TestPromptLedger_Complete(t *testing.T) {
 	// Every rule renders: the prompt under each dial contains each rule's text
 	// for that dial, so the ledger and the prompt cannot drift apart.
 	for _, dial := range []string{framingLeadingNull, framingLeadingOnly} {
-		p := systemPrompt(Investigation{HypothesisFraming: dial}, nil)
+		p := systemPrompt(agentapi.InvestigationView{HypothesisFraming: dial}, nil)
 		for _, sec := range promptLedger {
 			for _, r := range sec.Rules {
 				if !strings.Contains(p, "- "+r.render(dial)+"\n") {

@@ -4,6 +4,16 @@
 import type { ActionTypeView } from "../../../src/protocol";
 import type { PinRow } from "../../../src/viewTypes";
 import type { GraphView } from "../../../src/protocol";
+import { citableRefs } from "../../../src/citable";
+
+/**
+ * The evidence an action from this pin cites: the pin's refs a new citation
+ * may name (adr/0364). A raw event id an older pin holds is left out; the
+ * observation made from it is cited instead when the pin holds it.
+ */
+export function pinEvidence(pin: PinRow): string[] {
+  return citableRefs(pin.inputRefs || []);
+}
 
 /** The entities the pin's evidence observed: the derived graph's join edges. */
 export function pinTargets(pin: PinRow, graph: GraphView | undefined, labels: Record<string, string>): { value: string; label: string }[] {

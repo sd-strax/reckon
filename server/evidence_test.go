@@ -30,7 +30,7 @@ func TestEvidence_PersistAndOpen(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("invoke = %d", resp.StatusCode)
 	}
-	if out.Coverage != string(capability.CoverageComplete) {
+	if out.Coverage != capability.CoverageComplete {
 		t.Fatalf("coverage = %q (notes: %v)", out.Coverage, out.DegradationNotes)
 	}
 
@@ -119,7 +119,7 @@ func TestEvidence_NullObservationOpens(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("invoke = %d", resp.StatusCode)
 	}
-	if out.Coverage != string(capability.CoverageComplete) || out.NullObservation == nil || len(out.ObservedDataRefs) != 1 {
+	if out.Coverage != capability.CoverageComplete || out.NullObservation == nil || len(out.ObservedDataRefs) != 1 {
 		t.Fatalf("coverage=%q null=%v refs=%v (notes: %v); want COMPLETE with one citeable null observation", out.Coverage, out.NullObservation != nil, out.ObservedDataRefs, out.DegradationNotes)
 	}
 	srv := httptest.NewServer(b.buildRouter(b.verifier))

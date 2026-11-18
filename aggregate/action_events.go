@@ -5,16 +5,17 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/sd-strax/reckon/internal/agentapi"
 )
 
 // TargetSpec is one thing an action acts on (04 §3.1). Resolution is frozen at
 // request time: resolved_identifier is what the write adapter sends downstream;
 // it is never re-resolved.
-type TargetSpec struct {
-	EntityRef          string `json:"entity_ref"`
-	ResolvedIdentifier string `json:"resolved_identifier"`
-	AssetCriticality   string `json:"asset_criticality,omitempty"`
-}
+//
+// The agent sends and reads it, so it is defined in internal/agentapi
+// (adr/0278).
+type TargetSpec = agentapi.TargetSpec
 
 // Authorization is the auth sub-record recorded on ActionApproved (04 §3.3).
 type Authorization struct {

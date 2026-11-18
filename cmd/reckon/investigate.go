@@ -13,6 +13,7 @@ import (
 
 	"github.com/sd-strax/reckon/agent"
 	"github.com/sd-strax/reckon/config"
+	"github.com/sd-strax/reckon/internal/agentapi"
 	"github.com/sd-strax/reckon/internal/branding"
 )
 
@@ -213,7 +214,7 @@ func (r *repl) runSlashCommand(ctx context.Context, line string) {
 			fmt.Fprintf(os.Stderr, "list actions: %v\n", err)
 			return
 		}
-		var pending []agent.ActionStatus
+		var pending []agentapi.ActionView
 		for _, a := range acts {
 			if a.Pending() {
 				pending = append(pending, a)
@@ -316,7 +317,7 @@ func (r *repl) toolNames() []string {
 // `y`/`n` acts; Enter (or anything unrecognized) defers — the action stays
 // pending and is re-offered after the next turn or via /pending. Deliberately
 // strict: free text must never approve a containment action by accident.
-func (r *repl) offerApprovals(ctx context.Context, actions []agent.ActionStatus) {
+func (r *repl) offerApprovals(ctx context.Context, actions []agentapi.ActionView) {
 	for _, a := range actions {
 		if !a.Pending() {
 			continue
@@ -361,7 +362,7 @@ func (r *repl) offerApprovals(ctx context.Context, actions []agent.ActionStatus)
 // approval gate, so each is neutralized for terminal display — a crafted
 // resolved_identifier must never move the cursor or rewrite the line the analyst
 // reads before typing `y`.
-func targetList(targets []agent.ActionTarget) string {
+func targetList(targets []agentapi.TargetSpec) string {
 	if len(targets) == 0 {
 		return "(no targets)"
 	}

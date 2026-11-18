@@ -59,6 +59,15 @@ const (
 	StatusWaived    = "WAIVED"
 )
 
+// Status is a dependency's status as a served view carries it. The words are
+// the untyped constants above.
+type Status string
+
+// WireValues lists every dependency status, in the order declared above.
+func (Status) WireValues() []string {
+	return []string{StatusOpen, StatusSent, StatusConfirmed, StatusWaived}
+}
+
 // History events.
 const (
 	EventCreated   = "created"

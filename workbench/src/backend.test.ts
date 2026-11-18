@@ -48,8 +48,8 @@ describe("BackendClient: the case queue", () => {
 describe("BackendClient: the action catalog", () => {
   it("reads each type's inverse from its descriptor", async () => {
     const client = clientAnswering({ action_types: [
-      { descriptor: { action_type: "host.isolate", default_tier: "T2", name: "", category: "", inputs: [], reversibility: "reversible", reversible_by: "host.unisolate" }, status: "available", bindings: 1 },
-      { descriptor: { action_type: "ticket.comment", default_tier: "T1", name: "", category: "", inputs: null, reversibility: "irreversible" }, status: "available", bindings: 1 },
+      { descriptor: { action_type: "host.isolate", intent: "", default_tier: "T2", name: "", category: "", inputs: [], reversibility: "reversible", reversible_by: "host.unisolate" }, status: "available", bindings: 1 },
+      { descriptor: { action_type: "ticket.comment", intent: "", default_tier: "T1", name: "", category: "", inputs: null, reversibility: "irreversible" }, status: "available", bindings: 1 },
     ] });
     expect(await client.actions.types()).toEqual([
       { actionType: "host.isolate", reversibleBy: "host.unisolate", tier: "T2", name: undefined, category: undefined, available: true, inputs: [] },
@@ -197,7 +197,7 @@ describe("BackendClient: an incompatible backend", () => {
     const calls: string[] = [];
     vi.stubGlobal("fetch", async (url: string) => {
       calls.push(new URL(url).pathname);
-      return Response.json(url.endsWith("/status") ? status() : { queue: "", cases: [], title: "t", outcome: "created" });
+      return Response.json(url.endsWith("/status") ? status() : { queue: "", cases: [], id: "s-1", title: "t", outcome: "created" });
     });
     return { calls, client: new BackendClient(() => "http://reckon.test", async () => "token") };
   }
@@ -285,7 +285,7 @@ describe("BackendClient: an incompatible backend", () => {
       vi.stubGlobal("fetch", async (raw: string) => {
         const url = new URL(raw);
         calls.push(url.host + url.pathname);
-        if (url.pathname !== "/status") return Response.json({ title: "t", outcome: "created", queue: "", cases: [] });
+        if (url.pathname !== "/status") return Response.json({ id: "s-1", title: "t", outcome: "created", queue: "", cases: [] });
         return Response.json(url.host === "a.test" ? compatible : b);
       });
       const setting = { url: "http://a.test" };
@@ -322,7 +322,7 @@ describe("BackendClient: an incompatible backend", () => {
           await new Promise<void>((r) => { checked = r; });
           return Response.json(compatible);
         }
-        return Response.json({ title: "t", outcome: "created" });
+        return Response.json({ id: "s-1", title: "t", outcome: "created" });
       });
       const setting = { url: "http://a.test" };
       const client = new BackendClient(() => setting.url, async () => "token");
@@ -345,7 +345,7 @@ describe("BackendClient: an incompatible backend", () => {
         if (url.pathname === "/status") return Response.json(compatible);
         return calls.filter((c) => c.endsWith("/import_markdown")).length === 1
           ? new Response("", { status: 401 })
-          : Response.json({ title: "t", outcome: "created" });
+          : Response.json({ id: "s-1", title: "t", outcome: "created" });
       });
       const renew = async () => { setting.url = "http://b.test"; return "fresh"; };
 

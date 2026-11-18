@@ -5,6 +5,9 @@
   "payload": {
     "x": 1
   },
+  "source_event_ids": [
+    "x"
+  ],
   "class_uid": 1,
   "time": "2026-01-02T03:04:05Z",
   "recorded_at": "2026-01-02T03:04:05Z",
@@ -42,6 +45,9 @@
         "payload": {
           "x": 1
         },
+        "source_event_ids": [
+          "x"
+        ],
         "class_uid": 1,
         "time": "2026-01-02T03:04:05Z",
         "recorded_at": "2026-01-02T03:04:05Z",
@@ -245,6 +251,9 @@
       "payload": {
         "x": 1
       },
+      "source_event_ids": [
+        "x"
+      ],
       "class_uid": 1,
       "time": "2026-01-02T03:04:05Z",
       "recorded_at": "2026-01-02T03:04:05Z",
@@ -448,6 +457,9 @@
         "payload": {
           "x": 1
         },
+        "source_event_ids": [
+          "x"
+        ],
         "class_uid": 1,
         "time": "2026-01-02T03:04:05Z",
         "recorded_at": "2026-01-02T03:04:05Z",

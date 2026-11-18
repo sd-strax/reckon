@@ -4,8 +4,9 @@
 // decision is the analyst's own act on the human token. Answers are decoded
 // through the wire shapes (adr/0244).
 import type { BackendHttp } from "./http";
-import * as shapes from "../wire/backendShapes";
-import type { RawAction, RawDependency } from "../wire/backendShapes";
+import { anything, decode, record } from "../wire/decode";
+import * as shapes from "../wire/backendShapes.generated";
+import type { ActionView as RawAction, DependencyView as RawDependency } from "../wire/backendShapes.generated";
 import type { ActionDecision, ActionRecord, ActionRow, ArtifactLocation, CommsThread, Dependency } from "../viewTypes";
 
 /** An action type the analyst may request (08 §3), with its declared inverse. */
@@ -19,9 +20,14 @@ export interface ActionTypeRow {
   inputs: { name: string; required: boolean }[];
 }
 
+/** An action's parameters: opaque on the wire (json.RawMessage), read here as an object. */
+const parameters = record(anything);
+
 /** Map one raw action row to the queue/ledger view: pending vocabulary, lazy expiry. */
 function mapAction(a: RawAction): ActionRow {
-  const status = a.status;
+  // Read as any word: the pending test also names the request-time words, as
+  // the Go side's ActionView.Pending does.
+  const status: string = a.status;
   const mode = a.required_mode ?? "";
   const pending = status === "REQUESTED" || status === "PENDING_SECONDARY"
     || status === "PENDING_MANUAL" || status === "PENDING_TWO_PARTY";
@@ -66,7 +72,7 @@ function mapAction(a: RawAction): ActionRow {
     plannedAdapter: a.planned_adapter,
     errorDetail: a.error_detail,
     resultRef: a.result_ref,
-    parameters: a.parameters,
+    parameters: a.parameters === undefined ? undefined : decode("an action's parameters", parameters, a.parameters),
   };
 }
 
@@ -114,13 +120,14 @@ export class ActionsClient {
       action_type: body.actionType,
       targets: body.targets.map((t) => ({
         resolved_identifier: t.resolvedIdentifier,
-        entity_ref: t.entityRef,
+        // An empty ref is what Go reads when the key is left out.
+        entity_ref: t.entityRef ?? "",
       })),
       parameters: body.parameters,
       evidence_refs: body.evidenceRefs,
       rationale: body.rationale,
       reversal_of_ref: body.reversalOfRef,
-    }, shapes.actionRequested);
+    } satisfies shapes.RequestActionBody, shapes.actionRequested);
     return { actionId: r.action_id, status: r.status };
   }
 
@@ -132,7 +139,7 @@ export class ActionsClient {
   async approve(actionId: string, challengeResponse?: string): Promise<ActionDecision> {
     const r = await this.http.post(
       `/api/actions/${encodeURIComponent(actionId)}/approve`,
-      challengeResponse ? { challenge_response: challengeResponse } : {},
+      (challengeResponse ? { challenge_response: challengeResponse } : {}) satisfies shapes.ApproveActionBody,
       shapes.actionDecision,
     );
     return { actionId: r.action_id, status: r.status, stage: r.stage };
@@ -140,13 +147,13 @@ export class ActionsClient {
 
   /** POST /api/actions/{id}/reject — ditto, human token only. */
   async reject(actionId: string, reason: string): Promise<ActionDecision> {
-    const r = await this.http.post(`/api/actions/${encodeURIComponent(actionId)}/reject`, { reason }, shapes.actionDecision);
+    const r = await this.http.post(`/api/actions/${encodeURIComponent(actionId)}/reject`, { reason } satisfies shapes.RejectActionBody, shapes.actionDecision);
     return { actionId: r.action_id, status: r.status, stage: r.stage };
   }
 
   /** POST /api/actions/{id}/edit — change a pending request's parameters before approval (adr/0127). */
   async edit(actionId: string, parameters: Record<string, unknown>, reason?: string): Promise<void> {
-    await this.http.post(`/api/actions/${encodeURIComponent(actionId)}/edit`, { parameters, reason });
+    await this.http.post(`/api/actions/${encodeURIComponent(actionId)}/edit`, { parameters, reason } satisfies shapes.EditActionBody);
   }
 
   /**
@@ -155,7 +162,7 @@ export class ActionsClient {
    * fresh window and retry_of lineage; the analyst then approves the new one.
    */
   async rerequest(actionId: string, rationale: string): Promise<void> {
-    await this.http.post(`/api/actions/${encodeURIComponent(actionId)}/rerequest`, { rationale });
+    await this.http.post(`/api/actions/${encodeURIComponent(actionId)}/rerequest`, { rationale } satisfies shapes.RerequestBody);
   }
 
   /**
@@ -168,7 +175,7 @@ export class ActionsClient {
   ): Promise<ActionDecision> {
     const r = await this.http.post(
       `/api/actions/${encodeURIComponent(actionId)}/resolve`,
-      { outcome: body.outcome, note: body.note, reference: body.reference, artifact: body.artifact },
+      { outcome: body.outcome, note: body.note, reference: body.reference, artifact: body.artifact } satisfies shapes.ResolveOutcomeBody,
       shapes.actionDecision,
     );
     return { actionId: r.action_id, status: r.status };
@@ -239,7 +246,7 @@ export class ActionsClient {
 
   /** POST /api/comms/{id}/snooze — push the follow-up clock. */
   async commsSnooze(threadId: string, hours: number): Promise<void> {
-    await this.http.post(`/api/comms/${encodeURIComponent(threadId)}/snooze`, { hours });
+    await this.http.post(`/api/comms/${encodeURIComponent(threadId)}/snooze`, { hours } satisfies shapes.CommsSnoozeBody);
   }
 
   /** GET /api/investigations/{id}/dependencies — the work the conclusion depends on (adr/0101). */
@@ -252,18 +259,18 @@ export class ActionsClient {
   async createDependency(investigationId: string, d: { title: string; owner: string; detail?: string; externalRef?: string; notifyActionId?: string }): Promise<Dependency> {
     const body = await this.http.post(`/api/investigations/${encodeURIComponent(investigationId)}/dependencies`, {
       title: d.title, owner: d.owner, detail: d.detail ?? "", external_ref: d.externalRef ?? "", notify_action_id: d.notifyActionId ?? "",
-    }, shapes.dependency);
+    } satisfies shapes.CreateDependencyBody, shapes.dependency);
     return mapDependency(body);
   }
 
   /** POST /api/dependencies/{id}/attach — ride on a notify action (empty detaches). */
   async attachDependency(dependencyId: string, notifyActionId: string): Promise<void> {
-    await this.http.post(`/api/dependencies/${encodeURIComponent(dependencyId)}/attach`, { notify_action_id: notifyActionId });
+    await this.http.post(`/api/dependencies/${encodeURIComponent(dependencyId)}/attach`, { notify_action_id: notifyActionId } satisfies shapes.AttachDependencyBody);
   }
 
   /** POST /api/dependencies/{id}/confirm|waive — the analyst's resolution, with a note. */
   async resolveDependency(dependencyId: string, verb: "confirm" | "waive", note: string, externalRef?: string): Promise<void> {
-    await this.http.post(`/api/dependencies/${encodeURIComponent(dependencyId)}/${verb}`, { note, external_ref: externalRef ?? "" });
+    await this.http.post(`/api/dependencies/${encodeURIComponent(dependencyId)}/${verb}`, { note, external_ref: externalRef ?? "" } satisfies shapes.ResolveDependencyBody);
   }
 }
 

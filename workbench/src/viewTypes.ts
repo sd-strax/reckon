@@ -217,6 +217,8 @@ export interface EvidenceDoc {
   kind: string; // "stix" | "ocsf"
   type: string;
   payload: unknown;
+  /** On an `observed-data--` ref: the ids of the raw events it was made from (adr/0364). */
+  sourceEventIds?: string[];
   classUid?: number;
   time?: string;
   recordedAt?: string;

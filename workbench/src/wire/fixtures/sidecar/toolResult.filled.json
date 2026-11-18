@@ -3,7 +3,7 @@
   "name": "x",
   "content": "x",
   "is_error": true,
-  "coverage": "x",
+  "coverage": "COMPLETE",
   "event_count": 1,
   "refs": [
     "x"

@@ -4,8 +4,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sd-strax/reckon/action"
-	"github.com/sd-strax/reckon/capability"
 	"github.com/sd-strax/reckon/evidence"
 	"github.com/sd-strax/reckon/internal/wirefixture"
 	"github.com/sd-strax/reckon/knowledge"
@@ -14,64 +12,32 @@ import (
 const backendFixtures = "../workbench/src/wire/fixtures/backend"
 
 // TestWireFixtures keeps the sample of each response the workbench decodes
-// (adr/0244). Inline map responses are stated here as structs: their envelope
-// keys are the one part this test restates by hand rather than reads.
+// (adr/0244). It also keeps the generated TypeScript for the same types, the
+// request bodies and the version (adr/0278): make wire-fixtures writes both.
 func TestWireFixtures(t *testing.T) {
 	dir := backendFixtures
 	wirefixture.Check[StatusResponse](t, dir, "status")
 	wirefixture.Check[AuthConfigResponse](t, dir, "authConfig")
 	wirefixture.Check[MeResponse](t, dir, "me")
-	wirefixture.Check[struct {
-		Capabilities []capability.CapabilitySummary `json:"capabilities"`
-		CaseQueue    string                         `json:"case_queue,omitempty"`
-	}](t, dir, "capabilities")
-	wirefixture.Check[EnablementResponse](t, dir, "enablement", func(r *EnablementResponse) {
-		r.Adapters[0].ConfigSchema = map[string]any{
-			"properties": map[string]any{"x": map[string]any{"type": "string", "description": "x", "x-secret": true}},
-			"required":   []string{"x"},
-		}
-	})
+	wirefixture.Check[CapabilitiesResponse](t, dir, "capabilities")
+	wirefixture.Check[EnablementResponse](t, dir, "enablement")
 	wirefixture.Check[CapabilityInvokeResponse](t, dir, "capabilityInvoke")
 	wirefixture.Check[RecordInterpretationResponse](t, dir, "interpretation")
-	wirefixture.Check[struct {
-		Investigations []InvestigationView `json:"investigations"`
-	}](t, dir, "investigations")
+	wirefixture.Check[InvestigationsResponse](t, dir, "investigations")
 	wirefixture.Check[InvestigationView](t, dir, "investigation")
 	wirefixture.Check[CreateInvestigationResponse](t, dir, "created")
-	wirefixture.Check[struct {
-		Hypotheses []HypothesisView `json:"hypotheses"`
-	}](t, dir, "hypotheses")
-	wirefixture.Check[struct {
-		Thread []ThreadEntryView `json:"thread"`
-	}](t, dir, "thread")
-	wirefixture.Check[struct {
-		Actions []ActionView `json:"actions"`
-	}](t, dir, "actions")
-	wirefixture.Check[struct {
-		Threads []CommsThreadView `json:"threads"`
-	}](t, dir, "comms")
-	wirefixture.Check[struct {
-		Dependencies []DependencyView `json:"dependencies"`
-	}](t, dir, "dependencies")
+	wirefixture.Check[HypothesesResponse](t, dir, "hypotheses")
+	wirefixture.Check[ThreadResponse](t, dir, "thread")
+	wirefixture.Check[ActionsResponse](t, dir, "actions")
+	wirefixture.Check[CommsThreadsResponse](t, dir, "comms")
+	wirefixture.Check[DependenciesResponse](t, dir, "dependencies")
 	wirefixture.Check[DependencyView](t, dir, "dependency")
 	wirefixture.Check[RequestActionResponse](t, dir, "actionRequested")
 	wirefixture.Check[ActionDecisionResponse](t, dir, "actionDecision")
-	wirefixture.Check[struct {
-		ActionTypes []action.ActionSummary `json:"action_types"`
-	}](t, dir, "actionTypes")
-	wirefixture.Check[struct {
-		Pins []PinView `json:"pins"`
-	}](t, dir, "pins")
-	wirefixture.Check[struct {
-		InterpretationID string `json:"interpretation_id"`
-		TurnID           string `json:"turn_id"`
-		ContentHash      string `json:"content_hash"`
-		Body             string `json:"body"`
-	}](t, dir, "transcript")
-	wirefixture.Check[struct {
-		Ref         string           `json:"ref"`
-		Appearances []AppearanceView `json:"appearances"`
-	}](t, dir, "appearances")
+	wirefixture.Check[ActionTypesResponse](t, dir, "actionTypes")
+	wirefixture.Check[PinsResponse](t, dir, "pins")
+	wirefixture.Check[TranscriptResponse](t, dir, "transcript")
+	wirefixture.Check[AppearancesResponse](t, dir, "appearances")
 	// The host's identity view as a host carries it (adr/0211): an observed
 	// alias, an asserted one with a note, a withdrawn assertion, a split, and
 	// a host seen under two domains. Its every key is held by identityAct,
@@ -129,9 +95,7 @@ func TestWireFixtures(t *testing.T) {
 	wirefixture.Check[CapabilityCallView](t, dir, "capabilityCall")
 	wirefixture.Check[ActionRecordView](t, dir, "actionRecord")
 	wirefixture.Check[CaseSummaryDetail](t, dir, "caseSummary")
-	wirefixture.Check[struct {
-		SOPs []SOPRow `json:"sops"`
-	}](t, dir, "sops")
+	wirefixture.Check[SOPListResponse](t, dir, "sops")
 	wirefixture.Check[CaseSummaryListResponse](t, dir, "caseSummaries")
 	wirefixture.Check[knowledge.SummaryFacets](t, dir, "caseFacets")
 	wirefixture.Check[KnowledgeCitationsResponse](t, dir, "citations")
@@ -144,11 +108,28 @@ func TestWireFixtures(t *testing.T) {
 	wirefixture.Check[LifecycleResponse](t, dir, "lifecycle")
 	wirefixture.Check[RenameResponse](t, dir, "renamed")
 	wirefixture.Check[NarrativeView](t, dir, "narrative")
-	wirefixture.Check[struct {
-		ID      string `json:"id"`
-		Outcome string `json:"outcome"`
-		Title   string `json:"title"`
-	}](t, dir, "sopImported")
+	wirefixture.Check[SOPMarkdownImportResponse](t, dir, "sopImported")
 	wirefixture.Check[CaseListResponse](t, dir, "cases")
 	wirefixture.Check[CaseView](t, dir, "case")
+	// The error bodies the workbench reads by key, and the acknowledgements of
+	// the writes it makes.
+	wirefixture.Check[ErrorResponse](t, dir, "error")
+	wirefixture.Check[InternalErrorResponse](t, dir, "internalError")
+	wirefixture.Check[ForbiddenResponse](t, dir, "forbidden")
+	wirefixture.Check[UnknownEntityResponse](t, dir, "unknownEntity")
+	wirefixture.Check[UnknownAccountResponse](t, dir, "unknownAccount")
+	wirefixture.Check[InvestigationExistsResponse](t, dir, "investigationExists")
+	wirefixture.Check[PersonCandidatesResponse](t, dir, "personCandidates")
+	wirefixture.Check[AccountCandidatesResponse](t, dir, "accountCandidates")
+	wirefixture.Check[SupersedeResponse](t, dir, "superseded")
+	wirefixture.Check[CommsActResponse](t, dir, "commsAct")
+	wirefixture.Check[ApplyEnablementResponse](t, dir, "enablementChanged")
+	checkWireValues(t)
+	wirefixture.RequireWordsChecked(t)
+
+	src, err := backendGenerator().Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wirefixture.CheckFile(t, backendShapes, src)
 }

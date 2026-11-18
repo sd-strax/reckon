@@ -1,66 +1,38 @@
 package action
 
 import (
+	"fmt"
 	"sort"
 
 	"github.com/sd-strax/reckon/aggregate"
 	"github.com/sd-strax/reckon/capability"
 	"github.com/sd-strax/reckon/identity"
+	"github.com/sd-strax/reckon/internal/agentapi"
+	"github.com/sd-strax/reckon/internal/catalog"
 )
 
 // Reversibility classifications (04 §7). The ordered scale is
 // IRREVERSIBLE < BEST_EFFORT < REVERSIBLE; per-binding overrides (deferred)
-// may move along it under the §7.3 rules.
+// may move along it under the §7.3 rules. The words are defined once in
+// internal/agentapi (adr/0278).
 const (
 	// ReversibilityReversible: RELIABLE — the tool cleanly undoes the effect;
 	// a successful reversal marks the original REVERSED.
-	ReversibilityReversible = "reversible"
+	ReversibilityReversible = agentapi.ReversibilityReversible
 	// ReversibilityBestEffort: an inverse action exists but its effect is
 	// tooling-dependent; the affordance + forward linkage stay live but the
 	// original is never marked REVERSED (04 §7.1 Position C).
-	ReversibilityBestEffort = "best_effort"
+	ReversibilityBestEffort = agentapi.ReversibilityBestEffort
 	// ReversibilityIrreversible: no inverse exists; reversal is structurally
 	// impossible.
-	ReversibilityIrreversible = "irreversible"
+	ReversibilityIrreversible = agentapi.ReversibilityIrreversible
 )
 
 // ActionDescriptor is the write analog of capability.CapabilityDescriptor
 // (08 §3): the action surface the LLM sees plus the auth/taxonomy fields it
-// declares for discoverability. DefaultTier/Reversibility/D3FEND are surfaced
-// here but OWNED by 04 §2 — this must not diverge from that categorization.
-type ActionDescriptor struct {
-	ActionType  string                  `json:"action_type"`  // e.g. "host.isolate"
-	Intent      string                  `json:"intent"`       // LLM-facing: effect + when to use
-	Inputs      []capability.InputParam `json:"inputs"`       // schema for request_action.parameters
-	DefaultTier string                  `json:"default_tier"` // T2 | T3 (04 §2)
-	// Reversibility is the baseline classification (04 §7): "reversible"
-	// (RELIABLE — the tool cleanly undoes the effect), "best_effort" (an inverse
-	// action exists but its effect is tooling-dependent — e.g. ioc.block against a
-	// propagating denylist), or "irreversible" (no inverse). It gates the REVERSED
-	// status claim: only a "reversible" original flips to REVERSED on a successful
-	// reversal (Position C); "best_effort" keeps the affordance + forward linkage
-	// but the original stays SUCCEEDED. A per-binding override may upgrade
-	// best_effort→reversible when the wired tool is trusted (04 §7; deferred).
-	Reversibility string `json:"reversibility"`
-	// ReversibleBy is the inverse action type (04 §7); empty when irreversible.
-	// A reversal request creates a reckon-action of this type against the original's
-	// targets, at the SAME tier (reversing is never lower-tier than the original).
-	ReversibleBy string `json:"reversible_by,omitempty"`
-	D3FEND       string `json:"d3fend,omitempty"`
-	// Name is the short human name a surface titles the action by ("Isolate
-	// host"); the action_type stays the machine id (#123).
-	Name string `json:"name"`
-	// Category is what the action does to the incident, so a surface groups it
-	// without guessing from the id: containment | eradication | recovery |
-	// notification | case_record (a write to the system of record, never
-	// containment) (#123).
-	Category string `json:"category"`
-	// TargetTypes are the STIX object types this action acts on (adr/0354).
-	// Every target of a request must carry an entity_ref of one of these
-	// types. Empty for an action whose target is a destination (a ticket, a
-	// channel, an address), whose entity_ref is not read.
-	TargetTypes []string `json:"target_types,omitempty"`
-}
+// declares for discoverability. The agent reads it from GET /api/action-types,
+// so it is defined in internal/agentapi (adr/0278), with ReliablyReversible.
+type ActionDescriptor = agentapi.ActionDescriptor
 
 // The action categories (#123).
 const (
@@ -70,14 +42,6 @@ const (
 	CategoryNotification = "notification"
 	CategoryCaseRecord   = "case_record"
 )
-
-// ReliablyReversible reports whether a fully-successful dispatch of this
-// action's inverse may mark it REVERSED (04 §7.1 Position C). Only the
-// RELIABLE classification qualifies; a best_effort original keeps the reversal
-// affordance and forward linkage but honestly stays SUCCEEDED.
-func (d ActionDescriptor) ReliablyReversible() bool {
-	return d.Reversibility == ReversibilityReversible
-}
 
 // ActionCatalog holds the registered action descriptors, keyed by action_type.
 type ActionCatalog struct {
@@ -89,8 +53,37 @@ func NewActionCatalog() *ActionCatalog {
 	return &ActionCatalog{byType: make(map[string]ActionDescriptor)}
 }
 
-// Register adds or replaces a descriptor.
-func (c *ActionCatalog) Register(d ActionDescriptor) { c.byType[d.ActionType] = d }
+// Register adds or replaces a descriptor. It refuses a descriptor that breaks
+// the tool-name rules (adr/0382): its action type gives an invalid tool name
+// or the tool name of another registered type, or an input takes the name of
+// a field every request carries or is declared twice.
+func (c *ActionCatalog) Register(d ActionDescriptor) error {
+	inputs := make([]string, 0, len(d.Inputs))
+	for _, in := range d.Inputs {
+		inputs = append(inputs, in.Name)
+	}
+	if err := catalog.ValidateActionDescriptor(d.ActionType, inputs); err != nil {
+		return fmt.Errorf("register action descriptor: %w", err)
+	}
+	name := catalog.ActionToolName(d.ActionType)
+	for t := range c.byType {
+		if t != d.ActionType && catalog.ActionToolName(t) == name {
+			return fmt.Errorf("register action descriptor: action types %q and %q both give the tool name %q", t, d.ActionType, name)
+		}
+	}
+	c.byType[d.ActionType] = d
+	return nil
+}
+
+// ToolNames returns the tool name of every registered action type
+// (catalog.ActionToolName), so a verb can be checked against them.
+func (c *ActionCatalog) ToolNames() []string {
+	out := make([]string, 0, len(c.byType))
+	for _, t := range c.ActionTypes() {
+		out = append(out, catalog.ActionToolName(t))
+	}
+	return out
+}
 
 // Descriptor returns the descriptor for an action type, if registered.
 func (c *ActionCatalog) Descriptor(actionType string) (ActionDescriptor, bool) {
@@ -121,7 +114,10 @@ func (c *ActionCatalog) ActionTypes() []string {
 // only (04 §2.1) — not load-bearing for control flow. Reversal actions carry a
 // D3FEND id only where the ontology's Restore tactic names the restoration as a
 // first-class technique (D3-RNA, D3-RE, D3-ULA); other reversals carry none.
-func DefaultActionCatalog() *ActionCatalog {
+//
+// It fails when Register refuses a descriptor, and backend startup fails with
+// it (adr/0382).
+func DefaultActionCatalog() (*ActionCatalog, error) {
 	// The entity types each family acts on (adr/0354). An IP address is not a
 	// host: a host is isolated by the host the tool knows, and one address can
 	// belong to different machines over time. A file stands for its hash.
@@ -333,7 +329,9 @@ func DefaultActionCatalog() *ActionCatalog {
 			Reversibility: ReversibilityIrreversible,
 		},
 	} {
-		c.Register(d)
+		if err := c.Register(d); err != nil {
+			return nil, err
+		}
 	}
-	return c
+	return c, nil
 }

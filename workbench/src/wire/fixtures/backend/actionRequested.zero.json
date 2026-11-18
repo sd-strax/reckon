@@ -1,6 +1,6 @@
 {
   "action_id": "",
-  "tier": "",
-  "status": "",
-  "mode": ""
+  "tier": "T1",
+  "status": "PENDING_MANUAL",
+  "mode": "MANUAL"
 }

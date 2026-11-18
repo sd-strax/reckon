@@ -1,7 +1,7 @@
 {
   "call_id": "x",
   "verb": "x",
-  "coverage": "x",
+  "coverage": "COMPLETE",
   "ocsf_event_refs": [
     "x"
   ],
@@ -42,7 +42,7 @@
             "x": "x"
           },
           "provenance": {
-            "derivation_mode": "x",
+            "derivation_mode": "DIRECT",
             "tool": "x",
             "normalizer": "x",
             "normalizer_version": 1,
@@ -58,7 +58,7 @@
             "x": "x"
           },
           "provenance": {
-            "derivation_mode": "x",
+            "derivation_mode": "DIRECT",
             "tool": "x",
             "normalizer": "x",
             "normalizer_version": 1,
@@ -73,7 +73,7 @@
           "source_ref": "x",
           "target_ref": "x",
           "provenance": {
-            "derivation_mode": "x",
+            "derivation_mode": "DIRECT",
             "tool": "x",
             "normalizer": "x",
             "normalizer_version": 1,
@@ -110,7 +110,7 @@
           "confidence": 1,
           "created_by_ref": "x",
           "provenance": {
-            "derivation_mode": "x",
+            "derivation_mode": "DIRECT",
             "tool": "x",
             "normalizer": "x",
             "normalizer_version": 1,
@@ -133,7 +133,7 @@
           "created_by_ref": "x",
           "seen_at": "2026-01-02T03:04:05Z",
           "provenance": {
-            "derivation_mode": "x",
+            "derivation_mode": "DIRECT",
             "tool": "x",
             "normalizer": "x",
             "normalizer_version": 1,
@@ -164,13 +164,13 @@
     "sources": [
       "x"
     ],
-    "coverage": "x",
+    "coverage": "COMPLETE",
     "object_refs": [
       "x"
     ],
     "observed_at": "2026-01-02T03:04:05Z",
     "provenance": {
-      "derivation_mode": "x",
+      "derivation_mode": "DIRECT",
       "tool": "x",
       "normalizer": "x",
       "normalizer_version": 1,

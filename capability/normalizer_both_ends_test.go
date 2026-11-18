@@ -124,6 +124,10 @@ func TestBothEnds(t *testing.T) {
 		}
 		return out
 	}
+	ownerless := func(dev map[string]any) map[string]any {
+		delete(dev, "owner")
+		return dev
+	}
 	runKey := `HKLM\Software\Microsoft\Windows\CurrentVersion\Run`
 	finding := map[string]any{"uid": "det-123", "title": "Suspicious PowerShell", "types": []any{"T1059.001"}}
 
@@ -317,12 +321,16 @@ func TestBothEnds(t *testing.T) {
 			})},
 		},
 		{
+			// device.owner is from OCSF 1.2.0, and the ceiling's owner mints
+			// its account (adr/0398), which the floor cannot name. So the
+			// ceiling's device here leaves the owner out; the owner's account
+			// is covered by TestUserAccounts_EveryMintingClass.
 			name: "inventory_info", entities: 2,
 			floor: []map[string]any{versioned(5001, "1.1.0", map[string]any{
 				"device": with(device, map[string]any{"ip": "10.0.4.20", "os": map[string]any{"name": "Windows Server 2022", "type_id": 100}}), "unmapped": map[string]any{"criticality": "high"},
 			})},
 			ceiling: []map[string]any{versioned(5001, "1.9.0", map[string]any{
-				"device": with(deviceCeiling, map[string]any{"ip": "10.0.4.20", "os": map[string]any{"name": "Windows Server 2022", "type_id": 100}}), "unmapped": map[string]any{"criticality": "high"},
+				"device": ownerless(with(deviceCeiling, map[string]any{"ip": "10.0.4.20", "os": map[string]any{"name": "Windows Server 2022", "type_id": 100}})), "unmapped": map[string]any{"criticality": "high"},
 			})},
 		},
 	} {

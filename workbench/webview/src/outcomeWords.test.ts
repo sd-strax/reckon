@@ -10,7 +10,8 @@ import { describe, expect, it } from "vitest";
 
 const WORKBENCH = path.join(__dirname, "..", "..");
 
-// Lines naming either word, by file, comments excluded.
+// Lines naming either word, by file, comments excluded. A generated wire file
+// (adr/0278) lists the words Go sends, and reads none, so it is not counted.
 const ALLOWED: Record<string, number> = {
   // outcomeStatus (2), the badge (2), failedOutcome, takenOverBy's partial rule.
   "webview/src/derive/actions.ts": 6,
@@ -28,7 +29,7 @@ function sources(dir: string): string[] {
   return readdirSync(dir).flatMap((f) => {
     const p = path.join(dir, f);
     if (statSync(p).isDirectory()) return sources(p);
-    return /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f) ? [p] : [];
+    return /\.tsx?$/.test(f) && !/\.(test|generated)\.tsx?$/.test(f) ? [p] : [];
   });
 }
 
