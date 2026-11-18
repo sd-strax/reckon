@@ -416,15 +416,31 @@ func (b *Backend) unknownAccount(r *http.Request, s seedResolution) (bool, strin
 	return true, msg, shown
 }
 
+// UnknownAccountResponse is the 422 an account seed answers when the record
+// does not settle it, with the accounts it does hold under that name.
+type UnknownAccountResponse struct {
+	Error         string             `json:"error"`
+	KnownAccounts []KnownAccountView `json:"known_accounts"`
+	UnknownEntity bool               `json:"unknown_entity"`
+}
+
+// KnownAccountView is one account a hint names, offered for the analyst to
+// pick by its ref.
+type KnownAccountView struct {
+	AccountLogin string `json:"account_login"`
+	AccountType  string `json:"account_type"`
+	Ref          string `json:"ref"`
+}
+
 // writeUnknownAccount answers an account seed the record does not settle:
 // 422 with the message and the accounts listed (known_accounts), so the
 // analyst can seed on one by its ref (account_ref).
 func writeUnknownAccount(w http.ResponseWriter, msg string, matches []evidence.AccountMatch) {
-	known := make([]map[string]string, 0, len(matches))
+	known := make([]KnownAccountView, 0, len(matches))
 	for _, m := range matches {
-		known = append(known, map[string]string{"ref": m.Ref, "account_type": m.Type, "account_login": m.Login})
+		known = append(known, KnownAccountView{AccountLogin: m.Login, AccountType: m.Type, Ref: m.Ref})
 	}
-	writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": msg, "unknown_entity": true, "known_accounts": known})
+	writeJSON(w, http.StatusUnprocessableEntity, UnknownAccountResponse{Error: msg, KnownAccounts: known, UnknownEntity: true})
 }
 
 // unknownHost asks the tenant's host inventory whether a host seed exists

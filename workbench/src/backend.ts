@@ -20,7 +20,7 @@ import { InvestigationsClient } from "./client/investigations";
 import { KnowledgeClient } from "./client/knowledge";
 import { SingleFlight } from "./singleFlight";
 import type { AuthConfig, BackendStatus, Me } from "./viewTypes";
-import * as shapes from "./wire/backendShapes";
+import * as shapes from "./wire/backendShapes.generated";
 import { decode, DecodeError } from "./wire/decode";
 
 // The view types live in viewTypes.ts (types only); re-exported so host modules keep one import.
@@ -34,13 +34,12 @@ export type { InvestigationsClient } from "./client/investigations";
 export type { KnowledgeClient } from "./client/knowledge";
 
 /**
- * SUPPORTED_API_VERSIONS is the set of backend API contract versions
- * (server.APIVersion) this build of the workbench speaks. Add a version here
- * when the extension is updated to handle a new backend contract; a backend
- * outside this set is a hard, diagnosable incompatibility — never a silent
- * best-effort call.
+ * SUPPORTED_API_VERSIONS is the set of backend API contract versions this
+ * build of the workbench speaks: the current one, generated from Go
+ * (apiversion.Current, adr/0278). A backend outside this set is a hard,
+ * diagnosable incompatibility — never a silent best-effort call.
  */
-export const SUPPORTED_API_VERSIONS: readonly number[] = [1];
+export const SUPPORTED_API_VERSIONS: readonly number[] = [shapes.API_VERSION];
 
 /** How long a compatible /status is taken as read before it is asked again. */
 const COMPATIBLE_FOR_MS = 30_000;

@@ -9,7 +9,7 @@ import (
 // not declare is flagged (the servicenow short_description vs summary bug);
 // a binding speaking the canonical vocabulary passes.
 func TestValidateBindingParams(t *testing.T) {
-	cat := DefaultActionCatalog()
+	cat := defaultActionCatalog(t)
 
 	// The exact authoring bug: short_description is not a ticket.create input.
 	bad := map[string][]ActionBinding{

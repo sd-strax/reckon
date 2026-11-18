@@ -834,7 +834,7 @@ describe("InvestigationDocuments: a panel closed during an await", () => {
     const { create } = seeding();
 
     createdPanels()[0]!.dispose();
-    create.fail(new BackendRequestError("exists", 409, { investigation_id: "inv-9" }));
+    create.fail(new BackendRequestError("exists", 409, { error: "exists", investigation_id: "inv-9" }));
     await settle();
 
     expect(createdPanels()).toHaveLength(1);
@@ -844,7 +844,7 @@ describe("InvestigationDocuments: a panel closed during an await", () => {
   it("opens the existing investigation in place of a draft still open", async () => {
     const { create } = seeding();
 
-    create.fail(new BackendRequestError("exists", 409, { investigation_id: "inv-9" }));
+    create.fail(new BackendRequestError("exists", 409, { error: "exists", investigation_id: "inv-9" }));
     await settle();
 
     expect(createdPanels()).toHaveLength(2);
@@ -1076,7 +1076,7 @@ describe("InvestigationDocuments: a seed's entity kind (adr/0324)", () => {
     const refused = new BackendRequestError("POST /api/investigations → 422", 422, {
       error: "no account \"jdoe\" of that kind in the record; the record has 1 account(s) under that name — seed on one, or start anyway",
       unknown_entity: true,
-      known_accounts: [{ ref: "user-account--1", account_type: "windows-domain", account_login: "CONTOSO\\jdoe" }, { bad: true }],
+      known_accounts: [{ ref: "user-account--1", account_type: "windows-domain", account_login: "CONTOSO\\jdoe" }],
     });
     const { client } = backend({ "investigations.createFromInput": async () => { throw refused; } });
     const { docs } = documents(client);

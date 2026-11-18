@@ -32,8 +32,8 @@ type TurnRecord struct {
 	Err              string     `json:"err,omitempty"` // turn-level failure (model call, commit)
 }
 
-// ToolCall mirrors the committed tool-call log entry (agent.ToolCall) without
-// importing the agent package into grader unit tests' synthetic records.
+// ToolCall mirrors the committed tool-call log entry (agentapi.ToolCallInput)
+// without importing the agent package into grader unit tests' synthetic records.
 type ToolCall struct {
 	ToolName string `json:"tool_name"`
 	Args     string `json:"args,omitempty"`
@@ -50,7 +50,7 @@ type ParamSpec struct {
 }
 
 // ActionRow is one reckon-action from the investigation's durable actions view
-// (mirrors agent.ActionStatus without the agent dependency): the event-log
+// (mirrors agentapi.ActionView without the agent dependency): the event-log
 // truth an auditor reads, and what G1 grades.
 type ActionRow struct {
 	ActionID     string   `json:"action_id"`

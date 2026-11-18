@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sd-strax/reckon/identity"
+	"github.com/sd-strax/reckon/internal/agentapi"
 )
 
 // reckon-hypothesis status values (01-domain-model.md §reckon-hypothesis). Status is a
@@ -23,13 +24,15 @@ import (
 // (support / refutation / inconclusive interpretations) terminate it. Terminal
 // statuses accept no further transitions in v0 — a changed judgment is a new
 // hypothesis (parent_ref chains the refinement).
+//
+// The words are defined once in internal/agentapi (adr/0278).
 const (
-	HypothesisProposed     = "PROPOSED"
-	HypothesisOpen         = "OPEN"
-	HypothesisSupported    = "SUPPORTED"
-	HypothesisRefuted      = "REFUTED"
-	HypothesisInconclusive = "INCONCLUSIVE"
-	HypothesisAbandoned    = "ABANDONED"
+	HypothesisProposed     = agentapi.HypothesisProposed
+	HypothesisOpen         = agentapi.HypothesisOpen
+	HypothesisSupported    = agentapi.HypothesisSupported
+	HypothesisRefuted      = agentapi.HypothesisRefuted
+	HypothesisInconclusive = agentapi.HypothesisInconclusive
+	HypothesisAbandoned    = agentapi.HypothesisAbandoned
 )
 
 // reckon-prediction status values (01-domain-model.md §reckon-prediction). A prediction
@@ -38,12 +41,18 @@ const (
 // discarded test, not an evidential outcome: it carries no evidence and never
 // feeds a hypothesis evaluation).
 const (
-	PredictionUntested     = "UNTESTED"
-	PredictionConfirmed    = "CONFIRMED"
-	PredictionDisconfirmed = "DISCONFIRMED"
-	PredictionInconclusive = "INCONCLUSIVE"
-	PredictionWithdrawn    = "WITHDRAWN"
+	PredictionUntested     = agentapi.PredictionUntested
+	PredictionConfirmed    = agentapi.PredictionConfirmed
+	PredictionDisconfirmed = agentapi.PredictionDisconfirmed
+	PredictionInconclusive = agentapi.PredictionInconclusive
+	PredictionWithdrawn    = agentapi.PredictionWithdrawn
 )
+
+// HypothesisStatus is a hypothesis's status as a served view carries it.
+type HypothesisStatus = agentapi.HypothesisStatus
+
+// PredictionStatus is a prediction's status as a served view carries it.
+type PredictionStatus = agentapi.PredictionStatus
 
 // STIX type prefixes for the reasoning nodes: reckon's custom types, declared
 // by extension definitions (01-domain-model.md, STIX Conformance and Change).
@@ -62,9 +71,12 @@ const (
 // which no verb can fetch. The kind decides who may record the result: a
 // manual prediction's outcome is a human act, carrying an Attestation.
 const (
-	TestKindTool   = "tool"
-	TestKindManual = "manual"
+	TestKindTool   = agentapi.TestKindTool
+	TestKindManual = agentapi.TestKindManual
 )
+
+// TestKind is who decides a prediction, as a served view carries it.
+type TestKind = agentapi.TestKind
 
 // Bounds on an attestation (adr/0054): the content is what a person said or
 // what was checked by hand, a paragraph at most; source and channel are labels.
@@ -139,11 +151,7 @@ type HypothesisNode struct {
 
 // QuerySpec is a prediction's optional declared test (01 §reckon-prediction): what
 // query against which tool would confirm or disconfirm it.
-type QuerySpec struct {
-	Tool       string         `json:"tool"`
-	QueryText  string         `json:"query_text"`
-	Parameters map[string]any `json:"parameters,omitempty"`
-}
+type QuerySpec = agentapi.QuerySpec
 
 // PredictionNode is the creation payload for a new reckon-prediction, carried on a
 // RecordInterpretation of type "prediction".

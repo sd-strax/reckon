@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"slices"
 	"time"
+
+	"github.com/sd-strax/reckon/internal/agentapi"
 )
 
 // commitTimeout bounds a turn's closing work (the footer, the pending-action
@@ -35,7 +37,7 @@ var errTurnHeld = errors.New("the turn is held and will be recorded with the nex
 // fails in transit is retried; one still failing is held with every turn after
 // it, so the thread keeps its order. A commit the backend rejects is not
 // retried and is not held: it will not succeed later.
-func (s *Session) commitTurn(ctx context.Context, req InterpretationRequest) (string, error) {
+func (s *Session) commitTurn(ctx context.Context, req agentapi.RecordInterpretationBody) (string, error) {
 	queue := append(slices.Clip(s.held), req)
 	s.held = nil
 	var errs []error
@@ -78,7 +80,7 @@ func (s *Session) FlushHeld(ctx context.Context) error {
 // backend recognises a repeat of a turn already recorded (by its turn id) and
 // answers with the original interpretation, so a retry after a lost response
 // never records the turn twice.
-func (s *Session) recordWithRetry(ctx context.Context, req InterpretationRequest) (string, error) {
+func (s *Session) recordWithRetry(ctx context.Context, req agentapi.RecordInterpretationBody) (string, error) {
 	for attempt := 0; ; attempt++ {
 		interp, err := s.backend.RecordInterpretation(ctx, req)
 		if err == nil {

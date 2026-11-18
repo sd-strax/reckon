@@ -1,0 +1,11 @@
+{
+  "error": "x",
+  "known_accounts": [
+    {
+      "account_login": "x",
+      "account_type": "x",
+      "ref": "x"
+    }
+  ],
+  "unknown_entity": true
+}

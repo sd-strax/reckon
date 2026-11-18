@@ -234,7 +234,7 @@ func TestResolveNullObservation(t *testing.T) {
 		t.Fatalf("coverage=%q null=%v; want COMPLETE with a null observation", out.Coverage, out.NullObservation)
 	}
 	n := out.NullObservation
-	if n.Type != identity.TypeNullObservation || n.Verb != "v" || n.Coverage != string(CoverageComplete) || len(n.Sources) != 1 || n.Sources[0] != "stub:s" {
+	if n.Type != identity.TypeNullObservation || n.Verb != "v" || n.Coverage != CoverageComplete || len(n.Sources) != 1 || n.Sources[0] != "stub:s" {
 		t.Errorf("null observation = %+v", n)
 	}
 	if n.WindowFrom == nil || n.WindowTo == nil || n.Parameters["filter"] != "change window" {

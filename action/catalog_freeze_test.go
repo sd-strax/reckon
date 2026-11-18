@@ -1,6 +1,11 @@
 package action
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	"github.com/sd-strax/reckon/capability"
+)
 
 // TestDefaultActionCatalog_Frozen pins the v0 action catalog — the single
 // authoritative source of truth for the dispatchable action vocabulary. A change
@@ -67,7 +72,7 @@ func TestDefaultActionCatalog_Frozen(t *testing.T) {
 		"notify.email":      {"Send an email", "notification"},
 	}
 
-	cat := DefaultActionCatalog()
+	cat := defaultActionCatalog(t)
 	got := cat.ActionTypes()
 	if len(got) != len(golden) {
 		t.Fatalf("catalog has %d action types %v; frozen set has %d — update the golden deliberately",
@@ -79,7 +84,7 @@ func TestDefaultActionCatalog_Frozen(t *testing.T) {
 			t.Errorf("frozen action type %q missing from catalog", at)
 			continue
 		}
-		if d.DefaultTier != w.tier {
+		if string(d.DefaultTier) != w.tier {
 			t.Errorf("%s: tier = %q; frozen %q", at, d.DefaultTier, w.tier)
 		}
 		if d.Reversibility != w.reversibility {
@@ -128,5 +133,57 @@ func TestDefaultActionCatalog_Frozen(t *testing.T) {
 		if inv.tier != w.tier {
 			t.Errorf("reversal pair %s/%s tier mismatch: %s vs %s (04 §7: same tier)", at, w.reversibleBy, w.tier, inv.tier)
 		}
+	}
+}
+
+// defaultActionCatalog is DefaultActionCatalog for a test: it fails the test
+// when the catalog is refused.
+func defaultActionCatalog(t testing.TB) *ActionCatalog {
+	t.Helper()
+	c, err := DefaultActionCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+// TestRegister_RefusesADescriptorTheAgentCannotOffer (adr/0382): a descriptor
+// whose type gives an invalid tool name, or whose input takes a request
+// field's name or is declared twice, is refused and not registered.
+func TestRegister_RefusesADescriptorTheAgentCannotOffer(t *testing.T) {
+	for _, d := range []ActionDescriptor{
+		{ActionType: "host:isolate"},
+		{ActionType: "x.act", Inputs: []capability.InputParam{{Name: "rationale", Type: "string"}}},
+		{ActionType: "x.act", Inputs: []capability.InputParam{{Name: "targets", Type: "entity"}}},
+		{ActionType: "x.act", Inputs: []capability.InputParam{{Name: "note", Type: "string"}, {Name: "note", Type: "string"}}},
+	} {
+		c := NewActionCatalog()
+		err := c.Register(d)
+		if err == nil || !strings.Contains(err.Error(), d.ActionType) {
+			t.Errorf("Register(%+v) = %v; want an error naming the type", d, err)
+		}
+		if _, ok := c.Descriptor(d.ActionType); ok {
+			t.Errorf("refused descriptor %q was registered", d.ActionType)
+		}
+	}
+}
+
+// TestRegister_RefusesTwoTypesOfOneToolName (adr/0382): two action types that
+// give one tool name would give the agent two tools of one name, so the second
+// is refused. Registering the same type again still replaces it.
+func TestRegister_RefusesTwoTypesOfOneToolName(t *testing.T) {
+	c := NewActionCatalog()
+	if err := c.Register(ActionDescriptor{ActionType: "host.isolate"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Register(ActionDescriptor{ActionType: "host.isolate", Intent: "again"}); err != nil {
+		t.Errorf("re-registering a type refused: %v", err)
+	}
+	err := c.Register(ActionDescriptor{ActionType: "host_isolate"})
+	if err == nil || !strings.Contains(err.Error(), "request_host_isolate") {
+		t.Errorf("Register(host_isolate) = %v; want a clash on request_host_isolate", err)
+	}
+	if _, ok := c.Descriptor("host_isolate"); ok {
+		t.Error("clashing type was registered")
 	}
 }

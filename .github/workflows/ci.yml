@@ -1,6 +1,6 @@
-# CI: the same gate as local `make ci` — lint + the full test suite + build —
-# plus the workbench compile as its own job (mirroring the Makefile split:
-# engine work stays Go-only, `workbench-ci` is deliberately separate).
+# CI: the same gate as local `make ci`, in two jobs. The `engine` job runs lint,
+# the full test suite and the build; the `workbench` job runs `make workbench-ci`.
+# Together they are what local `make ci` runs (adr/0278).
 #
 # The full suite includes the embedded-deps tests: every package that boots
 # embedded Postgres in its TestMain, the supervisor's Postgres and Temporal

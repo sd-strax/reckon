@@ -904,3 +904,23 @@ func TestServe_ProposeSOPWireShape(t *testing.T) {
 		t.Errorf("wire = %v; want %v", got, want)
 	}
 }
+
+// TestServe_RefusesUnknownParams (adr/0278): a param the method does not have
+// is an invalid-params error naming it, so a renamed param cannot turn into a
+// default value. It holds for a method before initialize and after it.
+func TestServe_RefusesUnknownParams(t *testing.T) {
+	backend := fakeBackend(t)
+	c := startSidecar(t, &scriptLLM{})
+	init := map[string]any{"protocol_version": ProtocolVersion, "backend_url": backend.URL, "anthropic_api_key": "k", "backend": backend.URL}
+	resp := c.call("initialize", init)
+	if resp.Error == nil || resp.Error.Code != codeInvalidParams || !strings.Contains(resp.Error.Message, `unknown field "backend"`) {
+		t.Fatalf("initialize with an unknown param = %+v; want invalid params naming it", resp.Error)
+	}
+	if resp := c.call("initialize", initParams(backend.URL)); resp.Error != nil {
+		t.Fatalf("initialize: %+v", resp.Error)
+	}
+	resp = c.call("turn", map[string]any{"session_id": "s", "txt": "hi"})
+	if resp.Error == nil || resp.Error.Code != codeInvalidParams || !strings.Contains(resp.Error.Message, `turn: json: unknown field "txt"`) {
+		t.Errorf("turn with an unknown param = %+v; want invalid params naming it", resp.Error)
+	}
+}

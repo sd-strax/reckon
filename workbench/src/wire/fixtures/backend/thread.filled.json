@@ -18,7 +18,7 @@
       "interpretation_id": "x",
       "interpretation_type": "x",
       "summary": "x",
-      "confidence": "x",
+      "confidence": "HIGH",
       "input_refs": [
         "x"
       ],
@@ -28,7 +28,7 @@
       "tool_calls": 1,
       "has_transcript": true,
       "superseded": true,
-      "disposition": "x",
+      "disposition": "BENIGN",
       "consulted_sops": [
         {
           "sop_id": "x",

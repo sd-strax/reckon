@@ -140,5 +140,9 @@ func BuildResolverWithAdapters(cfg TenantConfig, fixtureRoot string, namespace u
 		adapters,
 		NewRegistry(identity.NewResolver(namespace)),
 	)
-	return resolver, DefaultCatalog(), nil
+	cat, err := DefaultCatalog()
+	if err != nil {
+		return nil, nil, err
+	}
+	return resolver, cat, nil
 }

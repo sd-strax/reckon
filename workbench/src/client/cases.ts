@@ -3,8 +3,8 @@
 // non-persisting: browsing is not evidence; a case is promoted once, when it
 // seeds an investigation. Answers are decoded through the wire shapes (adr/0244).
 import type { BackendHttp } from "./http";
-import * as shapes from "../wire/backendShapes";
-import type { RawCase } from "../wire/backendShapes";
+import * as shapes from "../wire/backendShapes.generated";
+import type { CaseView as RawCase } from "../wire/backendShapes.generated";
 import type { CaseQueue, CaseRow, CaseSummary } from "../viewTypes";
 
 function mapCase(r: RawCase): CaseRow {

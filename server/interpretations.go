@@ -3,10 +3,8 @@ package server
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 
@@ -19,159 +17,13 @@ import (
 // the cap exists so a runaway client can't exhaust memory or the side store.
 const maxInterpretationBodyBytes = 10 << 20
 
-// RecordInterpretationBody is the /api/interpretations request: one reasoning
-// act the agent loop (or analyst) is committing to the thread (05 §3.4 — the
-// extension posts the final Interpretation command plus the transcript bytes;
-// the backend hashes the bytes, writes the side store, and appends the event in
-// one transaction).
-type RecordInterpretationBody struct {
-	InvestigationRef   string           `json:"investigation_ref"`
-	InterpretationType string           `json:"interpretation_type"`
-	InputRefs          []string         `json:"input_refs,omitempty"`
-	OutputRefs         []string         `json:"output_refs,omitempty"`
-	Rationale          string           `json:"rationale"`
-	Confidence         string           `json:"confidence,omitempty"`
-	Transcript         *TranscriptInput `json:"transcript,omitempty"`
-	ToolCalls          []ToolCallInput  `json:"tool_calls,omitempty"`
-
-	// Reasoning-node payloads — hypotheses/predictions are outputs of
-	// interpretations. The node ids are minted SERVER-side (returned in
-	// node_id); transitions reference nodes by their STIX id.
-	Hypothesis       *HypothesisBody `json:"hypothesis,omitempty"`     // type=hypothesis: create
-	HypothesisRef    string          `json:"hypothesis_ref,omitempty"` // hypothesis ack|revise / support / refutation / inconclusive
-	Restatement      string          `json:"restatement,omitempty"`    // ack|revise: the sharpened claim (human, untested-only; 01)
-	Handle           string          `json:"handle,omitempty"`         // ack|revise: the (re)named mnemonic
-	Abandoned        bool            `json:"abandoned,omitempty"`      // inconclusive → ABANDONED instead of INCONCLUSIVE
-	Prediction       *PredictionBody `json:"prediction,omitempty"`     // type=prediction: create
-	PredictionRef    string          `json:"prediction_ref,omitempty"` // prediction outcome
-	PredictionStatus string          `json:"prediction_status,omitempty"`
-	TestResultRefs   []string        `json:"test_result_refs,omitempty"`
-	// Attestation is the analyst's own observation as the outcome's evidence
-	// (adr/0054): what a person said, or what was checked by hand. The note
-	// id is minted server-side; the aggregate refuses it from an AI delegate.
-	Attestation *AttestationBody `json:"attestation,omitempty"`
-
-	// Verdict payload for type=verdict (01 §Verdict): the disposition of
-	// record. The AI-verdict dial is applied SERVER-side from tenant config —
-	// there is deliberately no client field for it.
-	Verdict *VerdictBody `json:"verdict,omitempty"`
-
-	// ConsultedSOPs is the turn's knowledge-retrieval provenance (01 schema):
-	// what retrieval surfaced, and what the act actually built on.
-	ConsultedSOPs []ConsultedSOPBody `json:"consulted_sops,omitempty"`
-
-	// ConsultedSimilar is the case-knowledge counterpart (06 §6).
-	ConsultedSimilar []ConsultedSimilarBody `json:"consulted_similar_investigations,omitempty"`
-}
-
-// ConsultedSOPBody mirrors aggregate.ConsultedSOP on the wire.
-type ConsultedSOPBody struct {
-	SOPID          string  `json:"sop_id"`
-	Title          string  `json:"title,omitempty"`
-	RetrievalScore float64 `json:"retrieval_score,omitempty"`
-	Revision       int     `json:"revision,omitempty"`
-	Cut            string  `json:"cut,omitempty"`
-	Sections       []int   `json:"sections,omitempty"`
-	Cited          bool    `json:"cited"`
-}
-
-// ConsultedSimilarBody mirrors aggregate.ConsultedSimilarInvestigation.
-type ConsultedSimilarBody struct {
-	InvestigationRef string  `json:"investigation_ref"`
-	Title            string  `json:"title,omitempty"`
-	RetrievalScore   float64 `json:"retrieval_score,omitempty"`
-	Band             string  `json:"band,omitempty"`
-	Cited            bool    `json:"cited"`
-}
-
-// VerdictBody is the client shape of a verdict act.
-type VerdictBody struct {
-	Disposition string `json:"disposition"` // BENIGN | SUSPICIOUS | MALICIOUS
-}
-
-// HypothesisBody is the client shape of a new hypothesis.
-type HypothesisBody struct {
-	Statement   string   `json:"statement"`
-	Handle      string   `json:"handle,omitempty"`
-	ParentRef   string   `json:"parent_ref,omitempty"`
-	RootedAtRef string   `json:"rooted_at_ref,omitempty"`
-	Labels      []string `json:"labels,omitempty"`
-}
-
-// PredictionBody is the client shape of a new prediction. Discriminates names
-// the rival hypotheses whose expectation for it is the opposite of the owner's
-// (01 §reckon-prediction).
-type PredictionBody struct {
-	HypothesisRef string               `json:"hypothesis_ref"`
-	Statement     string               `json:"statement"`
-	Title         string               `json:"title,omitempty"` // the short name; derived when absent (adr/0090)
-	TestQuery     *aggregate.QuerySpec `json:"test_query,omitempty"`
-	Discriminates []string             `json:"discriminates,omitempty"`
-	TestKind      string               `json:"test_kind,omitempty"` // tool (default) | manual — a person tests it (adr/0054)
-}
-
-// AttestationBody is the client shape of a human attestation on a prediction
-// outcome (adr/0054): the content is what was observed; source and channel
-// say who was asked and how; observed_at defaults to the act's time.
-type AttestationBody struct {
-	Content    string     `json:"content"`
-	Source     string     `json:"source,omitempty"`
-	Channel    string     `json:"channel,omitempty"`
-	ObservedAt *time.Time `json:"observed_at,omitempty"`
-	// Reference says where it happened (#139): a message link, a ticket
-	// number or a message id. HashReference stores only its SHA-256, for a
-	// reference the analyst would not keep in the record as written.
-	Reference     string `json:"reference,omitempty"`
-	HashReference bool   `json:"hash_reference,omitempty"`
-	// Artifact says where the evidence itself is kept (adr/0139): reckon
-	// records the location, never the file.
-	Artifact *ArtifactBody `json:"artifact,omitempty"`
-}
-
-// ArtifactBody is where an artifact backing an attestation is kept
-// (aggregate.ArtifactLocation): the system, the location in it, its SHA-256,
-// and how someone else gets access.
-type ArtifactBody struct {
-	System   string `json:"system,omitempty"`
-	Location string `json:"location"`
-	SHA256   string `json:"sha256,omitempty"`
-	Access   string `json:"access,omitempty"`
-}
-
-func (a *ArtifactBody) location() *aggregate.ArtifactLocation {
+// artifactLocation is the aggregate's record of where an attestation's
+// artifact is kept; nil when the body names none.
+func artifactLocation(a *ArtifactBody) *aggregate.ArtifactLocation {
 	if a == nil {
 		return nil
 	}
 	return &aggregate.ArtifactLocation{System: a.System, Location: a.Location, SHA256: a.SHA256, Access: a.Access}
-}
-
-// TranscriptInput carries the raw transcript for the turn. Body is the text as a
-// string (LLM transcripts are text); it is hashed server-side into the content
-// address stored on the event.
-type TranscriptInput struct {
-	TranscriptID string `json:"transcript_id,omitempty"`
-	TurnID       string `json:"turn_id,omitempty"`
-	Body         string `json:"body"`
-}
-
-// ToolCallInput is one tool dispatch the LLM made during the turn.
-type ToolCallInput struct {
-	CallID     string          `json:"call_id"`
-	ToolName   string          `json:"tool_name"`
-	Args       json.RawMessage `json:"args,omitempty"`
-	ResultHash string          `json:"result_hash,omitempty"`
-	// CapabilityCallID is the engine's id for the capability call the dispatch
-	// made (adr/0092); call_id stays the model's tool_use id.
-	CapabilityCallID string `json:"capability_call_id,omitempty"`
-}
-
-// RecordInterpretationResponse reports the appended interpretation. NodeID is
-// the STIX id of the hypothesis/prediction this act created, when it created
-// one — the agent references it in later transitions.
-type RecordInterpretationResponse struct {
-	InterpretationID string `json:"interpretation_id"`
-	SequenceNo       int64  `json:"sequence_no"`
-	NodeID           string `json:"node_id,omitempty"`
 }
 
 // recordInterpretation handles POST /api/interpretations: the agent loop's write
@@ -225,16 +77,8 @@ func (b *Backend) recordInterpretation(w http.ResponseWriter, r *http.Request) {
 	if body.Verdict != nil {
 		cmd.Verdict = &aggregate.VerdictNode{Disposition: body.Verdict.Disposition}
 	}
-	for _, cs := range body.ConsultedSOPs {
-		cmd.ConsultedSOPs = append(cmd.ConsultedSOPs, aggregate.ConsultedSOP{
-			SOPID: cs.SOPID, Title: cs.Title, RetrievalScore: cs.RetrievalScore, Revision: cs.Revision, Cut: cs.Cut, Sections: cs.Sections, Cited: cs.Cited,
-		})
-	}
-	for _, cs := range body.ConsultedSimilar {
-		cmd.ConsultedSimilar = append(cmd.ConsultedSimilar, aggregate.ConsultedSimilarInvestigation{
-			InvestigationRef: cs.InvestigationRef, Title: cs.Title, RetrievalScore: cs.RetrievalScore, Band: cs.Band, Cited: cs.Cited,
-		})
-	}
+	cmd.ConsultedSOPs = body.ConsultedSOPs
+	cmd.ConsultedSimilar = body.ConsultedSimilar
 	// The AI-verdict dial (01 §Verdict): an AI-delegated verdict is refused
 	// unless tenant config enables it; when enabled, the enabling config ref is
 	// stamped onto the command — the aggregate rejects an AI verdict without
@@ -293,7 +137,7 @@ func (b *Backend) recordInterpretation(w http.ResponseWriter, r *http.Request) {
 			Channel:    body.Attestation.Channel,
 			ObservedAt: body.Attestation.ObservedAt,
 			Reference:  attestationReference(body.Attestation),
-			Artifact:   body.Attestation.Artifact.location(),
+			Artifact:   artifactLocation(body.Attestation.Artifact),
 		}
 	}
 	if body.Transcript != nil {
@@ -329,6 +173,9 @@ func (b *Backend) recordInterpretation(w http.ResponseWriter, r *http.Request) {
 	env := newEnvelope(investigationID, actor, commandNow())
 	res, err := b.cfg.Handler.Handle(r.Context(), env, cmd)
 	if err != nil {
+		if b.writeEventCitedError(r.Context(), w, "record interpretation", err) {
+			return
+		}
 		writeCommandError(w, "record interpretation", err)
 		return
 	}
@@ -346,61 +193,6 @@ func (b *Backend) recordInterpretation(w http.ResponseWriter, r *http.Request) {
 		SequenceNo:       res.NewSequenceNo,
 		NodeID:           nodeID,
 	})
-}
-
-// HypothesisView is one hypothesis with its predictions nested — the shape the
-// reasoning panel renders.
-type HypothesisView struct {
-	ID          string           `json:"id"`
-	Statement   string           `json:"statement"`
-	Handle      string           `json:"handle,omitempty"`
-	Status      string           `json:"status"`
-	ParentRef   string           `json:"parent_ref,omitempty"`
-	RootedAtRef string           `json:"rooted_at_ref,omitempty"`
-	Labels      []string         `json:"labels,omitempty"`
-	Predictions []PredictionView `json:"predictions,omitempty"`
-}
-
-// PredictionView is one prediction row in a HypothesisView. TestQuery is the
-// declared falsification test (01 §reckon-prediction) — the tracker's "Test this"
-// stages it into the composer, never fires it. Discriminates names the rivals
-// this prediction decides against.
-type PredictionView struct {
-	ID        string `json:"id"`
-	Statement string `json:"statement"`
-	// Title is the short name the record holds (adr/0090); TitleDerived says
-	// the aggregate derived it from the statement. Surfaces show it as is.
-	Title        string `json:"title"`
-	TitleDerived bool   `json:"title_derived,omitempty"`
-	Status       string `json:"status"`
-	// Ordinal is the prediction's short name, P1, P2, … in the order
-	// predictions were recorded across the investigation (adr/0047): what
-	// the tracker, the composer, the agent's reasoning-state block and an
-	// analyst's sentence all use to point at one. Display vocabulary, not
-	// identity — the id stays the reference.
-	Ordinal        int                  `json:"ordinal,omitempty"`
-	TestQuery      *aggregate.QuerySpec `json:"test_query,omitempty"`
-	Discriminates  []string             `json:"discriminates,omitempty"`
-	TestResultRefs []string             `json:"test_result_refs,omitempty"`
-	// TestKind is tool or manual (adr/0054): manual means a person's answer
-	// decides it and the analyst records the result; the agent cannot.
-	TestKind string `json:"test_kind,omitempty"`
-	// Attestation is the human observation the outcome cites, when it has
-	// one — rendered as "attested by … by phone: …", distinct from telemetry.
-	Attestation *AttestationView `json:"attestation,omitempty"`
-}
-
-// AttestationView is the read shape of a recorded attestation (adr/0054).
-type AttestationView struct {
-	NoteRef    string        `json:"note_ref"`
-	Author     string        `json:"author"`
-	AuthorName string        `json:"author_name,omitempty"` // the principal's display name at the time, if the record has it
-	Content    string        `json:"content"`
-	Source     string        `json:"source,omitempty"`
-	Channel    string        `json:"channel,omitempty"`
-	ObservedAt *time.Time    `json:"observed_at,omitempty"`
-	Reference  string        `json:"reference,omitempty"`
-	Artifact   *ArtifactBody `json:"artifact,omitempty"`
 }
 
 // attestationReference is the reference as recorded: as written, or only its
@@ -452,12 +244,12 @@ func (b *Backend) listInvestigationHypotheses(w http.ResponseWriter, r *http.Req
 			Statement:      p.Statement,
 			Title:          p.Title,
 			TitleDerived:   p.TitleDerived,
-			Status:         p.Status,
+			Status:         aggregate.PredictionStatus(p.Status),
 			Ordinal:        i + 1, // ListPredictions is in record order
 			TestQuery:      p.TestQuery,
 			Discriminates:  p.Discriminates,
 			TestResultRefs: p.TestResultRefs,
-			TestKind:       p.TestKind,
+			TestKind:       aggregate.TestKind(p.TestKind),
 			Attestation:    attestationView(p.Attestation),
 		})
 	}
@@ -467,12 +259,12 @@ func (b *Backend) listInvestigationHypotheses(w http.ResponseWriter, r *http.Req
 			ID:          h.ID,
 			Statement:   h.Statement,
 			Handle:      h.Handle,
-			Status:      h.Status,
+			Status:      aggregate.HypothesisStatus(h.Status),
 			ParentRef:   h.ParentRef,
 			RootedAtRef: h.RootedAtRef,
 			Labels:      h.Labels,
 			Predictions: byHypothesis[h.ID],
 		})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"hypotheses": out})
+	writeJSON(w, http.StatusOK, HypothesesResponse{Hypotheses: out})
 }

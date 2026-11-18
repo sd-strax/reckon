@@ -66,7 +66,7 @@ func TestRender_Authentication_Location(t *testing.T) {
 	p := payload(`{"class_uid":3002,"user":{"name":"m.reyes"},"dst_endpoint":{"hostname":"corp-sso"},
 		"src_endpoint":{"ip":"203.0.113.5","location":{"city":"Toronto","region":"Ontario","country":"CA","provider":"okta"}},
 		"logon_type":"Interactive","status":"SUCCESS"}`)
-	v := Render(Event{ClassUID: 3002, Payload: p}, nil)
+	v := Render(Event{ClassUID: 3002, Payload: p}, nil, nil)
 	if got := sentenceText(v); got != "m.reyes interactive logon to corp-sso from 203.0.113.5 in Toronto, CA (located by okta)" {
 		t.Errorf("sentence = %q", got)
 	}
@@ -77,7 +77,7 @@ func TestRender_Authentication_Location(t *testing.T) {
 	// The fixture's shape: city and country, no provider.
 	p = payload(`{"class_uid":3002,"user":{"name":"m.reyes"},"dst_endpoint":{"hostname":"corp-sso"},
 		"src_endpoint":{"ip":"10.0.12.40","location":{"country":"CA","city":"Toronto"}},"status":"FAILURE"}`)
-	v = Render(Event{ClassUID: 3002, Payload: p}, nil)
+	v = Render(Event{ClassUID: 3002, Payload: p}, nil, nil)
 	if got := sentenceText(v); got != "m.reyes logon to corp-sso from 10.0.12.40 in Toronto, CA failed" {
 		t.Errorf("sentence = %q", got)
 	}
@@ -87,11 +87,11 @@ func TestRender_Authentication_Location(t *testing.T) {
 
 	// A region stands in for a missing city; a country alone stands.
 	p = payload(`{"class_uid":3002,"user":{"name":"m.reyes"},"src_endpoint":{"ip":"10.0.12.40","location":{"region":"Ontario","country":"CA"}}}`)
-	if got := sentenceText(Render(Event{ClassUID: 3002, Payload: p}, nil)); got != "m.reyes logon from 10.0.12.40 in Ontario, CA" {
+	if got := sentenceText(Render(Event{ClassUID: 3002, Payload: p}, nil, nil)); got != "m.reyes logon from 10.0.12.40 in Ontario, CA" {
 		t.Errorf("sentence = %q", got)
 	}
 	p = payload(`{"class_uid":3002,"user":{"name":"m.reyes"},"src_endpoint":{"ip":"10.0.12.40","location":{"country":"CA"}}}`)
-	if got := sentenceText(Render(Event{ClassUID: 3002, Payload: p}, nil)); got != "m.reyes logon from 10.0.12.40 in CA" {
+	if got := sentenceText(Render(Event{ClassUID: 3002, Payload: p}, nil, nil)); got != "m.reyes logon from 10.0.12.40 in CA" {
 		t.Errorf("sentence = %q", got)
 	}
 
@@ -99,7 +99,7 @@ func TestRender_Authentication_Location(t *testing.T) {
 	// a country name the adapter could not code (adr/0208) and a producer's
 	// own description read the same way, after the place.
 	p = payload(`{"class_uid":3002,"user":{"name":"m.reyes"},"src_endpoint":{"ip":"10.0.12.40","location":{"city":"Atlantis City","desc":"Atlantis","provider":"okta"}}}`)
-	v = Render(Event{ClassUID: 3002, Payload: p}, nil)
+	v = Render(Event{ClassUID: 3002, Payload: p}, nil, nil)
 	if got := sentenceText(v); got != "m.reyes logon from 10.0.12.40 in Atlantis City (located by okta)" {
 		t.Errorf("sentence = %q", got)
 	}
@@ -110,7 +110,7 @@ func TestRender_Authentication_Location(t *testing.T) {
 	// adapter's shape): the sentence reads the description, so the timeline
 	// and the export carry the place and who located it.
 	p = payload(`{"class_uid":3002,"user":{"name":"m.reyes"},"src_endpoint":{"ip":"198.51.100.7","location":{"desc":"Türkiye","provider":"okta"}}}`)
-	v = Render(Event{ClassUID: 3002, Payload: p}, nil)
+	v = Render(Event{ClassUID: 3002, Payload: p}, nil, nil)
 	if got := sentenceText(v); got != "m.reyes logon from 198.51.100.7 in Türkiye (located by okta)" {
 		t.Errorf("sentence = %q", got)
 	}
@@ -118,7 +118,7 @@ func TestRender_Authentication_Location(t *testing.T) {
 		t.Errorf("Location field = %+v", f)
 	}
 	p = payload(`{"class_uid":3002,"user":{"name":"m.reyes"},"src_endpoint":{"ip":"10.0.12.40","location":{"city":"Toronto","country":"CA","desc":"corporate office"}}}`)
-	v = Render(Event{ClassUID: 3002, Payload: p}, nil)
+	v = Render(Event{ClassUID: 3002, Payload: p}, nil, nil)
 	if got := sentenceText(v); got != "m.reyes logon from 10.0.12.40 in Toronto, CA" {
 		t.Errorf("sentence = %q", got)
 	}
@@ -129,7 +129,7 @@ func TestRender_Authentication_Location(t *testing.T) {
 	// No source address: the place is not in the sentence, but the field has it.
 	p = payload(`{"class_uid":3002,"user":{"name":"m.reyes"},"dst_endpoint":{"hostname":"corp-sso"},
 		"src_endpoint":{"location":{"city":"Toronto","country":"CA"}}}`)
-	v = Render(Event{ClassUID: 3002, Payload: p}, nil)
+	v = Render(Event{ClassUID: 3002, Payload: p}, nil, nil)
 	if got := sentenceText(v); got != "m.reyes logon to corp-sso" {
 		t.Errorf("sentence = %q", got)
 	}
@@ -146,10 +146,11 @@ func TestRender_AuthenticationInitiator(t *testing.T) {
 		ent("user-account--u1", map[string]any{"account_login": `CONTOSO\jdoe`, "account_type": "windows-domain"}),
 		ent("user-account--sys", map[string]any{"account_login": `NT AUTHORITY\SYSTEM`, "account_type": "windows-local"}),
 	}
+	accounts := map[string][]string{"user": {"user-account--u1"}, "actor.user": {"user-account--sys"}}
 	p := payload(`{"class_uid":3002,"user":{"name":"jdoe","domain":"CONTOSO"},"actor":{"user":{"name":"SYSTEM","domain":"NT AUTHORITY"}},
 		"dst_endpoint":{"hostname":"WIN-FILE01"},"logon_type":"Interactive","status":"Success"}`)
-	v := Render(Event{ClassUID: 3002, Payload: p}, ents)
-	if got := sentenceText(v); got != "jdoe interactive logon to WIN-FILE01" {
+	v := Render(Event{ClassUID: 3002, Payload: p}, ents, accounts)
+	if got := sentenceText(v); got != `CONTOSO\jdoe interactive logon to WIN-FILE01` {
 		t.Errorf("sentence = %q", got)
 	}
 	if f, _ := fieldValue(v, "User"); f.Value != `CONTOSO\jdoe` || f.Ref != "user-account--u1" {
@@ -161,25 +162,28 @@ func TestRender_AuthenticationInitiator(t *testing.T) {
 
 	// The same account in both places, or no initiator, shows no extra field.
 	// It is the same account when the names differ only in letter case, with
-	// or without an entity to bind to, and when two spellings bind to one
-	// entity.
+	// or without an entity to bind to, and when the record links two
+	// spellings to one account.
+	both := map[string][]string{"user": {"user-account--u1"}, "actor.user": {"user-account--u1"}}
 	for _, tc := range []struct {
-		js   string
-		ents []Entity
+		js       string
+		ents     []Entity
+		accounts map[string][]string
 	}{
-		{`{"class_uid":3002,"user":{"name":"jdoe","domain":"CONTOSO"},"actor":{"user":{"name":"jdoe","domain":"CONTOSO"}}}`, ents},
-		{`{"class_uid":3002,"user":{"name":"jdoe","domain":"CONTOSO"}}`, ents},
-		{`{"class_uid":3002,"user":{"name":"jdoe","domain":"CONTOSO"},"actor":{"user":{"name":"JDoe","domain":"contoso"}}}`, ents},
-		{`{"class_uid":3002,"user":{"name":"jdoe","domain":"CONTOSO"},"actor":{"user":{"name":"JDoe","domain":"contoso"}}}`, nil},
-		{`{"class_uid":3002,"user":{"name":"jdoe"},"actor":{"user":{"name":"jdoe","domain":"CONTOSO"}}}`, ents},
+		{`{"class_uid":3002,"user":{"name":"jdoe","domain":"CONTOSO"},"actor":{"user":{"name":"jdoe","domain":"CONTOSO"}}}`, ents, both},
+		{`{"class_uid":3002,"user":{"name":"jdoe","domain":"CONTOSO"}}`, ents, map[string][]string{"user": {"user-account--u1"}}},
+		{`{"class_uid":3002,"user":{"name":"jdoe","domain":"CONTOSO"},"actor":{"user":{"name":"JDoe","domain":"contoso"}}}`, ents, both},
+		{`{"class_uid":3002,"user":{"name":"jdoe","domain":"CONTOSO"},"actor":{"user":{"name":"JDoe","domain":"contoso"}}}`, nil, nil},
+		{`{"class_uid":3002,"user":{"name":"jdoe"},"actor":{"user":{"name":"jdoe","domain":"CONTOSO"}}}`, ents, both},
 	} {
-		if f, ok := fieldValue(Render(Event{ClassUID: 3002, Payload: payload(tc.js)}, tc.ents), "Started by"); ok {
+		if f, ok := fieldValue(Render(Event{ClassUID: 3002, Payload: payload(tc.js)}, tc.ents, tc.accounts), "Started by"); ok {
 			t.Errorf("%s: Started by field = %+v; want none", tc.js, f)
 		}
 	}
 
 	// An event that names only an initiator does not say who logged on.
-	v = Render(Event{ClassUID: 3002, Payload: payload(`{"class_uid":3002,"actor":{"user":{"name":"SYSTEM","domain":"NT AUTHORITY"}},"dst_endpoint":{"hostname":"WIN-FILE01"}}`)}, ents)
+	v = Render(Event{ClassUID: 3002, Payload: payload(`{"class_uid":3002,"actor":{"user":{"name":"SYSTEM","domain":"NT AUTHORITY"}},"dst_endpoint":{"hostname":"WIN-FILE01"}}`)}, ents,
+		map[string][]string{"actor.user": {"user-account--sys"}})
 	if got := sentenceText(v); got != "Logon to WIN-FILE01" {
 		t.Errorf("sentence with only an initiator = %q", got)
 	}
@@ -197,12 +201,12 @@ func TestRender_Authentication(t *testing.T) {
 		ent("reckon-host--h1", map[string]any{"hostname": "WIN-FILE01", "domain": "CONTOSO"}),
 		ent("ipv4-addr--i1", map[string]any{"value": "10.0.4.20"}),
 	}
-	v := Render(Event{ClassUID: 3002, Payload: p}, ents)
-	if got := sentenceText(v); got != "svc_backup RDP logon to WIN-FILE01 from 10.0.4.20" {
+	v := Render(Event{ClassUID: 3002, Payload: p}, ents, map[string][]string{"user": {"user-account--u1"}})
+	if got := sentenceText(v); got != `CONTOSO\svc_backup RDP logon to WIN-FILE01 from 10.0.4.20` {
 		t.Errorf("sentence = %q", got)
 	}
 	want := []Token{
-		{T: "entity", Ref: "user-account--u1", Text: "svc_backup"},
+		{T: "entity", Ref: "user-account--u1", Text: `CONTOSO\svc_backup`},
 		{T: "text", Text: " RDP logon to "},
 		{T: "entity", Ref: "reckon-host--h1", Text: "WIN-FILE01"},
 		{T: "text", Text: " from "},
@@ -225,8 +229,8 @@ func TestRender_Authentication(t *testing.T) {
 	}
 
 	p["status"] = "FAILURE"
-	v = Render(Event{ClassUID: 3002, Payload: p}, nil)
-	if got := sentenceText(v); got != "svc_backup RDP logon to WIN-FILE01 from 10.0.4.20 failed" {
+	v = Render(Event{ClassUID: 3002, Payload: p}, nil, nil)
+	if got := sentenceText(v); got != `CONTOSO\svc_backup RDP logon to WIN-FILE01 from 10.0.4.20 failed` {
 		t.Errorf("failed sentence = %q", got)
 	}
 	// Without entities every slot is text: the sentence reads the same.
@@ -251,7 +255,7 @@ func TestRender_Sentences(t *testing.T) {
 	}{
 		{"process", 1007, `{"process":{"pid":6120,"name":"powershell.exe","cmd_line":"powershell.exe -enc ZQ==","parent_process":{"pid":5000,"name":"mstsc-hijack.exe"}},
 			"device":{"hostname":"WIN-FILE01"},"actor":{"user":{"name":"svc_backup","domain":"CONTOSO"}}}`,
-			"svc_backup ran powershell.exe on WIN-FILE01, child of mstsc-hijack.exe", CategoryProcess},
+			`CONTOSO\svc_backup ran powershell.exe on WIN-FILE01, child of mstsc-hijack.exe`, CategoryProcess},
 		{"process launched, no user", 1007, `{"activity_name":"Launch","process":{"pid":1,"name":"a.exe"},"device":{"hostname":"H"}}`,
 			"a.exe was launched on H", CategoryProcess},
 		{"network", 4001, `{"src_endpoint":{"ip":"10.0.4.20","port":49999},"dst_endpoint":{"ip":"185.220.101.5","port":443,"domain":"exfil.example.net"},
@@ -291,11 +295,11 @@ func TestRender_Sentences(t *testing.T) {
 		{"module", 1005, `{"module":{"file":{"name":"evil.dll","path":"C:\\Temp\\evil.dll"}},"actor":{"process":{"pid":7,"name":"svchost.exe"}},"device":{"hostname":"WS1"}}`,
 			"svchost.exe loaded evil.dll on WS1", CategoryProcess},
 		{"account change", 3001, `{"activity_name":"Password Reset","user":{"name":"jdoe","domain":"CONTOSO"},"actor":{"user":{"name":"admin","domain":"CONTOSO"}},"device":{"hostname":"DC1"}}`,
-			"admin reset the password of jdoe on DC1", CategoryAuth},
+			`CONTOSO\admin reset the password of CONTOSO\jdoe on DC1`, CategoryAuth},
 		{"account change without actor", 3001, `{"activity_name":"Create","user":{"name":"jdoe"}}`,
 			"Account jdoe was created", CategoryAuth},
 		{"user access", 3005, `{"activity_name":"Assign Privileges","user":{"name":"jdoe","domain":"CONTOSO"},"actor":{"user":{"name":"admin","domain":"CONTOSO"}},"privileges":["SeDebugPrivilege"],"device":{"hostname":"DC1"}}`,
-			"admin assigned privileges to jdoe on DC1", CategoryAuth},
+			`CONTOSO\admin assigned privileges to CONTOSO\jdoe on DC1`, CategoryAuth},
 		{"group management", 3006, `{"activity_name":"Add User","user":{"name":"jdoe"},"actor":{"user":{"name":"admin"}},"group":{"name":"Domain Admins"},"device":{"hostname":"DC1"}}`,
 			"admin added jdoe to Domain Admins on DC1", CategoryAuth},
 		{"group management users[]", 3006, `{"activity_name":"Add User","users":[{"name":"jdoe"},{"name":"asmith"}],"actor":{"user":{"name":"admin"}},"group":{"name":"Domain Admins"},"device":{"hostname":"DC1"}}`,
@@ -329,7 +333,7 @@ func TestRender_Sentences(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			v := Render(Event{ClassUID: tc.classUID, Payload: payload(tc.payload)}, nil)
+			v := Render(Event{ClassUID: tc.classUID, Payload: payload(tc.payload)}, nil, nil)
 			if got := sentenceText(v); got != tc.want {
 				t.Errorf("sentence = %q\n            want %q", got, tc.want)
 			}
@@ -348,7 +352,7 @@ func TestRender_Sentences(t *testing.T) {
 // caption OCSF gives that id (adr/0356).
 func TestRender_HashByAlgorithmID(t *testing.T) {
 	p := payload(`{"process":{"pid":6120,"name":"tool.exe","file":{"hashes":[{"algorithm_id":3,"value":"9f1c"}]}},"device":{"hostname":"WIN-FILE01"}}`)
-	v := Render(Event{ClassUID: 1007, Payload: p}, []Entity{ent("file--f1", map[string]any{"hashes": map[string]any{"SHA-256": "9f1c"}})})
+	v := Render(Event{ClassUID: 1007, Payload: p}, []Entity{ent("file--f1", map[string]any{"hashes": map[string]any{"SHA-256": "9f1c"}})}, nil)
 	var hash *Field
 	for i := range v.Fields {
 		if v.Fields[i].Label == "SHA-256" {
@@ -371,10 +375,10 @@ func TestRender_ProcessFields(t *testing.T) {
 		ent("process--p0", map[string]any{"pid": float64(5000), "name": "mstsc-hijack.exe"}),
 		ent("file--f1", map[string]any{"name": "powershell.exe", "hashes": map[string]any{"SHA-256": "9f1c"}}),
 	}
-	v := Render(Event{ClassUID: 1007, Payload: p}, ents)
+	v := Render(Event{ClassUID: 1007, Payload: p}, ents, nil)
 	// The user and host have no object in this record, so they read as text
 	// and merge with the words around them; the process is the one chip.
-	if got := sentenceText(v); got != "svc_backup ran powershell.exe on WIN-FILE01, child of mstsc-hijack.exe" {
+	if got := sentenceText(v); got != `CONTOSO\svc_backup ran powershell.exe on WIN-FILE01, child of mstsc-hijack.exe` {
 		t.Errorf("sentence = %q", got)
 	}
 	var refs []string
@@ -403,55 +407,21 @@ func TestRender_ProcessFields(t *testing.T) {
 
 // TestRender_BindsByValue: a slot binds to the object of its type that carries
 // its value, never to the type alone — two users on an account change, two
-// addresses on a connection.
+// addresses on a connection. A user object binds the account the record
+// links to its place (adr/0398).
 func TestRender_BindsByValue(t *testing.T) {
 	v := Render(Event{ClassUID: 3001, Payload: payload(`{"activity_name":"Disable","user":{"name":"jdoe","domain":"CONTOSO"},"actor":{"user":{"name":"admin","domain":"CONTOSO"}}}`)}, []Entity{
 		ent("user-account--target", map[string]any{"account_login": `CONTOSO\jdoe`}),
 		ent("user-account--actor", map[string]any{"account_login": `CONTOSO\admin`}),
-	})
+	}, map[string][]string{"user": {"user-account--target"}, "actor.user": {"user-account--actor"}})
 	if v.Sentence[0].Ref != "user-account--actor" || v.Sentence[2].Ref != "user-account--target" {
 		t.Errorf("account change slots = %+v", v.Sentence)
 	}
 	v = Render(Event{ClassUID: 4001, Payload: payload(`{"src_endpoint":{"ip":"10.0.0.1"},"dst_endpoint":{"ip":"10.0.0.2"}}`)}, []Entity{
 		ent("ipv4-addr--dst", map[string]any{"value": "10.0.0.2"}),
-	})
+	}, nil)
 	if v.Sentence[0].T != "text" || v.Sentence[0].Text != "10.0.0.1 connected to " || v.Sentence[1].Ref != "ipv4-addr--dst" {
 		t.Errorf("network slots = %+v", v.Sentence)
-	}
-	// A user whose record holds the bare login still binds.
-	v = Render(Event{ClassUID: 3002, Payload: payload(`{"user":{"name":"root"},"dst_endpoint":{"hostname":"srv"}}`)}, []Entity{
-		ent("user-account--r", map[string]any{"account_login": "root", "account_type": "local"}),
-	})
-	if v.Sentence[0].Ref != "user-account--r" {
-		t.Errorf("bare login did not bind: %+v", v.Sentence[0])
-	}
-}
-
-// TestRender_BindsByDomain: two same-named accounts of different domains bind
-// apart, whatever order the record holds them in; a payload naming no domain
-// binds a qualified login only when the record holds exactly one ending in it.
-func TestRender_BindsByDomain(t *testing.T) {
-	v := Render(Event{ClassUID: 3001, Payload: payload(`{"activity_name":"Disable","user":{"name":"admin","domain":"B"},"actor":{"user":{"name":"admin","domain":"A"}}}`)}, []Entity{
-		ent("user-account--target", map[string]any{"account_login": `B\admin`}),
-		ent("user-account--actor", map[string]any{"account_login": `A\admin`}),
-	})
-	if refs := entityRefs(v); !slices.Equal(refs, []string{"user-account--actor", "user-account--target"}) {
-		t.Errorf("account change slots = %v", refs)
-	}
-	// No domain on the payload, two qualified candidates: neither is chosen.
-	v = Render(Event{ClassUID: 3002, Payload: payload(`{"user":{"name":"admin"},"dst_endpoint":{"hostname":"srv"}}`)}, []Entity{
-		ent("user-account--1", map[string]any{"account_login": `A\admin`}),
-		ent("user-account--2", map[string]any{"account_login": `B\admin`}),
-	})
-	if refs := entityRefs(v); len(refs) != 0 {
-		t.Errorf("ambiguous login bound: %v", refs)
-	}
-	// One qualified candidate for a bare payload name still binds.
-	v = Render(Event{ClassUID: 3002, Payload: payload(`{"user":{"name":"admin"},"dst_endpoint":{"hostname":"srv"}}`)}, []Entity{
-		ent("user-account--1", map[string]any{"account_login": `A\admin`}),
-	})
-	if refs := entityRefs(v); !slices.Equal(refs, []string{"user-account--1"}) {
-		t.Errorf("single qualified login did not bind: %v", refs)
 	}
 }
 
@@ -461,13 +431,13 @@ func TestRender_BindsByDomain(t *testing.T) {
 func TestRender_BindsStoredShapes(t *testing.T) {
 	v := Render(Event{ClassUID: 4001, Payload: payload(`{"actor":{"process":{"pid":77,"name":"curl.exe"}},"src_endpoint":{"ip":"10.0.0.1"},"dst_endpoint":{"ip":"10.0.0.2"}}`)}, []Entity{
 		ent("process--p", map[string]any{"pid": float64(77)}),
-	})
+	}, nil)
 	if f, _ := fieldValue(v, "Process"); f.Ref != "process--p" {
 		t.Errorf("pid-only process did not bind: %+v", f)
 	}
 	v = Render(Event{ClassUID: 4001, Payload: payload(`{"actor":{"process":{"pid":77,"name":"curl.exe"}},"src_endpoint":{"ip":"10.0.0.1"}}`)}, []Entity{
 		ent("process--q", map[string]any{"pid": float64(77), "name": "other.exe"}),
-	})
+	}, nil)
 	if f, _ := fieldValue(v, "Process"); f.Ref != "" {
 		t.Errorf("process with a conflicting stored name bound: %+v", f)
 	}
@@ -475,7 +445,7 @@ func TestRender_BindsStoredShapes(t *testing.T) {
 	v = Render(Event{ClassUID: 1001, Payload: payload(`{"activity_name":"Create","file":{"path":"C:\\Temp\\payload.dll"},"device":{"hostname":"WS1"}}`)}, []Entity{
 		// The normalizer took the stored name from the path (adr/0357).
 		ent("file--f", map[string]any{"name": "payload.dll", "path": `C:\Temp\payload.dll`}),
-	})
+	}, nil)
 	if refs := entityRefs(v); !slices.Equal(refs, []string{"file--f"}) {
 		t.Errorf("path-only file did not bind: %v", refs)
 	}
@@ -483,7 +453,7 @@ func TestRender_BindsStoredShapes(t *testing.T) {
 	v = Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","user":{"name":"jdoe"},"group":{"name":"Domain Admins","domain":"CONTOSO"}}`)}, []Entity{
 		ent("reckon-group--other", map[string]any{"group_name": "Domain Admins", "directory": "FABRIKAM"}),
 		ent("reckon-group--g", map[string]any{"group_name": "Domain Admins", "directory": "CONTOSO"}),
-	})
+	}, nil)
 	if refs := entityRefs(v); !slices.Equal(refs, []string{"reckon-group--g"}) {
 		t.Errorf("group slots = %v; want the CONTOSO group", refs)
 	}
@@ -500,7 +470,7 @@ func TestRender_BindsHostByShortName(t *testing.T) {
 	for _, stored := range []string{"WS1", "ws1.corp.example"} {
 		v := Render(Event{ClassUID: 1001, Payload: payload(`{"activity_name":"Create","file":{"path":"C:\\Temp\\a.dll"},"device":{"hostname":"ws1.Corp.Example."}}`)}, []Entity{
 			ent("reckon-host--h", map[string]any{"hostname": stored}),
-		})
+		}, nil)
 		var bound bool
 		for _, tok := range v.Sentence {
 			if tok.T == "entity" && tok.Ref == "reckon-host--h" {
@@ -513,7 +483,7 @@ func TestRender_BindsHostByShortName(t *testing.T) {
 	}
 	v := Render(Event{ClassUID: 1001, Payload: payload(`{"activity_name":"Create","file":{"path":"C:\\Temp\\a.dll"},"device":{"hostname":"ws2.corp.example"}}`)}, []Entity{
 		ent("reckon-host--h", map[string]any{"hostname": "ws1"}),
-	})
+	}, nil)
 	if refs := entityRefs(v); slices.Contains(refs, "reckon-host--h") {
 		t.Errorf("another short name bound: %v", refs)
 	}
@@ -523,14 +493,14 @@ func TestRender_BindsHostByShortName(t *testing.T) {
 // reads: email.files[] and email.urls[] (OCSF 1.4.0). The pre-OCSF
 // email.attachments is not read (adr/0356).
 func TestRender_EmailAttachments(t *testing.T) {
-	v := Render(Event{ClassUID: 4009, Payload: payload(`{"email":{"from":"a@x.example","subject":"s","files":[{"name":"invoice.zip"},{"name":"a.pdf"}],"urls":[{"url_string":"https://x.example/"}]}}`)}, nil)
+	v := Render(Event{ClassUID: 4009, Payload: payload(`{"email":{"from":"a@x.example","subject":"s","files":[{"name":"invoice.zip"},{"name":"a.pdf"}],"urls":[{"url_string":"https://x.example/"}]}}`)}, nil, nil)
 	if f, ok := fieldValue(v, "Attachments"); !ok || f.Value != "2" {
 		t.Errorf("Attachments = %+v, %v", f, ok)
 	}
 	if f, ok := fieldValue(v, "Links"); !ok || f.Value != "1" {
 		t.Errorf("Links = %+v, %v", f, ok)
 	}
-	v = Render(Event{ClassUID: 4009, Payload: payload(`{"email":{"from":"a@x.example","subject":"s","attachments":[{"name":"invoice.zip"}]}}`)}, nil)
+	v = Render(Event{ClassUID: 4009, Payload: payload(`{"email":{"from":"a@x.example","subject":"s","attachments":[{"name":"invoice.zip"}]}}`)}, nil, nil)
 	if f, ok := fieldValue(v, "Attachments"); ok {
 		t.Errorf("email.attachments was read: %+v", f)
 	}
@@ -550,7 +520,7 @@ func entityRefs(v View) []string {
 // category from category_uid. The clock keys are left out, and a timestamp
 // with its _dt twin is shown once, as the twin's text.
 func TestRender_UnknownClass(t *testing.T) {
-	v := Render(Event{ClassUID: 8001, Payload: payload(`{"class_uid":8001,"category_uid":8,"time":1767225600000,"time_dt":"2026-01-01T00:00:00Z","start_time":1767225600000,"start_time_dt":"2026-01-01T00:00:00Z","end_time":1767225660000,"api":{"operation":"GetObject"},"severity":"Informational","count":2,"ok":true}`)}, nil)
+	v := Render(Event{ClassUID: 8001, Payload: payload(`{"class_uid":8001,"category_uid":8,"time":1767225600000,"time_dt":"2026-01-01T00:00:00Z","start_time":1767225600000,"start_time_dt":"2026-01-01T00:00:00Z","end_time":1767225660000,"api":{"operation":"GetObject"},"severity":"Informational","count":2,"ok":true}`)}, nil, nil)
 	if v.Sentence != nil {
 		t.Errorf("sentence for an unknown class: %+v", v.Sentence)
 	}
@@ -564,7 +534,7 @@ func TestRender_UnknownClass(t *testing.T) {
 	if v.Category != CategoryOther {
 		t.Errorf("category = %s", v.Category)
 	}
-	v = Render(Event{ClassUID: 5002, Payload: nil}, nil)
+	v = Render(Event{ClassUID: 5002, Payload: nil}, nil, nil)
 	if v.Fields == nil || v.Category != CategoryAsset {
 		t.Errorf("nil payload: fields %v category %s", v.Fields, v.Category)
 	}
@@ -582,7 +552,7 @@ func TestRender_UnknownClass(t *testing.T) {
 // the top of the event first, then unmapped, then the records in name order.
 func TestRender_BaseEvent(t *testing.T) {
 	fields := func(js string) []string {
-		v := Render(Event{ClassUID: 0, Payload: payload(js)}, nil)
+		v := Render(Event{ClassUID: 0, Payload: payload(js)}, nil, nil)
 		if v.Sentence != nil {
 			t.Errorf("sentence for a base event: %+v", v.Sentence)
 		}
@@ -634,7 +604,7 @@ func TestRender_BaseEventFromWrapper(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	v := Render(Event{ClassUID: 0, Payload: payload(string(js))}, nil)
+	v := Render(Event{ClassUID: 0, Payload: payload(string(js))}, nil, nil)
 	got := make([]string, 0, len(v.Fields))
 	for _, f := range v.Fields {
 		got = append(got, f.Label+"="+f.Value)
@@ -666,7 +636,7 @@ func TestRender_Fixtures(t *testing.T) {
 			continue // action fixtures and lookup tables
 		}
 		classUID := toInt(doc.Ocsf["class_uid"])
-		v := Render(Event{ClassUID: classUID, ClassName: toString(doc.Ocsf["class_name"]), Payload: doc.Ocsf}, nil)
+		v := Render(Event{ClassUID: classUID, ClassName: toString(doc.Ocsf["class_name"]), Payload: doc.Ocsf}, nil, nil)
 		rendered++
 		if v.Category == "" {
 			t.Errorf("%s: no category", f)
@@ -720,7 +690,7 @@ func apiEntities() []Entity {
 // and source as chips bound to the record, the curated fields, the outcome
 // toned, the application category.
 func TestRender_APIActivity(t *testing.T) {
-	v := Render(Event{ClassUID: 6003, Payload: payload(apiCall)}, apiEntities())
+	v := Render(Event{ClassUID: 6003, Payload: payload(apiCall)}, apiEntities(), map[string][]string{"actor.user": {"user-account--p"}})
 	if got := sentenceText(v); got != "deploy-ci PutBucketPolicy acme-internal-exports in acme-prod · Success" {
 		t.Errorf("sentence = %q", got)
 	}
@@ -763,7 +733,7 @@ func TestRender_APIActivity(t *testing.T) {
 // by type and name; an account named only by the caller's account.
 func TestRender_APIActivityShapes(t *testing.T) {
 	v := Render(Event{ClassUID: 6003, Payload: payload(`{"actor":{"user":{"name":"deploy-ci"}},"api":{"operation":"ListUsers","service":{"name":"iam.amazonaws.com"},"response":{"error":"AccessDenied"}},
-		"cloud":{"account":{"uid":"111122223333"}},"status_id":2}`)}, apiEntities())
+		"cloud":{"account":{"uid":"111122223333"}},"status_id":2}`)}, apiEntities(), nil)
 	if got := sentenceText(v); got != "deploy-ci ListUsers (iam.amazonaws.com) in 111122223333 · Failure: AccessDenied" {
 		t.Errorf("no-resource failure sentence = %q", got)
 	}
@@ -772,7 +742,7 @@ func TestRender_APIActivityShapes(t *testing.T) {
 	}
 
 	v = Render(Event{ClassUID: 6003, Payload: payload(`{"actor":{"user":{"name":"deploy-ci"}},"api":{"operation":"DeleteObjects"},
-		"resources":[{"uid":"arn:aws:s3:::acme-internal-exports"},{"uid":"arn:aws:s3:::b"},{"uid":"arn:aws:s3:::c"}]}`)}, apiEntities())
+		"resources":[{"uid":"arn:aws:s3:::acme-internal-exports"},{"uid":"arn:aws:s3:::b"},{"uid":"arn:aws:s3:::c"}]}`)}, apiEntities(), nil)
 	if got := sentenceText(v); got != "deploy-ci DeleteObjects arn:aws:s3:::acme-internal-exports, +2 more" {
 		t.Errorf("many-resources sentence = %q", got)
 	}
@@ -791,11 +761,11 @@ func TestRender_APIActivityShapes(t *testing.T) {
 		}
 	}
 
-	v = Render(Event{ClassUID: 6003, Payload: payload(`{"actor":{"app_name":"backup.example.internal"},"api":{"operation":"GetObject"}}`)}, nil)
+	v = Render(Event{ClassUID: 6003, Payload: payload(`{"actor":{"app_name":"backup.example.internal"},"api":{"operation":"GetObject"}}`)}, nil, nil)
 	if got := sentenceText(v); got != "backup.example.internal called GetObject" {
 		t.Errorf("app-only sentence = %q", got)
 	}
-	if got := sentenceText(Render(Event{ClassUID: 6003, Payload: map[string]any{}}, nil)); got != "API call" {
+	if got := sentenceText(Render(Event{ClassUID: 6003, Payload: map[string]any{}}, nil, nil)); got != "API call" {
 		t.Errorf("empty sentence = %q", got)
 	}
 
@@ -804,32 +774,34 @@ func TestRender_APIActivityShapes(t *testing.T) {
 		ent("reckon-cloud-resource--other", map[string]any{"provider": "aws", "name": "acme-logs", "resource_type": "AWS::DynamoDB::Table"}),
 		ent("reckon-cloud-resource--n", map[string]any{"provider": "aws", "name": "acme-logs", "resource_type": "AWS::S3::Bucket"}),
 		ent("reckon-cloud-account--a", map[string]any{"provider": "aws", "account_uid": "111122223333"}),
-	})
+	}, nil)
 	if refs := entityRefs(v); !slices.Equal(refs, []string{"reckon-cloud-resource--n", "reckon-cloud-account--a"}) {
 		t.Errorf("name-bound refs = %v", refs)
 	}
 }
 
-// TestRender_APIActivityPrincipal: the principal binds by the durable id the
-// record keyed it on: the user's uid with a name, the uid alone (the chip
-// reads the uid), the session issuer for a role.
+// TestRender_APIActivityPrincipal: the principal binds the account the
+// record links to actor.user (adr/0398). The chip reads the name, else the
+// uid, whichever durable id the account was keyed on.
 func TestRender_APIActivityPrincipal(t *testing.T) {
 	const arn = "arn:aws:iam::111122223333:user/deploy-ci"
 	byID := []Entity{
 		ent("user-account--other", map[string]any{"account_login": "", "user_id": "arn:aws:iam::444455556666:user/deploy-ci"}),
 		ent("user-account--p", map[string]any{"account_login": "", "user_id": arn}),
 	}
-	v := Render(Event{ClassUID: 6003, Payload: payload(`{"actor":{"user":{"uid":"` + arn + `","name":"deploy-ci"}},"api":{"operation":"PutObject"}}`)}, byID)
+	toP := map[string][]string{"actor.user": {"user-account--p"}}
+	v := Render(Event{ClassUID: 6003, Payload: payload(`{"actor":{"user":{"uid":"` + arn + `","name":"deploy-ci"}},"api":{"operation":"PutObject"}}`)}, byID, toP)
 	if v.Sentence[0] != (Token{T: "entity", Ref: "user-account--p", Text: "deploy-ci"}) {
 		t.Errorf("name+uid principal = %+v", v.Sentence[0])
 	}
-	v = Render(Event{ClassUID: 6003, Payload: payload(`{"actor":{"user":{"uid":"` + arn + `"}},"api":{"operation":"PutObject"}}`)}, byID)
+	v = Render(Event{ClassUID: 6003, Payload: payload(`{"actor":{"user":{"uid":"` + arn + `"}},"api":{"operation":"PutObject"}}`)}, byID, toP)
 	if v.Sentence[0] != (Token{T: "entity", Ref: "user-account--p", Text: arn}) || sentenceText(v) != arn+" PutObject" {
 		t.Errorf("uid-only principal = %+v (%q)", v.Sentence, sentenceText(v))
 	}
 	role := []Entity{ent("user-account--role", map[string]any{"account_login": "", "user_id": "arn:aws:iam::111122223333:role/Deploy"})}
 	v = Render(Event{ClassUID: 6003, Payload: payload(`{"actor":{"user":{"uid":"arn:aws:sts::111122223333:assumed-role/Deploy/i-0abc","name":"Deploy"},
-		"session":{"issuer":"arn:aws:iam::111122223333:role/Deploy","uid":"i-0abc"}},"api":{"operation":"PutObject"}}`)}, role)
+		"session":{"issuer":"arn:aws:iam::111122223333:role/Deploy","uid":"i-0abc"}},"api":{"operation":"PutObject"}}`)}, role,
+		map[string][]string{"actor.user": {"user-account--role"}})
 	if v.Sentence[0] != (Token{T: "entity", Ref: "user-account--role", Text: "Deploy"}) {
 		t.Errorf("issuer-bound role = %+v", v.Sentence[0])
 	}
@@ -839,7 +811,7 @@ func TestRender_APIActivityPrincipal(t *testing.T) {
 // no status given; a cross-account call shows the caller's account beside the
 // account the call ran in, and a same-account call does not.
 func TestRender_APIActivityOutcomeAndCaller(t *testing.T) {
-	v := Render(Event{ClassUID: 6003, Payload: payload(`{"actor":{"user":{"name":"deploy-ci"}},"api":{"operation":"ListUsers","response":{"error":"AccessDenied"}}}`)}, nil)
+	v := Render(Event{ClassUID: 6003, Payload: payload(`{"actor":{"user":{"name":"deploy-ci"}},"api":{"operation":"ListUsers","response":{"error":"AccessDenied"}}}`)}, nil, nil)
 	if f, _ := fieldValue(v, "Outcome"); f.Value != "Failure: AccessDenied" || f.Tone != "bad" {
 		t.Errorf("Outcome without status = %+v", f)
 	}
@@ -848,14 +820,14 @@ func TestRender_APIActivityOutcomeAndCaller(t *testing.T) {
 		ent("reckon-cloud-account--home", map[string]any{"provider": "aws", "account_uid": "111122223333"}),
 	}
 	v = Render(Event{ClassUID: 6003, Payload: payload(`{"actor":{"user":{"name":"deploy-ci","account":{"uid":"111122223333","name":"acme-prod"}}},
-		"api":{"operation":"GetObject"},"cloud":{"account":{"uid":"444455556666","name":"acme-shared"}}}`)}, ents)
+		"api":{"operation":"GetObject"},"cloud":{"account":{"uid":"444455556666","name":"acme-shared"}}}`)}, ents, nil)
 	if f, _ := fieldValue(v, "Account"); f.Value != "acme-shared" || f.Ref != "reckon-cloud-account--target" {
 		t.Errorf("Account = %+v", f)
 	}
 	if f, ok := fieldValue(v, "Caller account"); !ok || f.Value != "acme-prod" || f.Ref != "reckon-cloud-account--home" {
 		t.Errorf("Caller account = %+v, %v", f, ok)
 	}
-	v = Render(Event{ClassUID: 6003, Payload: payload(apiCall)}, apiEntities())
+	v = Render(Event{ClassUID: 6003, Payload: payload(apiCall)}, apiEntities(), nil)
 	if _, ok := fieldValue(v, "Caller account"); ok {
 		t.Error("same-account call shows a caller account")
 	}
@@ -866,7 +838,7 @@ func TestRender_APIActivityOutcomeAndCaller(t *testing.T) {
 // seen twice folds, and an unbound resource keys by its exact text.
 func TestRender_APIActivityResourceKey(t *testing.T) {
 	key := func(uid string, ents []Entity) SlotValue {
-		v := Render(Event{ClassUID: 6003, Payload: payload(`{"api":{"operation":"GetObject"},"resources":[{"uid":"` + uid + `","name":"exports"}]}`)}, ents)
+		v := Render(Event{ClassUID: 6003, Payload: payload(`{"api":{"operation":"GetObject"},"resources":[{"uid":"` + uid + `","name":"exports"}]}`)}, ents, nil)
 		for _, s := range v.Slots {
 			if s.Name == "resource" {
 				return s
@@ -891,7 +863,7 @@ func TestRender_APIActivityResourceKey(t *testing.T) {
 	if u1.Identity != u2.Identity || u1.Identity == a.Identity {
 		t.Errorf("unbound keys = %q, %q; want the exact text, apart from the bound one", u1.Identity, u2.Identity)
 	}
-	upper := Render(Event{ClassUID: 6003, Payload: payload(`{"resources":[{"uid":"arn:aws:s3:::x","name":"Exports"}]}`)}, nil)
+	upper := Render(Event{ClassUID: 6003, Payload: payload(`{"resources":[{"uid":"arn:aws:s3:::x","name":"Exports"}]}`)}, nil, nil)
 	for _, s := range upper.Slots {
 		if s.Name == "resource" && s.Identity == u1.Identity {
 			t.Error("unbound resource text folded for case")
@@ -910,7 +882,7 @@ func TestRender_APIActivityResourceByName(t *testing.T) {
 		ent("reckon-cloud-resource--east", map[string]any{"provider": "aws", "name": "Orders", "resource_type": "AWS::DynamoDB::Table", "region": "us-east-1"}),
 		ent("reckon-cloud-resource--lower", map[string]any{"provider": "aws", "name": "orders", "resource_type": "AWS::DynamoDB::Table", "region": "us-east-1"}),
 		ent("reckon-cloud-resource--west", map[string]any{"provider": "aws", "name": "Orders", "resource_type": "AWS::DynamoDB::Table", "region": "us-west-2"}),
-	})
+	}, nil)
 	var refs []string
 	for _, f := range v.Fields {
 		if f.Label == "Resource" {
@@ -930,7 +902,7 @@ func TestRender_APIActivityResourceGroups(t *testing.T) {
 		{"name":"api","type":"Microsoft.Compute/virtualMachines","region":"eastus","group":{"name":"RG-B"}}]}`)}, []Entity{
 		ent("reckon-cloud-resource--a", map[string]any{"provider": "aws", "name": "api", "resource_type": "Microsoft.Compute/virtualMachines", "region": "eastus", "group": "rg-a"}),
 		ent("reckon-cloud-resource--b", map[string]any{"provider": "aws", "name": "api", "resource_type": "Microsoft.Compute/virtualMachines", "region": "eastus", "group": "rg-b"}),
-	})
+	}, nil)
 	var refs []string
 	for _, f := range v.Fields {
 		if f.Label == "Resource" {
@@ -950,7 +922,7 @@ func TestRender_APIActivityResourceZones(t *testing.T) {
 		{"name":"api","type":"compute.googleapis.com/Instance","region":"us-central1","zone":"US-CENTRAL1-B"}]}`)}, []Entity{
 		ent("reckon-cloud-resource--a", map[string]any{"provider": "aws", "name": "api", "resource_type": "compute.googleapis.com/Instance", "region": "us-central1", "zone": "us-central1-a"}),
 		ent("reckon-cloud-resource--b", map[string]any{"provider": "aws", "name": "api", "resource_type": "compute.googleapis.com/Instance", "region": "us-central1", "zone": "us-central1-b"}),
-	})
+	}, nil)
 	if refs, want := resourceRefs(v), []string{"reckon-cloud-resource--a", "reckon-cloud-resource--b"}; !slices.Equal(refs, want) {
 		t.Errorf("resource refs = %v; want %v", refs, want)
 	}
@@ -964,7 +936,7 @@ func TestRender_APIActivityResourceNamespaceCase(t *testing.T) {
 		{"name":"orders","type":"AWS::Glue::Table","namespace":"SourceA"}]}`)}, []Entity{
 		ent("reckon-cloud-resource--upper", map[string]any{"provider": "aws", "name": "orders", "resource_type": "AWS::Glue::Table", "namespace": "SourceA"}),
 		ent("reckon-cloud-resource--lower", map[string]any{"provider": "aws", "name": "orders", "resource_type": "AWS::Glue::Table", "namespace": "sourcea"}),
-	})
+	}, nil)
 	if refs, want := resourceRefs(v), []string{"reckon-cloud-resource--lower", "reckon-cloud-resource--upper"}; !slices.Equal(refs, want) {
 		t.Errorf("resource refs = %v; want %v", refs, want)
 	}
@@ -997,7 +969,7 @@ func TestRender_CloudInventory(t *testing.T) {
 		ent("reckon-cloud-account--a", map[string]any{"provider": "aws", "account_uid": "111122223333"}),
 		ent("reckon-cloud-resource--r", map[string]any{"provider": "aws", "uid": "arn:aws:s3:::acme-internal-exports", "name": "acme-internal-exports"}),
 	}
-	v := Render(Event{ClassUID: 5023, Payload: payload(inventorySnapshot)}, ents)
+	v := Render(Event{ClassUID: 5023, Payload: payload(inventorySnapshot)}, ents, nil)
 	const want = "acme-internal-exports (AWS::S3::Bucket) in acme-prod, us-east-1"
 	if got := sentenceText(v); got != want {
 		t.Errorf("sentence = %q", got)
@@ -1047,7 +1019,7 @@ func TestRender_CloudInventory(t *testing.T) {
 	} {
 		ms := payload(inventorySnapshot)
 		edit(ms["resources"].([]any)[0].(map[string]any))
-		ev := Render(Event{ClassUID: 5023, Payload: ms}, ents)
+		ev := Render(Event{ClassUID: 5023, Payload: ms}, ents, nil)
 		for label, want := range map[string]string{"Created": "2025-03-02T12:00:00Z", "Modified": "2026-07-14T09:28:00Z"} {
 			if f, ok := fieldValue(ev, label); !ok || f.Value != want {
 				t.Errorf("%s: %s field = %+v; want %s", name, label, f, want)
@@ -1057,7 +1029,7 @@ func TestRender_CloudInventory(t *testing.T) {
 
 	p := payload(inventorySnapshot)
 	delete(p["cloud"].(map[string]any), "provider")
-	v = Render(Event{ClassUID: 5023, Payload: p}, nil)
+	v = Render(Event{ClassUID: 5023, Payload: p}, nil, nil)
 	if got := sentenceText(v); got != want {
 		t.Errorf("no provider: sentence = %q; want %q", got, want)
 	}
@@ -1168,7 +1140,7 @@ func TestRender_OCSFFields(t *testing.T) {
 			map[string]string{"Principal": "old"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			v := Render(Event{ClassUID: tc.class, Payload: payload(tc.payload)}, nil)
+			v := Render(Event{ClassUID: tc.class, Payload: payload(tc.payload)}, nil, nil)
 			for label, want := range tc.want {
 				f, ok := fieldValue(v, label)
 				if want == "" {
@@ -1185,7 +1157,7 @@ func TestRender_OCSFFields(t *testing.T) {
 	}
 
 	// Every command line of a job with several actions is shown.
-	v := Render(Event{ClassUID: 1006, Payload: payload(`{"job":{"name":"Updater","job_actions":[{"cmd_line":"a.exe"},{"cmd_line":"b.exe"}]}}`)}, nil)
+	v := Render(Event{ClassUID: 1006, Payload: payload(`{"job":{"name":"Updater","job_actions":[{"cmd_line":"a.exe"},{"cmd_line":"b.exe"}]}}`)}, nil, nil)
 	var cmds []string
 	for _, f := range v.Fields {
 		if f.Label == "Command line" {
@@ -1216,7 +1188,7 @@ func TestRender_RegistryBindsTheKey(t *testing.T) {
 		`{"reg_value":{"path":"\\REGISTRY\\MACHINE\\SOFTWARE\\Run","name":"Updater"}}`: {201002, "windows-registry-key--updater"},
 		`{"reg_value":{"path":"HKLM\\SOFTWARE\\Run","is_default":true}}`:               {201002, "windows-registry-key--default"},
 	} {
-		v := Render(Event{ClassUID: want.class, Payload: payload(js)}, ents)
+		v := Render(Event{ClassUID: want.class, Payload: payload(js)}, ents, nil)
 		if f, _ := fieldValue(v, "Key"); f.Ref != want.ref {
 			t.Errorf("%s: Key = %+v; want it bound to %s", js, f, want.ref)
 		}
@@ -1241,7 +1213,7 @@ func TestRender_CloudDetection(t *testing.T) {
 		"cloud":{"provider":"AWS","account":{"uid":"111122223333","name":"acme-prod"}},
 		"resources":[{"uid":"arn:aws:s3:::acme-internal-exports","name":"acme-internal-exports","type":"AWS::S3::Bucket"},{"name":"second"}],
 		"evidences":[{"src_endpoint":{"ip":"203.0.113.77"}},{"actor":{"user":{"uid":"arn:aws:iam::111122223333:user/deploy-ci","name":"deploy-ci"}}}]}`
-	v := Render(Event{ClassUID: 2004, Payload: payload(finding)}, apiEntities())
+	v := Render(Event{ClassUID: 2004, Payload: payload(finding)}, apiEntities(), map[string][]string{"evidences[1].actor.user": {"user-account--p"}})
 	if got := sentenceText(v); got != "cspm detected “Bucket made public” (high) on acme-internal-exports, +1 more in acme-prod" {
 		t.Errorf("sentence = %q", got)
 	}
@@ -1265,7 +1237,7 @@ func TestRender_CloudDetection(t *testing.T) {
 	// The account by the deprecated project_uid; a host still leads the
 	// sentence when the finding has one.
 	v = Render(Event{ClassUID: 2004, Payload: payload(`{"finding_info":{"title":"T"},"device":{"hostname":"WS1"},
-		"cloud":{"provider":"AWS","project_uid":"111122223333"},"resources":[{"name":"r1"}]}`)}, apiEntities())
+		"cloud":{"provider":"AWS","project_uid":"111122223333"},"resources":[{"name":"r1"}]}`)}, apiEntities(), nil)
 	if got := sentenceText(v); got != "Detected “T” on WS1 in 111122223333" {
 		t.Errorf("sentence = %q", got)
 	}
@@ -1273,35 +1245,35 @@ func TestRender_CloudDetection(t *testing.T) {
 		t.Errorf("Account = %+v; want it bound by project_uid", f)
 	}
 
-	// With no cloud provider, actor.user is a directory login, bound by its
-	// login, never by an id.
+	// With no cloud provider, actor.user is a directory login, shown by its
+	// login and bound to the account the record links to it, never to one
+	// whose id it carries.
 	ents := []Entity{
 		ent("user-account--login", map[string]any{"account_login": `CONTOSO\jdoe`}),
 		ent("user-account--id", map[string]any{"account_login": "", "user_id": "u-1"}),
 	}
-	v = Render(Event{ClassUID: 2004, Payload: payload(`{"finding_info":{"title":"T"},"evidences":[{"actor":{"user":{"uid":"u-1","name":"jdoe","domain":"CONTOSO"}}}]}`)}, ents)
+	actor := map[string][]string{"evidences[0].actor.user": {"user-account--login"}}
+	v = Render(Event{ClassUID: 2004, Payload: payload(`{"finding_info":{"title":"T"},"evidences":[{"actor":{"user":{"uid":"u-1","name":"jdoe","domain":"CONTOSO"}}}]}`)}, ents, actor)
 	if f, _ := fieldValue(v, "User"); f.Ref != "user-account--login" || f.Value != `CONTOSO\jdoe` {
 		t.Errorf("User = %+v; want the directory login", f)
 	}
 	// With one, an actor.user the normalizer read as a login on the host
-	// (no provider signal, adr/0359) binds by its login.
-	v = Render(Event{ClassUID: 2004, Payload: payload(`{"finding_info":{"title":"T"},"cloud":{"provider":"AWS"},"evidences":[{"actor":{"user":{"name":"jdoe","domain":"CONTOSO"}}}]}`)}, ents)
+	// (no provider signal, adr/0359) is shown by its login.
+	v = Render(Event{ClassUID: 2004, Payload: payload(`{"finding_info":{"title":"T"},"cloud":{"provider":"AWS"},"evidences":[{"actor":{"user":{"name":"jdoe","domain":"CONTOSO"}}}]}`)}, ents, actor)
 	if f, _ := fieldValue(v, "User"); f.Ref != "user-account--login" || f.Value != `CONTOSO\jdoe` {
 		t.Errorf("User = %+v; want the host login", f)
 	}
 	// A Windows account type on a cloud finding is a login on the host,
-	// shown qualified and bound by its login, never by its id.
-	sidEnts := []Entity{
-		ent("user-account--login", map[string]any{"account_login": `CONTOSO\jdoe`}),
-		ent("user-account--id", map[string]any{"account_login": "", "user_id": "S-1-5-21-7-1101"}),
-	}
+	// shown qualified.
 	v = Render(Event{ClassUID: 2004, Payload: payload(`{"finding_info":{"title":"T"},"cloud":{"provider":"AWS"},
-		"evidences":[{"actor":{"user":{"name":"jdoe","domain":"CONTOSO","uid":"S-1-5-21-7-1101","account":{"type_id":2}}}}]}`)}, sidEnts)
+		"evidences":[{"actor":{"user":{"name":"jdoe","domain":"CONTOSO","uid":"S-1-5-21-7-1101","account":{"type_id":2}}}}]}`)}, ents, actor)
 	if f, _ := fieldValue(v, "User"); f.Ref != "user-account--login" || f.Value != `CONTOSO\jdoe` {
-		t.Errorf("User = %+v; want the Windows login bound by its login", f)
+		t.Errorf("User = %+v; want the Windows login", f)
 	}
-	// With one, the artifact's own user is still a directory login.
-	v = Render(Event{ClassUID: 2004, Payload: payload(`{"finding_info":{"title":"T"},"cloud":{"provider":"AWS"},"evidences":[{"user":{"name":"jdoe","domain":"CONTOSO"}}]}`)}, ents)
+	// With one, the artifact's own user is still a directory login, at its
+	// own place.
+	v = Render(Event{ClassUID: 2004, Payload: payload(`{"finding_info":{"title":"T"},"cloud":{"provider":"AWS"},"evidences":[{"user":{"name":"jdoe","domain":"CONTOSO"}}]}`)}, ents,
+		map[string][]string{"evidences[0].user": {"user-account--login"}})
 	if f, _ := fieldValue(v, "User"); f.Ref != "user-account--login" {
 		t.Errorf("User = %+v; want the directory login", f)
 	}
@@ -1312,9 +1284,9 @@ func TestRender_CloudDetection(t *testing.T) {
 // that goes back to a source's own word ("GROUP_ADD") fails here.
 func TestRender_FixtureActivities(t *testing.T) {
 	for file, want := range map[string]string{
-		"privilege-01.json":          "svc_backup added svc_backup to Administrators on WIN-FILE01",
+		"privilege-01.json":          `CONTOSO\svc_backup added CONTOSO\svc_backup to Administrators on WIN-FILE01`,
 		"persistence-runkey-01.json": `powershell.exe set value SyncHost of HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Run on WIN-FILE01`,
-		"logon-1.json":               "jdoe RDP logon to WIN-FILE01 from 10.0.4.55",
+		"logon-1.json":               `CONTOSO\jdoe RDP logon to WIN-FILE01 from 10.0.4.55`,
 	} {
 		raw, err := os.ReadFile(filepath.Join("../../fixtures/lateral-movement-via-rdp", file))
 		if err != nil {
@@ -1326,7 +1298,7 @@ func TestRender_FixtureActivities(t *testing.T) {
 		if err := json.Unmarshal(raw, &doc); err != nil {
 			t.Fatal(err)
 		}
-		v := Render(Event{ClassUID: toInt(doc.Ocsf["class_uid"]), Payload: doc.Ocsf}, nil)
+		v := Render(Event{ClassUID: toInt(doc.Ocsf["class_uid"]), Payload: doc.Ocsf}, nil, nil)
 		if got := sentenceText(v); got != want {
 			t.Errorf("%s reads %q; want %q", file, got, want)
 		}
@@ -1341,7 +1313,7 @@ func TestRender_BindsThroughTheNormalizersCleanup(t *testing.T) {
 	v := Render(Event{ClassUID: 4001, Payload: payload(`{"src_endpoint":{"ip":" 10.0.0.1 "},"dst_endpoint":{"ip":"::ffff:10.0.0.2"}}`)}, []Entity{
 		ent("ipv4-addr--src", map[string]any{"value": "10.0.0.1"}),
 		ent("ipv4-addr--dst", map[string]any{"value": "10.0.0.2"}),
-	})
+	}, nil)
 	refs := map[string]bool{}
 	for _, part := range v.Sentence {
 		if part.Ref != "" {
@@ -1357,7 +1329,7 @@ func TestRender_BindsThroughTheNormalizersCleanup(t *testing.T) {
 	v = Render(Event{ClassUID: 4001, Payload: payload(`{"src_endpoint":{"ip":"2001:DB8:0:0:0:0:0:1"},"dst_endpoint":{"ip":"10.0.0.5/24"}}`)}, []Entity{
 		ent("ipv6-addr--src", map[string]any{"value": "2001:db8::1"}),
 		ent("ipv4-addr--net", map[string]any{"value": "10.0.0.0/24"}),
-	})
+	}, nil)
 	refs = map[string]bool{}
 	for _, part := range v.Sentence {
 		refs[part.Ref] = true
@@ -1370,7 +1342,7 @@ func TestRender_BindsThroughTheNormalizersCleanup(t *testing.T) {
 	v = Render(Event{ClassUID: 1001, Payload: payload(`{"activity_name":"Create","file":{"name":"a.exe","hashes":[{"algorithm":"SHA-256","value":" ` + sha + ` "}]}}`)}, []Entity{
 		// Another name, so only the hash can bind it.
 		ent("file--f", map[string]any{"name": "renamed.exe", "hashes": map[string]any{"SHA-256": sha}}),
-	})
+	}, nil)
 	bound := false
 	for _, part := range v.Sentence {
 		bound = bound || part.Ref == "file--f"
@@ -1384,7 +1356,7 @@ func TestRender_BindsThroughTheNormalizersCleanup(t *testing.T) {
 	v = Render(Event{ClassUID: 4009, Payload: payload(`{"email":{"from":" a@x.example ","to":["Bob <bob@x.example>"],"subject":"s"}}`)}, []Entity{
 		ent("email-addr--a", map[string]any{"value": "a@x.example"}),
 		ent("email-addr--b", map[string]any{"value": "bob@x.example"}),
-	})
+	}, nil)
 	refs = map[string]bool{}
 	for _, part := range v.Sentence {
 		refs[part.Ref] = true
@@ -1398,7 +1370,7 @@ func TestRender_BindsThroughTheNormalizersCleanup(t *testing.T) {
 
 	v = Render(Event{ClassUID: 201001, Payload: payload(`{"activity_name":"Create","reg_key":{"path":"Software\\Run"}}`)}, []Entity{
 		ent("windows-registry-key--k", map[string]any{"key": `Software\Run`}),
-	})
+	}, nil)
 	for _, part := range v.Sentence {
 		if part.Ref == "windows-registry-key--k" {
 			t.Errorf("a key with no hive bound a stored object: %+v", v.Sentence)
@@ -1414,8 +1386,9 @@ func TestRender_GroupMembers(t *testing.T) {
 		ent("user-account--jdoe", map[string]any{"account_login": `CONTOSO\jdoe`}),
 		ent("user-account--asmith", map[string]any{"account_login": `CONTOSO\asmith`}),
 	}
+	accounts := map[string][]string{"users[0]": {"user-account--jdoe"}, "users[1]": {"user-account--asmith"}}
 	render := func(users string) View {
-		return Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","users":` + users + `,"group":{"name":"Domain Admins"}}`)}, ents)
+		return Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","users":` + users + `,"group":{"name":"Domain Admins"}}`)}, ents, accounts)
 	}
 	v := render(`[{"name":"jdoe","domain":"CONTOSO"},{"name":"asmith","domain":"CONTOSO"}]`)
 	var refs []string
@@ -1465,7 +1438,9 @@ func TestRender_GroupMembersFoldByAccount(t *testing.T) {
 	target := func(domain string, ents []Entity) SlotValue {
 		js := `{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"Domain Admins"},` +
 			`"users":[{"name":"alice","domain":"` + domain + `"},{"name":"bob","domain":"` + domain + `"}]}`
-		for _, s := range Render(Event{ClassUID: 3006, Payload: payload(js)}, ents).Slots {
+		d := strings.ToLower(domain)
+		accounts := map[string][]string{"users[0]": {"user-account--" + d + "-alice"}, "users[1]": {"user-account--" + d + "-bob"}}
+		for _, s := range Render(Event{ClassUID: 3006, Payload: payload(js)}, ents, accounts).Slots {
 			if s.Name == "target" {
 				return s
 			}
@@ -1487,7 +1462,7 @@ func TestRender_GroupMembersFoldByAccount(t *testing.T) {
 // present, its members are the accounts shown, and the deprecated user is
 // not shown.
 func TestRender_GroupMembersNotTheDeprecatedUser(t *testing.T) {
-	v := Render(Event{ClassUID: 3006, Payload: payload(`{"users":[{"name":"jdoe","domain":"CONTOSO"},{"name":"asmith"}],"user":{"name":"old"},"group":{"name":"Domain Admins"}}`)}, nil)
+	v := Render(Event{ClassUID: 3006, Payload: payload(`{"users":[{"name":"jdoe","domain":"CONTOSO"},{"name":"asmith"}],"user":{"name":"old"},"group":{"name":"Domain Admins"}}`)}, nil, nil)
 	var accounts []string
 	for _, f := range v.Fields {
 		if f.Label == "Account" {
@@ -1506,7 +1481,7 @@ func TestRender_GroupMembersNotTheDeprecatedUser(t *testing.T) {
 // names a user, the deprecated user is the target, as the normalizer reads
 // it.
 func TestRender_GroupMembersNameNobody(t *testing.T) {
-	v := Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","users":[{"uid":""}],"user":{"name":"jdoe"},"group":{"name":"Domain Admins"}}`)}, nil)
+	v := Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","users":[{"uid":""}],"user":{"name":"jdoe"},"group":{"name":"Domain Admins"}}`)}, nil, nil)
 	if f, ok := fieldValue(v, "Account"); !ok || f.Value != "jdoe" {
 		t.Errorf("Account = %+v (present %v); want jdoe from user", f, ok)
 	}
@@ -1520,7 +1495,7 @@ func TestRender_GroupMembersNameNobody(t *testing.T) {
 func TestRender_GroupTargetFoldsAlike(t *testing.T) {
 	target := func(users string) string {
 		js := `{"activity_name":"Add User","group":{"name":"Domain Admins"},"users":` + users + `}`
-		for _, s := range Render(Event{ClassUID: 3006, Payload: payload(js)}, nil).Slots {
+		for _, s := range Render(Event{ClassUID: 3006, Payload: payload(js)}, nil, nil).Slots {
 			if s.Name == "target" {
 				return s.Identity
 			}
@@ -1547,7 +1522,7 @@ func TestRender_GroupMembersCapped(t *testing.T) {
 	for i := range 300 {
 		members = append(members, fmt.Sprintf(`{"name":"user%03d"}`, i))
 	}
-	v := Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":[` + strings.Join(members, ",") + `]}`)}, nil)
+	v := Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":[` + strings.Join(members, ",") + `]}`)}, nil, nil)
 	if got := sentenceText(v); got != "admin added user000, user001 +298 more to G" {
 		t.Errorf("sentence = %q", got)
 	}
@@ -1567,7 +1542,7 @@ func TestRender_GroupMembersCapped(t *testing.T) {
 // as the same change sent without the repeat.
 func TestRender_GroupMembersDeduplicated(t *testing.T) {
 	render := func(users string) View {
-		return Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":` + users + `}`)}, nil)
+		return Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":` + users + `}`)}, nil, nil)
 	}
 	twice := render(`[{"name":"jdoe"},{"name":"JDOE"},{"name":"asmith"}]`)
 	once := render(`[{"name":"jdoe"},{"name":"asmith"}]`)
@@ -1597,19 +1572,21 @@ func TestRender_GroupMembersDeduplicated(t *testing.T) {
 }
 
 // TestRender_GroupMemberByID: a users[] entry that names an account by its
-// uid alone shows the uid as the Account, and binds the windows-domain
-// account keyed on that SID when the record holds one.
+// uid alone shows the uid as the Account, and binds the account the record
+// links to it.
 func TestRender_GroupMemberByID(t *testing.T) {
 	const sid = "S-1-5-21-7-1101"
 	js := `{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":[{"uid":"` + sid + `"}]}`
 	for name, tc := range map[string]struct {
-		ents []Entity
-		ref  string
+		ents     []Entity
+		accounts map[string][]string
+		ref      string
 	}{
-		"bound":   {[]Entity{ent("user-account--sid", map[string]any{"user_id": sid, "account_type": "windows-domain"})}, "user-account--sid"},
-		"unbound": {nil, ""},
+		"bound": {[]Entity{ent("user-account--sid", map[string]any{"user_id": sid, "account_type": "windows-domain"})},
+			map[string][]string{"users[0]": {"user-account--sid"}}, "user-account--sid"},
+		"unbound": {nil, nil, ""},
 	} {
-		v := Render(Event{ClassUID: 3006, Payload: payload(js)}, tc.ents)
+		v := Render(Event{ClassUID: 3006, Payload: payload(js)}, tc.ents, tc.accounts)
 		if f, ok := fieldValue(v, "Account"); !ok || f.Value != sid || f.Ref != tc.ref {
 			t.Errorf("%s: Account = %+v (present %v); want %s linked to %q", name, f, ok, sid, tc.ref)
 		}
@@ -1624,7 +1601,7 @@ func TestRender_GroupMemberByID(t *testing.T) {
 // without one, never fold; one listed twice is one account.
 func TestRender_GroupMemberByIDKeys(t *testing.T) {
 	render := func(users string) View {
-		return Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":` + users + `}`)}, nil)
+		return Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":` + users + `}`)}, nil, nil)
 	}
 	target := func(v View) string {
 		for _, s := range v.Slots {
@@ -1661,7 +1638,7 @@ func TestRender_GroupMemberByIDKeys(t *testing.T) {
 // only a uid shows the uid as the Account, read by the same rule as a group
 // member.
 func TestRender_AccountChangeUserByID(t *testing.T) {
-	v := Render(Event{ClassUID: 3001, Payload: payload(`{"activity_name":"Enable","user":{"uid":"S-1-5-21-7-1101"}}`)}, nil)
+	v := Render(Event{ClassUID: 3001, Payload: payload(`{"activity_name":"Enable","user":{"uid":"S-1-5-21-7-1101"}}`)}, nil, nil)
 	if f, ok := fieldValue(v, "Account"); !ok || f.Value != "S-1-5-21-7-1101" {
 		t.Errorf("Account = %+v (present %v); want the uid", f, ok)
 	}
@@ -1695,7 +1672,7 @@ func accountRows(v View) []Field {
 // change keys apart from one with either alone.
 func TestRender_GroupMemberPlaceholderName(t *testing.T) {
 	render := func(users string) View {
-		return Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":` + users + `}`)}, nil)
+		return Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":` + users + `}`)}, nil, nil)
 	}
 	both := render(`[{"name":"-","uid":"S-1-5-21-7-1101"},{"name":" n/a ","uid":"S-1-5-21-7-1102"}]`)
 	var got []string
@@ -1716,54 +1693,20 @@ func TestRender_GroupMemberPlaceholderName(t *testing.T) {
 	}
 }
 
-// TestRender_AccountTargetBindsByID: a target whose name binds nothing binds
-// by its id. The uid binds an account keyed on a user_id equal to it, here a
-// windows-domain account keyed on a SID. The uid_alt binds an account whose
-// uid_alt equals it, or, for an "@" uid_alt, a windows-domain account whose
-// login or principal name does, or a login account whose login does. A cloud account whose user_id equals the
-// uid_alt is not bound: the uid_alt is never read against a user_id.
-func TestRender_AccountTargetBindsByID(t *testing.T) {
-	render := func(users string, ents ...Entity) View {
-		return Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":` + users + `}`)}, ents)
-	}
-	// The windows-domain entity is built by hand to test binding by id. It
-	// is not what normalizing this payload would mint, which names no
-	// Windows signal. Its login is the principal name, so the name "jdoe"
-	// binds nothing and the uid_alt binds it.
-	const member = `[{"name":"jdoe","uid_alt":"jdoe@contoso.com"}]`
-	byAlt := ent("user-account--a1", map[string]any{"account_login": "jdoe@contoso.com", "user_id": "", "account_type": "windows-domain",
-		"principal_name": "jdoe@contoso.com", "uid_alt": "jdoe@contoso.com"})
-	v := render(member, byAlt)
-	if rows := accountRows(v); len(rows) != 1 || rows[0].Value != "jdoe" || rows[0].Ref != "user-account--a1" {
-		t.Errorf("uid_alt member: Account rows = %+v; want jdoe linked to user-account--a1", rows)
-	}
-	if ref := targetSlot(v).Ref; ref != "user-account--a1" {
-		t.Errorf("uid_alt member: target ref = %q; want user-account--a1", ref)
-	}
-	byUserID := ent("user-account--a2", map[string]any{"account_login": "other", "user_id": "jdoe@contoso.com", "account_type": "cloud"})
-	v = render(member, byUserID)
-	if rows := accountRows(v); len(rows) != 1 || rows[0].Value != "jdoe" || rows[0].Ref != "" {
-		t.Errorf("uid_alt member beside a user_id equal to it: Account rows = %+v; want jdoe with no link", rows)
-	}
-	byUID := ent("user-account--a3", map[string]any{"account_login": `CONTOSO\jdoe`, "user_id": "S-1-5-21-7-1101", "account_type": "windows-domain"})
-	v = render(`[{"name":"ghost","uid":"S-1-5-21-7-1101"}]`, byUID)
-	if rows := accountRows(v); len(rows) != 1 || rows[0].Value != "ghost" || rows[0].Ref != "user-account--a3" {
-		t.Errorf("unbound name with a bound uid: Account rows = %+v; want ghost linked to user-account--a3", rows)
-	}
-}
-
 // TestRender_AccountChangeUserByIDBinds: the single user of an account change
-// named only by its uid binds by it and keys the target slot by it.
+// named only by its uid is shown by it. Bound, it keys the target slot by
+// its account; unbound, by the uid.
 func TestRender_AccountChangeUserByIDBinds(t *testing.T) {
 	acct := ent("user-account--u1", map[string]any{"account_login": `CONTOSO\jdoe`, "user_id": "S-1-5-21-7-1101", "account_type": "windows-domain"})
-	v := Render(Event{ClassUID: 3001, Payload: payload(`{"activity_name":"Enable","user":{"name":"-","uid":" S-1-5-21-7-1101 "}}`)}, []Entity{acct})
+	v := Render(Event{ClassUID: 3001, Payload: payload(`{"activity_name":"Enable","user":{"name":"-","uid":" S-1-5-21-7-1101 "}}`)}, []Entity{acct},
+		map[string][]string{"user": {"user-account--u1"}})
 	if f, ok := fieldValue(v, "Account"); !ok || f.Value != "S-1-5-21-7-1101" || f.Ref != "user-account--u1" {
 		t.Errorf("Account = %+v (present %v); want the uid linked to user-account--u1", f, ok)
 	}
 	if s := targetSlot(v); s.Text != "S-1-5-21-7-1101" || s.Ref != "user-account--u1" || s.Identity != `["ref:user-account--u1"]` {
 		t.Errorf("target slot = %+v; want the uid, keyed by user-account--u1", s)
 	}
-	unbound := Render(Event{ClassUID: 3001, Payload: payload(`{"activity_name":"Enable","user":{"name":"-","uid":"S-1-5-21-7-1101"}}`)}, nil)
+	unbound := Render(Event{ClassUID: 3001, Payload: payload(`{"activity_name":"Enable","user":{"name":"-","uid":"S-1-5-21-7-1101"}}`)}, nil, nil)
 	if s := targetSlot(unbound); s.Text != "S-1-5-21-7-1101" || s.Ref != "" || s.Identity != `["id:s-1-5-21-7-1101"]` {
 		t.Errorf("unbound target slot = %+v; want the uid, keyed by it", s)
 	}
@@ -1771,17 +1714,20 @@ func TestRender_AccountChangeUserByIDBinds(t *testing.T) {
 
 // TestRender_GroupMemberOpaqueIDCase: two LDAP members whose opaque ids
 // differ only in case are two accounts, as identity.Account keys a cloud or
-// LDAP id with its case kept. Each binds its own account, unbound they are
-// two rows and two key parts, and a change of OpaqueA and OPAQUEA keys apart
-// from OpaqueA alone. A SID in two cases is still one member.
+// LDAP id with its case kept. Bound, each keys by its own account. Unbound,
+// they are two rows and two key parts, and a change of OpaqueA and OPAQUEA
+// keys apart from OpaqueA alone. A SID in two cases is still one member.
 func TestRender_GroupMemberOpaqueIDCase(t *testing.T) {
+	var accounts map[string][]string
 	render := func(users string, ents ...Entity) View {
-		return Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":` + users + `}`)}, ents)
+		return Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":` + users + `}`)}, ents, accounts)
 	}
 	const two = `[{"uid":"OpaqueA","account":{"type_id":1}},{"uid":"opaquea","account":{"type_id":1}}]`
 	upper := ent("user-account--o1", map[string]any{"account_login": "", "user_id": "OpaqueA", "account_type": "ldap"})
 	lower := ent("user-account--o2", map[string]any{"account_login": "", "user_id": "opaquea", "account_type": "ldap"})
+	accounts = map[string][]string{"users[0]": {"user-account--o1"}, "users[1]": {"user-account--o2"}}
 	v := render(two, upper, lower)
+	accounts = nil
 	rows := accountRows(v)
 	if len(rows) != 2 || rows[0].Value != "OpaqueA" || rows[0].Ref != "user-account--o1" ||
 		rows[1].Value != "opaquea" || rows[1].Ref != "user-account--o2" {
@@ -1821,11 +1767,10 @@ func TestRender_GroupMemberOpaqueIDCase(t *testing.T) {
 // TestRender_GroupMemberUIDAltCase: a member named by uid_alt alone is read
 // as a login, whose case never counts: identity.Account never keys on
 // uid_alt, and an "@" uid_alt is a principal name. Unbound, two cases key
-// alike and one users[] holding both is one row; an LDAP account binds from
-// either case.
+// alike and one users[] holding both is one row.
 func TestRender_GroupMemberUIDAltCase(t *testing.T) {
-	render := func(users string, ents ...Entity) View {
-		return Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":` + users + `}`)}, ents)
+	render := func(users string) View {
+		return Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":` + users + `}`)}, nil, nil)
 	}
 	upper := targetSlot(render(`[{"uid_alt":"Alice@Contoso.com"}]`)).Identity
 	lower := targetSlot(render(`[{"uid_alt":"alice@contoso.com"}]`)).Identity
@@ -1835,250 +1780,19 @@ func TestRender_GroupMemberUIDAltCase(t *testing.T) {
 	if rows := accountRows(render(`[{"uid_alt":"Alice@Contoso.com"},{"uid_alt":"alice@contoso.com"}]`)); len(rows) != 1 {
 		t.Errorf("both cases: Account rows = %+v; want one", rows)
 	}
-	ldap := ent("user-account--l1", map[string]any{"account_login": "", "uid_alt": "alice@contoso.com", "account_type": "ldap"})
-	if s := targetSlot(render(`[{"uid_alt":"Alice@Contoso.com"}]`, ldap)); s.Ref != "user-account--l1" {
-		t.Errorf("LDAP uid_alt: target slot = %+v; want bound to user-account--l1", s)
-	}
-}
-
-// TestRender_AccountTargetUIDAltCaseNeverDecides: a uid_alt folds case, so
-// the case an account stores it in never picks among accounts that equal it.
-// A windows-domain account stores Alice@Contoso.com and the LDAP actor
-// alice@contoso.com; a target alice@contoso.com equals both and is unbound.
-func TestRender_AccountTargetUIDAltCaseNeverDecides(t *testing.T) {
-	target := ent("user-account--w1", map[string]any{"account_login": "Alice@Contoso.com", "user_id": "", "account_type": "windows-domain",
-		"principal_name": "Alice@Contoso.com", "uid_alt": "Alice@Contoso.com"})
-	actor := ent("user-account--l1", map[string]any{"account_login": "admin", "user_id": "", "account_type": "ldap", "uid_alt": "alice@contoso.com"})
-	v := Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":[{"uid_alt":"alice@contoso.com"}]}`)}, []Entity{target, actor})
-	if rows := accountRows(v); len(rows) != 1 || rows[0].Value != "alice@contoso.com" || rows[0].Ref != "" {
-		t.Errorf("Account rows = %+v; want alice@contoso.com with no link", rows)
-	}
-	s := targetSlot(v)
-	if s.Ref != "" {
-		t.Errorf("target ref = %q; want unbound", s.Ref)
-	}
-	if strings.Contains(s.Identity, "user-account--l1") {
-		t.Errorf("target key = %q; want no actor ref", s.Identity)
-	}
-}
-
-// TestRender_AccountTargetFoldedUIDCaseNeverDecides: a Windows account
-// keyed on a SID folds its case, so a windows-domain and a windows-local
-// account keyed on the well-known SID S-1-5-18, which differ only in the
-// case they store it in, both equal the uid, and the target is unbound.
-func TestRender_AccountTargetFoldedUIDCaseNeverDecides(t *testing.T) {
-	upper := ent("user-account--w1", map[string]any{"account_login": `CONTOSO\a`, "user_id": "S-1-5-18", "account_type": "windows-domain"})
-	lower := ent("user-account--w2", map[string]any{"account_login": `WS1\b`, "user_id": "s-1-5-18", "account_type": "windows-local"})
-	v := Render(Event{ClassUID: 3001, Payload: payload(`{"activity_name":"Enable","user":{"name":"-","uid":"S-1-5-18"}}`)}, []Entity{upper, lower})
-	if s := targetSlot(v); s.Ref != "" {
-		t.Errorf("target slot = %+v; want unbound", s)
-	}
-	if f, ok := fieldValue(v, "Account"); !ok || f.Ref != "" {
-		t.Errorf("Account = %+v (present %v); want the uid with no link", f, ok)
-	}
-}
-
-// accountChangeTarget renders an account change of the one user object
-// user against ents and returns its target slot.
-func accountChangeTarget(user string, ents ...Entity) SlotValue {
-	return targetSlot(Render(Event{ClassUID: 3001, Payload: payload(`{"activity_name":"Enable","user":` + user + `}`)}, ents))
-}
-
-// TestRender_AccountTargetOpaqueIDSkipsLoginKeyed: an LDAP account is keyed
-// on OpaqueA, and a unix account, keyed on its login, stores opaquea and
-// OpaqueA as a user_id. A uid OpaqueA matches only the LDAP account: a unix
-// account's user_id is no key, so it is never matched by uid.
-func TestRender_AccountTargetOpaqueIDSkipsLoginKeyed(t *testing.T) {
-	ldap := ent("user-account--l1", map[string]any{"account_login": "", "user_id": "OpaqueA", "account_type": "ldap"})
-	unixFolded := ent("user-account--x1", map[string]any{"account_login": "bob", "user_id": "opaquea", "account_type": "unix"})
-	unixExact := ent("user-account--x2", map[string]any{"account_login": "carol", "user_id": "OpaqueA", "account_type": "unix"})
-	if s := accountChangeTarget(`{"name":"-","uid":"OpaqueA"}`, ldap, unixFolded, unixExact); s.Ref != "user-account--l1" {
-		t.Errorf("target slot = %+v; want bound to user-account--l1", s)
-	}
-}
-
-// TestRender_AccountTargetAmbiguousMixedTypes: an LDAP account stores a SID
-// in the uid's exact spelling and a windows-domain account in lower case.
-// The LDAP account compares exactly and the windows-domain account folds
-// case, so the uid equals both and binds neither: the exact spelling does
-// not break the tie.
-func TestRender_AccountTargetAmbiguousMixedTypes(t *testing.T) {
-	w := ent("user-account--w1", map[string]any{"account_login": `CONTOSO\a`, "user_id": "s-1-5-21-7-1101", "account_type": "windows-domain"})
-	l := ent("user-account--l1", map[string]any{"account_login": "", "user_id": "S-1-5-21-7-1101", "account_type": "ldap"})
-	if s := accountChangeTarget(`{"name":"-","uid":"S-1-5-21-7-1101"}`, w, l); s.Ref != "" {
-		t.Errorf("target slot = %+v; want unbound", s)
-	}
-}
-
-// TestRender_AccountTargetAmbiguousGUID: a cloud account stores a GUID in
-// upper case and an LDAP account the same GUID in lower case. Both fold a
-// GUID, so a lowercase uid equals both and binds neither.
-func TestRender_AccountTargetAmbiguousGUID(t *testing.T) {
-	c := ent("user-account--c1", map[string]any{"account_login": "", "user_id": "8F6A0B5C-1D2E-4F3A-9B8C-7D6E5F4A3B2C", "account_type": "cloud"})
-	l := ent("user-account--l1", map[string]any{"account_login": "", "user_id": "8f6a0b5c-1d2e-4f3a-9b8c-7d6e5f4a3b2c", "account_type": "ldap"})
-	if s := accountChangeTarget(`{"name":"-","uid":"8f6a0b5c-1d2e-4f3a-9b8c-7d6e5f4a3b2c"}`, c, l); s.Ref != "" {
-		t.Errorf("target slot = %+v; want unbound", s)
-	}
-}
-
-// TestRender_AccountTargetAmbiguousUIDStops: a uid that equals several
-// accounts leaves the target unbound; the uid_alt is not tried, though one
-// account alone holds it.
-func TestRender_AccountTargetAmbiguousUIDStops(t *testing.T) {
-	w := ent("user-account--w1", map[string]any{"account_login": `CONTOSO\a`, "user_id": "S-1-5-18", "account_type": "windows-domain"})
-	wl := ent("user-account--w2", map[string]any{"account_login": `WS1\a`, "user_id": "S-1-5-18", "account_type": "windows-local"})
-	l := ent("user-account--l1", map[string]any{"account_login": "", "user_id": "", "account_type": "ldap", "uid_alt": "alice@contoso.com"})
-	if s := accountChangeTarget(`{"name":"-","uid":"S-1-5-18","uid_alt":"alice@contoso.com"}`, w, wl, l); s.Ref != "" {
-		t.Errorf("target slot = %+v; want unbound", s)
-	}
-}
-
-// TestRender_AccountTargetUIDAltPrincipalName: an "@" uid_alt also equals an
-// account's account_login or principal_name, folded for case, since the
-// normalizer mints a windows-domain account on that principal name when the
-// record names Windows. Beside
-// an LDAP account holding it as uid_alt the target is unbound; alone, the
-// windows-domain account binds.
-func TestRender_AccountTargetUIDAltPrincipalName(t *testing.T) {
-	w := ent("user-account--w1", map[string]any{"account_login": "Alice@Contoso.com", "user_id": "", "account_type": "windows-domain",
-		"principal_name": "Alice@Contoso.com"})
-	l := ent("user-account--l1", map[string]any{"account_login": "admin", "user_id": "", "account_type": "ldap", "uid_alt": "alice@contoso.com"})
-	const user = `{"name":"-","uid_alt":"alice@contoso.com"}`
-	if s := accountChangeTarget(user, w, l); s.Ref != "" {
-		t.Errorf("both: target slot = %+v; want unbound", s)
-	}
-	if s := accountChangeTarget(user, w); s.Ref != "user-account--w1" {
-		t.Errorf("windows-domain alone: target slot = %+v; want bound to user-account--w1", s)
-	}
-}
-
-// TestRender_GroupMemberSIDTwoCases: a SID in two cases in users[] beside a
-// windows-domain and an LDAP account that both store it as S-1-5-21-7-1101.
-// The upper-case member equals both and binds neither. The lower-case member
-// equals only the windows-domain account, since an LDAP account compares an
-// id exactly, so it binds that account and the two members are two rows.
-func TestRender_GroupMemberSIDTwoCases(t *testing.T) {
-	w := ent("user-account--w1", map[string]any{"account_login": `CONTOSO\a`, "user_id": "S-1-5-21-7-1101", "account_type": "windows-domain"})
-	l := ent("user-account--l1", map[string]any{"account_login": "", "user_id": "S-1-5-21-7-1101", "account_type": "ldap"})
-	v := Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":[{"name":"-","uid":"S-1-5-21-7-1101"},{"name":"-","uid":"s-1-5-21-7-1101"}]}`)}, []Entity{w, l})
-	rows := accountRows(v)
-	if len(rows) != 2 || rows[0].Value != "S-1-5-21-7-1101" || rows[0].Ref != "" ||
-		rows[1].Value != "s-1-5-21-7-1101" || rows[1].Ref != "user-account--w1" {
-		t.Errorf("Account rows = %+v; want S-1-5-21-7-1101 with no link and s-1-5-21-7-1101 linked to w1", rows)
-	}
-	if k := targetSlot(v).Identity; k != `["id:s-1-5-21-7-1101","ref:user-account--w1"]` {
-		t.Errorf("target key = %q; want the unbound id and the w1 ref", k)
-	}
-}
-
-// TestRender_AccountTargetIDCaseByType: a uid binds as the account is keyed
-// on it. A cloud account's GUID folds case, an opaque cloud id does not, and
-// a windows-domain SID folds case. An account of no recorded type is keyed
-// on its login, so a user_id equal to the uid, in any case, never binds it.
-func TestRender_AccountTargetIDCaseByType(t *testing.T) {
-	render := func(uid string, e Entity) SlotValue {
-		return targetSlot(Render(Event{ClassUID: 3001, Payload: payload(`{"activity_name":"Enable","user":{"name":"-","uid":"` + uid + `"}}`)}, []Entity{e}))
-	}
-	for _, tc := range []struct {
-		name, uid string
-		props     map[string]any
-		bound     bool
-	}{
-		{"cloud GUID", "8F6A0B5C-1D2E-4F3A-9B8C-7D6E5F4A3B2C", map[string]any{"account_login": "", "user_id": "8f6a0b5c-1d2e-4f3a-9b8c-7d6e5f4a3b2c", "account_type": "cloud"}, true},
-		{"cloud opaque", "abc123", map[string]any{"account_login": "", "user_id": "AbC123", "account_type": "cloud"}, false},
-		{"windows-domain SID", "s-1-5-21-7-1101", map[string]any{"account_login": `CONTOSO\a`, "user_id": "S-1-5-21-7-1101", "account_type": "windows-domain"}, true},
-		{"no type", "abc123", map[string]any{"account_login": "", "user_id": "AbC123"}, false},
-		{"no type, exact", "AbC123", map[string]any{"account_login": "", "user_id": "AbC123"}, false},
-		{"windows-domain, no SID", "8f6a0b5c-1d2e-4f3a-9b8c-7d6e5f4a3b2c", map[string]any{"account_login": `CONTOSO\a`, "user_id": "8f6a0b5c-1d2e-4f3a-9b8c-7d6e5f4a3b2c", "account_type": "windows-domain"}, false},
-		{"windows-local, domain SID", "S-1-5-21-7-1101", map[string]any{"account_login": `WS1\a`, "user_id": "S-1-5-21-7-1101", "account_type": "windows-local"}, false},
-		{"windows", "S-1-5-21-7-1101", map[string]any{"account_login": "a", "user_id": "S-1-5-21-7-1101", "account_type": "windows"}, false},
-		{"unix", "1001", map[string]any{"account_login": "a", "user_id": "1001", "account_type": "unix"}, false},
-	} {
-		s := render(tc.uid, ent("user-account--u1", tc.props))
-		if got := s.Ref == "user-account--u1"; got != tc.bound {
-			t.Errorf("%s: target slot = %+v; want bound %v", tc.name, s, tc.bound)
-		}
-	}
-}
-
-// TestRender_AccountTargetUIDSkipsUnkeyedActor: a target {uid: G, uid_alt:
-// alice@contoso.com} with no name, beside the windows-domain account keyed
-// on the principal name alice@contoso.com and a windows-domain actor keyed
-// on its login CONTOSO\alice whose user_id is G. G is a GUID, no SID, so the
-// actor's user_id is no key and the uid matches no account. The uid_alt then
-// binds the principal-name account, never the actor.
-func TestRender_AccountTargetUIDSkipsUnkeyedActor(t *testing.T) {
-	const g = "8f6a0b5c-1d2e-4f3a-9b8c-7d6e5f4a3b2c"
-	upn := ent("user-account--p1", map[string]any{"account_login": "alice@contoso.com", "user_id": "", "account_type": "windows-domain",
-		"principal_name": "alice@contoso.com"})
-	actor := ent("user-account--a1", map[string]any{"account_login": `CONTOSO\alice`, "user_id": g, "account_type": "windows-domain"})
-	v := Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"alice","domain":"CONTOSO"}},"group":{"name":"G"},"users":[{"uid":"` + g + `","uid_alt":"alice@contoso.com"}]}`)}, []Entity{upn, actor})
-	if s := targetSlot(v); s.Ref != "user-account--p1" {
-		t.Errorf("target slot = %+v; want bound to user-account--p1", s)
-	}
-	if rows := accountRows(v); len(rows) != 1 || rows[0].Ref != "user-account--p1" {
-		t.Errorf("Account rows = %+v; want one linked to user-account--p1", rows)
-	}
-}
-
-// TestRender_AccountTargetUIDSkipsUntyped: an account of no recorded type is
-// keyed on its login, so a user_id equal to the target's uid does not bind
-// it, and the target keys by its uid.
-func TestRender_AccountTargetUIDSkipsUntyped(t *testing.T) {
-	e := ent("user-account--u1", map[string]any{"account_login": `CONTOSO\jdoe`, "user_id": "S-1-5-21-7-1101"})
-	s := accountChangeTarget(`{"name":"-","uid":"S-1-5-21-7-1101"}`, e)
-	if s.Ref != "" || s.Identity != `["id:s-1-5-21-7-1101"]` {
-		t.Errorf("target slot = %+v; want unbound, keyed by the uid", s)
-	}
-}
-
-// TestRender_AccountTargetUIDAltWeakLogin (adr/0366): a principal name from a
-// record that names no OS mints the weak login account keyed on it. An "@"
-// uid_alt binds that account by its account_login, folded for case. A login
-// account is not matched by a principal_name alone, since it is keyed on its
-// login.
-func TestRender_AccountTargetUIDAltWeakLogin(t *testing.T) {
-	const user = `{"name":"-","uid_alt":"Alice@Contoso.com"}`
-	weak := ent("user-account--w1", map[string]any{"account_login": "alice@contoso.com", "user_id": "", "account_type": "login",
-		"principal_name": "alice@contoso.com", "weak": true})
-	if s := accountChangeTarget(user, weak); s.Ref != "user-account--w1" {
-		t.Errorf("login account: target slot = %+v; want bound to user-account--w1", s)
-	}
-	other := ent("user-account--w2", map[string]any{"account_login": "alice", "user_id": "", "account_type": "login",
-		"principal_name": "alice@contoso.com", "weak": true})
-	if s := accountChangeTarget(user, other); s.Ref != "" {
-		t.Errorf("login account by principal_name only: target slot = %+v; want unbound", s)
-	}
-}
-
-// TestRender_AccountTargetUIDAltLoginOtherTypes: an "@" uid_alt is matched
-// against a login or principal name only on a windows-domain or login
-// account. A target named only by that uid_alt does not link to a cloud,
-// LDAP or unix account whose login or principal name equals it.
-func TestRender_AccountTargetUIDAltLoginOtherTypes(t *testing.T) {
-	const user = `{"name":"-","uid_alt":"alice@contoso.com"}`
-	for _, typ := range []string{"cloud", "ldap", "unix", ""} {
-		props := map[string]any{"account_login": "alice@contoso.com", "user_id": "", "principal_name": "alice@contoso.com"}
-		if typ != "" {
-			props["account_type"] = typ
-		}
-		if s := accountChangeTarget(user, ent("user-account--c1", props)); s.Ref != "" {
-			t.Errorf("%q account: target slot = %+v; want unbound", typ, s)
-		}
-	}
 }
 
 // TestRender_AccountTargetStringOnly: a name or id that is not a string is
 // no value, as the normalizer reads a user object (readUser).
 func TestRender_AccountTargetStringOnly(t *testing.T) {
-	v := Render(Event{ClassUID: 3001, Payload: payload(`{"activity_name":"Enable","user":{"uid":1001}}`)}, nil)
+	v := Render(Event{ClassUID: 3001, Payload: payload(`{"activity_name":"Enable","user":{"uid":1001}}`)}, nil, nil)
 	if f, ok := fieldValue(v, "Account"); ok {
 		t.Errorf("numeric uid: Account = %+v; want none", f)
 	}
 	if s := targetSlot(v); s != (SlotValue{Name: "target"}) {
 		t.Errorf("numeric uid: target slot = %+v; want empty", s)
 	}
-	v = Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":[{"name":7,"uid":"S-1-5-21-7-1101"}]}`)}, nil)
+	v = Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":[{"name":7,"uid":"S-1-5-21-7-1101"}]}`)}, nil, nil)
 	if rows := accountRows(v); len(rows) != 1 || rows[0].Value != "S-1-5-21-7-1101" {
 		t.Errorf("numeric name: Account rows = %+v; want the SID", rows)
 	}
@@ -2086,24 +1800,26 @@ func TestRender_AccountTargetStringOnly(t *testing.T) {
 
 // TestRender_GroupMemberDomain: a member's name and domain are read by
 // ocsf.UserName, as the normalizer reads them. A "domain\sam" name beside
-// domain "-" binds the qualified login, a bare name beside "-" binds the bare
-// login, and a distinguished name is shown whole.
+// domain "-" shows the qualified login, a bare name beside "-" the bare
+// login, each linked to its own recorded account, and a distinguished name
+// is shown whole.
 func TestRender_GroupMemberDomain(t *testing.T) {
-	render := func(users string, ents ...Entity) View {
-		return Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":` + users + `}`)}, ents)
+	render := func(users string, accounts map[string][]string, ents ...Entity) View {
+		return Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":` + users + `}`)}, ents, accounts)
 	}
 	v := render(`[{"name":"CONTOSO\\jdoe","domain":"-"},{"name":"jdoe2","domain":"-"}]`,
+		map[string][]string{"users[0]": {"user-account--d1"}, "users[1]": {"user-account--d2"}},
 		ent("user-account--d1", map[string]any{"account_login": `CONTOSO\jdoe`}),
 		ent("user-account--d2", map[string]any{"account_login": "jdoe2"}))
-	var refs []string
+	var got []string
 	for _, f := range accountRows(v) {
-		refs = append(refs, f.Ref)
+		got = append(got, f.Value+" "+f.Ref)
 	}
-	if want := []string{"user-account--d1", "user-account--d2"}; !slices.Equal(refs, want) {
-		t.Errorf("Account refs = %v; want %v", refs, want)
+	if want := []string{`CONTOSO\jdoe user-account--d1`, "jdoe2 user-account--d2"}; !slices.Equal(got, want) {
+		t.Errorf("Account rows = %v; want %v", got, want)
 	}
 	const dn = `CN=Doe\, John,CN=Users,DC=contoso,DC=com`
-	v = render(`[{"name":"CN=Doe\\, John,CN=Users,DC=contoso,DC=com","domain":"-"}]`)
+	v = render(`[{"name":"CN=Doe\\, John,CN=Users,DC=contoso,DC=com","domain":"-"}]`, nil)
 	if rows := accountRows(v); len(rows) != 1 || rows[0].Value != dn {
 		t.Errorf("distinguished name: Account rows = %+v; want %q", rows, dn)
 	}
@@ -2119,7 +1835,7 @@ func TestRender_AccountTargetPlaceholderID(t *testing.T) {
 		`{"activity_name":"Enable","user":{"uid":"-"}}`,
 		`{"activity_name":"Enable","user":{"name":"-","uid":"unknown","uid_alt":" n/a "}}`,
 	} {
-		v := Render(Event{ClassUID: 3001, Payload: payload(js)}, nil)
+		v := Render(Event{ClassUID: 3001, Payload: payload(js)}, nil, nil)
 		if f, ok := fieldValue(v, "Account"); ok {
 			t.Errorf("%s: Account = %+v; want none", js, f)
 		}
@@ -2133,7 +1849,7 @@ func TestRender_AccountTargetPlaceholderID(t *testing.T) {
 // field, so two different writes to one value do not fold together.
 func TestRender_RegistryTypedDataSlot(t *testing.T) {
 	data := func(js string) string {
-		v := Render(Event{ClassUID: 201002, Payload: payload(js)}, nil)
+		v := Render(Event{ClassUID: 201002, Payload: payload(js)}, nil, nil)
 		for _, s := range v.Slots {
 			if s.Name == "data" {
 				return s.Identity
@@ -2145,5 +1861,113 @@ func TestRender_RegistryTypedDataSlot(t *testing.T) {
 	b := data(`{"reg_value":{"path":"HKLM\\SOFTWARE\\Run","name":"Updater","reg_string_data":"C:\\b.exe"}}`)
 	if a == "" || a == b {
 		t.Errorf("data slots %q and %q; want two values", a, b)
+	}
+}
+
+// slotNamed is v's slot called name.
+func slotNamed(v View, name string) SlotValue {
+	for _, s := range v.Slots {
+		if s.Name == name {
+			return s
+		}
+	}
+	return SlotValue{}
+}
+
+// TestRender_ActorPlaceholderDomain (adr/0367): an actor's "-" domain is no
+// domain, so the actor shows by its name, as a target does.
+func TestRender_ActorPlaceholderDomain(t *testing.T) {
+	acct := ent("user-account--a1", map[string]any{"account_login": "admin", "user_id": "", "account_type": "local"})
+	v := Render(Event{ClassUID: 1007, Payload: payload(`{"activity_name":"Launch","actor":{"user":{"name":"admin","domain":"-"}},"process":{"name":"cmd.exe"}}`)}, []Entity{acct},
+		map[string][]string{"actor.user": {"user-account--a1"}})
+	if f, ok := fieldValue(v, "User"); !ok || f.Value != "admin" || f.Ref != "user-account--a1" {
+		t.Errorf("User = %+v (present %v); want admin linked to user-account--a1", f, ok)
+	}
+}
+
+// TestRender_ActorByID (adr/0367): an actor named only by its uid is shown
+// in a "By" row and keyed by the uid, as a target is. Two such actors stay
+// apart, an opaque id's case included.
+func TestRender_ActorByID(t *testing.T) {
+	render := func(uid string) View {
+		return Render(Event{ClassUID: 3001, Payload: payload(`{"activity_name":"Enable","actor":{"user":{"uid":"` + uid + `"}},"user":{"name":"jdoe"}}`)}, nil, nil)
+	}
+	if f, ok := fieldValue(render("S-1-5-21-7-500"), "By"); !ok || f.Value != "S-1-5-21-7-500" {
+		t.Errorf("By = %+v (present %v); want the uid", f, ok)
+	}
+	for _, pair := range [][2]string{{"S-1-5-21-7-500", "S-1-5-21-7-501"}, {"OpaqueA", "OPAQUEA"}} {
+		a, b := slotNamed(render(pair[0]), "actor").Identity, slotNamed(render(pair[1]), "actor").Identity
+		if a == "" || a == b {
+			t.Errorf("actors %s and %s key %q and %q; want two keys", pair[0], pair[1], a, b)
+		}
+	}
+}
+
+// TestRender_PrincipalNameWithDomain (adr/0367): an "@" name beside a domain
+// is the login the normalizer stores, the name alone, so it shows that
+// login.
+func TestRender_PrincipalNameWithDomain(t *testing.T) {
+	acct := ent("user-account--p1", map[string]any{"account_login": "jdoe@contoso.com", "user_id": "", "account_type": "login"})
+	v := Render(Event{ClassUID: 1007, Payload: payload(`{"activity_name":"Launch","actor":{"user":{"name":"jdoe@contoso.com","domain":"contoso.com"}},"process":{"name":"cmd.exe"}}`)}, []Entity{acct},
+		map[string][]string{"actor.user": {"user-account--p1"}})
+	if f, ok := fieldValue(v, "User"); !ok || f.Value != "jdoe@contoso.com" || f.Ref != "user-account--p1" {
+		t.Errorf("User = %+v (present %v); want jdoe@contoso.com linked to user-account--p1", f, ok)
+	}
+}
+
+// TestRender_AuthenticationInitiatorSameByID (adr/0367): with no entities,
+// an initiator whose uid equals the user's is the same user, so no "Started
+// by" row. A different uid is someone else.
+func TestRender_AuthenticationInitiatorSameByID(t *testing.T) {
+	render := func(actorUID string) View {
+		return Render(Event{ClassUID: 3002, Payload: payload(`{"user":{"name":"jdoe","uid":"S-1-5-21-7-1101"},"actor":{"user":{"uid":"` + actorUID + `"}}}`)}, nil, nil)
+	}
+	if f, ok := fieldValue(render("s-1-5-21-7-1101"), "Started by"); ok {
+		t.Errorf("Started by = %+v; want none for the same uid", f)
+	}
+	if f, ok := fieldValue(render("S-1-5-21-7-1102"), "Started by"); !ok || f.Value != "S-1-5-21-7-1102" {
+		t.Errorf("Started by = %+v (present %v); want the other uid", f, ok)
+	}
+}
+
+// TestRender_AuthenticationInitiatorOtherUID (adr/0367): when both users
+// carry a uid, the uid alone decides. The same name under two SIDs is two
+// users, and two opaque ids that differ only in case are two users, as
+// TestRender_ActorByID keys them.
+func TestRender_AuthenticationInitiatorOtherUID(t *testing.T) {
+	for _, tc := range []struct{ user, actor, want string }{
+		{`{"name":"admin","uid":"S-1-5-21-1-500"}`, `{"name":"admin","uid":"S-1-5-21-2-500"}`, "admin"},
+		{`{"uid":"OpaqueA"}`, `{"uid":"OPAQUEA"}`, "OPAQUEA"},
+	} {
+		v := Render(Event{ClassUID: 3002, Payload: payload(`{"user":` + tc.user + `,"actor":{"user":` + tc.actor + `}}`)}, nil, nil)
+		if f, ok := fieldValue(v, "Started by"); !ok || f.Value != tc.want {
+			t.Errorf("user %s, actor %s: Started by = %+v (present %v); want %s", tc.user, tc.actor, f, ok, tc.want)
+		}
+	}
+}
+
+// TestRender_UserWithNoRecordedAccount (adr/0398): a user object the record
+// links to no account is shown by its login and unbound, though the record
+// holds an account whose login it matches.
+func TestRender_UserWithNoRecordedAccount(t *testing.T) {
+	acct := ent("user-account--a1", map[string]any{"account_login": `CONTOSO\jdoe`, "account_type": "windows-domain"})
+	v := Render(Event{ClassUID: 1007, Payload: payload(`{"activity_name":"Launch","actor":{"user":{"name":"jdoe","domain":"CONTOSO"}},"process":{"name":"cmd.exe"}}`)}, []Entity{acct},
+		map[string][]string{"user": {"user-account--a1"}})
+	if f, ok := fieldValue(v, "User"); !ok || f.Value != `CONTOSO\jdoe` || f.Ref != "" {
+		t.Errorf("User = %+v (present %v); want CONTOSO\\jdoe unbound", f, ok)
+	}
+	if s := slotNamed(v, "user"); s.Identity != `contoso\jdoe` {
+		t.Errorf("user slot = %+v; want it keyed by the login", s)
+	}
+}
+
+// TestRender_FirstRecordedAccountHeld (adr/0398): a user object with several
+// recorded accounts binds the first one the record holds.
+func TestRender_FirstRecordedAccountHeld(t *testing.T) {
+	acct := ent("user-account--second", map[string]any{"account_login": `CONTOSO\jdoe`, "account_type": "windows-domain"})
+	v := Render(Event{ClassUID: 1007, Payload: payload(`{"activity_name":"Launch","actor":{"user":{"name":"jdoe","domain":"CONTOSO"}},"process":{"name":"cmd.exe"}}`)}, []Entity{acct},
+		map[string][]string{"actor.user": {"user-account--first", "user-account--second"}})
+	if f, _ := fieldValue(v, "User"); f.Ref != "user-account--second" {
+		t.Errorf("User = %+v; want the second account, the first the record holds", f)
 	}
 }

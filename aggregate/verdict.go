@@ -15,15 +15,21 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+
+	"github.com/sd-strax/reckon/internal/agentapi"
 )
 
 // Verdict dispositions (01). No PENDING value — an investigation with no
 // verdict act has no verdict.
+// The words are defined once in internal/agentapi (adr/0278).
 const (
-	VerdictBenign     = "BENIGN"
-	VerdictSuspicious = "SUSPICIOUS"
-	VerdictMalicious  = "MALICIOUS"
+	VerdictBenign     = agentapi.VerdictBenign
+	VerdictSuspicious = agentapi.VerdictSuspicious
+	VerdictMalicious  = agentapi.VerdictMalicious
 )
+
+// VerdictDisposition is a verdict's disposition as a served view carries it.
+type VerdictDisposition = agentapi.VerdictDisposition
 
 // VerdictNode is the verdict payload carried on a RecordInterpretation of
 // type "verdict". The rationale/evidence travel on the interpretation itself
@@ -204,6 +210,11 @@ func validateVerdictShape(c RecordInterpretation) error {
 	case InterpretationEvidencePin:
 		if len(c.InputRefs) == 0 {
 			return errors.New("RecordInterpretation: an evidence-pin must cite what it pins (input_refs is empty)")
+		}
+		// A pin names STIX objects; a raw event is pinned through the
+		// observation made from it (adr/0364).
+		if err := validateCitations("input_refs", c.InputRefs); err != nil {
+			return err
 		}
 		if c.Verdict != nil {
 			return errors.New("RecordInterpretation: type evidence-pin must not carry a verdict payload")

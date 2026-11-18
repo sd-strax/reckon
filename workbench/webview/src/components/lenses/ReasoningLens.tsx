@@ -9,7 +9,7 @@ import { buildMatrix } from "../../derive/matrix";
 import { HypothesisCard } from "../Hypotheses";
 import { AliasOf, Badge, Empty, EventSentence, RefChip, fmtDateTime } from "../shared";
 import { besideOf, partChips, pinAliases, pinnedEvents } from "../../derive/pinCard";
-import { pinTargets, typeOptions } from "../../derive/pinAction";
+import { pinEvidence, pinTargets, typeOptions } from "../../derive/pinAction";
 import type { PinRow } from "../../../../src/viewTypes";
 
 /** The basis a verdict would rest on (#138), stated as it is: which hypotheses
@@ -117,7 +117,7 @@ function PinnedEvidence() {
         const target = String(ex.other || "").trim() || String(ex.target || "").trim();
         if (!actionType || !target) return;
         const t = state.actionTypes.find((x) => x.actionType === actionType);
-        const send1 = (parameters: Record<string, unknown>) => send({ type: "action.request", actionType, target, parameters, rationale: rationale.trim() || "requested from a pinned finding", evidenceRefs: pin.inputRefs || [] });
+        const send1 = (parameters: Record<string, unknown>) => send({ type: "action.request", actionType, target, parameters, rationale: rationale.trim() || "requested from a pinned finding", evidenceRefs: pinEvidence(pin) });
         const fields = (t?.inputs || []).filter((i) => i.name !== "thread_ref" && i.name !== "follow_up_hours");
         if (!fields.length) { send1({}); return; }
         // The confirm closes this prompt after the handler returns: open the
@@ -153,7 +153,9 @@ function PinnedEvidence() {
             <div className="finding">{p.finding}</div>
             <div className="cardmeta">{(p.actor === "AI_DELEGATED" ? "AI" : p.actor === "SYSTEM" ? "system" : "analyst") + (p.pinnedAt ? " · " + fmtDateTime(p.pinnedAt) : "")}</div>
             <PinBody pin={p} />
-            {!p.superseded && !closed && state.actionTypes.length ? <a className="pinact" onClick={() => requestFromPin(p)}>Request action on this…</a> : null}
+            {!p.superseded && !closed && state.actionTypes.length ? (pinEvidence(p).length
+              ? <a className="pinact" onClick={() => requestFromPin(p)}>Request action on this…</a>
+              : <div className="imeta">No action from this pin: it cites raw events only, and an action cites the observations made from them.</div>) : null}
           </div>
         ))}
       </div>

@@ -557,12 +557,24 @@ func TestHostAliasEmission(t *testing.T) {
 // (accountType): process, authentication, file, scheduled_job, account,
 // email_file, email_url and detection. An "@" name with no Windows signal is
 // no longer a domain account, and account type 19 is read as Windows.
+//
+// adr/0367 moved the same normalizers once more, since the account type is
+// now read by one rule, a caption counting for every type. It also moved
+// api_activity and cloud_resources_inventory_info, which name a cloud
+// account's type by OCSF's caption.
+//
+// adr/0398 moved every normalizer that mints a user's account, the user
+// inventory included, since each now records that account under the user
+// object's place in user_accounts. It moved scheduled_job and the registry
+// classes once more, which now mint the actor's account, and inventory_info,
+// which now mints the device owner's, so every user the event view shows is
+// linked.
 func TestNormalizerVersions(t *testing.T) {
 	reg := testRegistry()
 	for _, c := range []struct{ class, version int }{
-		{1007, 7}, {3002, 8}, {4001, 4}, {4003, 3}, {1001, 7}, {201001, 6}, {201002, 6}, {1006, 7}, {1005, 4},
-		{3001, 7}, {3005, 7}, {3006, 7}, {4009, 5}, {4011, 7}, {4012, 7}, {2004, 9}, {2005, 3},
-		{5001, 4}, {6003, 4}, {5023, 5}, {5003, 4}, {0, 2},
+		{1007, 9}, {3002, 10}, {4001, 4}, {4003, 3}, {1001, 9}, {201001, 7}, {201002, 7}, {1006, 10}, {1005, 4},
+		{3001, 9}, {3005, 9}, {3006, 9}, {4009, 5}, {4011, 9}, {4012, 9}, {2004, 11}, {2005, 3},
+		{5001, 5}, {6003, 6}, {5023, 7}, {5003, 5}, {0, 2},
 	} {
 		n, ok := reg.byClass[c.class]
 		if c.class == 0 {

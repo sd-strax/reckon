@@ -7,6 +7,7 @@ import { RefChip } from "./shared";
 import { pinSpec } from "./PromptCard";
 import type { PinRow } from "../../../src/viewTypes";
 import { setUpAdapter } from "../../../src/enablement";
+import { citableRefs } from "../../../src/citable";
 
 export interface ToolRowResult {
   isError: boolean;
@@ -30,7 +31,11 @@ export function ToolRow({ name, argsHint, argsPretty, result }: { name: string; 
   const { state, send, openPrompt, openEnableForm, openInspector } = useApp();
   const pins = state.snap?.pins || [];
   const refs = result?.refs || [];
-  const pinned = refsAlreadyPinned(pins, refs);
+  // A pin names the result's observations and entities; its raw event ids
+  // stay chips that open the event, and are cited through their
+  // observations (adr/0364).
+  const citable = citableRefs(refs);
+  const pinned = refsAlreadyPinned(pins, citable);
   const enablement = state.snap?.enablement;
   // The gap hint (11 §5.1): the verb came back unavailable AND an installed-
   // but-disabled adapter the form supports could serve it — the same rule as
@@ -51,17 +56,19 @@ export function ToolRow({ name, argsHint, argsPretty, result }: { name: string; 
             onClick={(e) => { e.stopPropagation(); e.preventDefault(); openInspector({ kind: "call", callId: result.callId! }); }}
           >call</button>
         ) : null}
-        {refs.length ? (
+        {citable.length ? (
           <button
             className={"pincta summaryPin" + (pinned ? " pinnedInert" : "")}
             disabled={pinned}
-            title={pinned ? "Already in the pinned evidence — un-pin there to revise" : "Pin this result as evidence (cites all " + refs.length + " refs)"}
+            title={pinned ? "Already in the pinned evidence — un-pin there to revise" : "Pin this result as evidence (cites its " + citable.length + " observation and entity refs)"}
             onClick={(e) => {
               e.stopPropagation(); e.preventDefault();
               if (pinned) return;
-              openPrompt(pinSpec(refs, undefined, (finding) => send({ type: "pin.add", refs, finding })));
+              openPrompt(pinSpec(citable, undefined, (finding) => send({ type: "pin.add", refs: citable, finding })));
             }}
           >{pinned ? "📌 pinned" : "📌 Pin"}</button>
+        ) : refs.length ? (
+          <span className="hint" title="A pin cites observations. These events were not read into observations, so they cannot be cited.">not pinnable</span>
         ) : null}
       </summary>
       <pre>{argsPretty}</pre>

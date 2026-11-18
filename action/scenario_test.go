@@ -43,7 +43,7 @@ func TestShippedActionScenario(t *testing.T) {
 	blockCmd, err := BuildRequestCommand(catalog, ActionRequest{
 		ActionType:   "ioc.block",
 		Targets:      []aggregate.TargetSpec{{EntityRef: "ipv4-addr--1", ResolvedIdentifier: "185.220.101.5"}},
-		EvidenceRefs: []string{"observed-data--c2"},
+		EvidenceRefs: []string{"observed-data--0d000000-0000-4000-8000-0000000000c2"},
 		Rationale:    "block the C2 channel",
 	}, time.Now())
 	if err != nil {
@@ -66,7 +66,7 @@ func TestShippedActionScenario(t *testing.T) {
 	unblockCmd, err := BuildRequestCommand(catalog, ActionRequest{
 		ActionType:   "ioc.unblock",
 		Targets:      []aggregate.TargetSpec{{EntityRef: "ipv4-addr--1", ResolvedIdentifier: "185.220.101.5"}},
-		EvidenceRefs: []string{"observed-data--c2"},
+		EvidenceRefs: []string{"observed-data--0d000000-0000-4000-8000-0000000000c2"},
 		Rationale:    "shared CDN edge — legit traffic breaking; analyst judged removal safe",
 	}, time.Now())
 	if err != nil {
@@ -90,7 +90,7 @@ func TestShippedActionScenario(t *testing.T) {
 	ticketCmd, err := BuildRequestCommand(catalog, ActionRequest{
 		ActionType:   "ticket.create",
 		Targets:      []aggregate.TargetSpec{{ResolvedIdentifier: "IT-OPS"}},
-		EvidenceRefs: []string{"reckon-host--1"},
+		EvidenceRefs: []string{"reckon-host--0d000000-0000-4000-8000-000000000001"},
 		Parameters:   []byte(`{"summary":"Reimage WIN-FILE01 after RDP lateral movement","issue_type":"remediation"}`),
 		Rationale:    "hand off host rebuild to IT after containment",
 	}, time.Now())
@@ -117,7 +117,7 @@ func TestShippedActionScenario(t *testing.T) {
 	cmd, err := BuildRequestCommand(catalog, ActionRequest{
 		ActionType:   "host.isolate",
 		Targets:      []aggregate.TargetSpec{{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-FILE01"}},
-		EvidenceRefs: []string{"observed-data--rdp"},
+		EvidenceRefs: []string{"observed-data--0d000000-0000-4000-8000-000000000ad9"},
 		Rationale:    "contain the RDP lateral movement",
 	}, time.Now())
 	if err != nil {
@@ -177,7 +177,7 @@ func TestShippedImpossibleTravelActionScenario(t *testing.T) {
 	cmd, err := BuildRequestCommand(catalog, ActionRequest{
 		ActionType:   "account.disable",
 		Targets:      []aggregate.TargetSpec{{EntityRef: "user-account--1", ResolvedIdentifier: `CONTOSO\m.reyes`}},
-		EvidenceRefs: []string{"observed-data--foreign-signin"},
+		EvidenceRefs: []string{"observed-data--0d000000-0000-4000-8000-00000000f051"},
 		Rationale:    "contain the account behind the foreign legacy-protocol sign-in",
 	}, time.Now())
 	if err != nil {
@@ -225,7 +225,7 @@ func TestShippedExposedBucketActionScenario(t *testing.T) {
 		cmd, err := BuildRequestCommand(catalog, ActionRequest{
 			ActionType:   actionType,
 			Targets:      []aggregate.TargetSpec{{EntityRef: "user-account--1", ResolvedIdentifier: identifier}},
-			EvidenceRefs: []string{"observed-data--put-bucket-policy"},
+			EvidenceRefs: []string{"observed-data--0d000000-0000-4000-8000-0000000000b9"},
 			Rationale:    "contain the principal behind the public bucket policy",
 		}, time.Now())
 		if err != nil {
@@ -260,7 +260,7 @@ func TestShippedScenariosBindEveryInverse(t *testing.T) {
 		if err != nil {
 			t.Fatalf("load %s: %v", path, err)
 		}
-		catalog := DefaultActionCatalog()
+		catalog := defaultActionCatalog(t)
 		for at := range cfg.Bindings {
 			d, ok := catalog.Descriptor(at)
 			if !ok || d.ReversibleBy == "" {

@@ -6,7 +6,7 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { describe, expect, it } from "vitest";
 import { AppProvider } from "../app";
 import { App } from "./App";
-import { eventCount, timelineItems } from "./lenses/StoryLens";
+import { citingPredictions, eventCount, timelineItems } from "./lenses/StoryLens";
 import { keySpec, spanText } from "../derive/events";
 import { bindingRows } from "./inspectors/CallInspector";
 import { HarnessTransport, type HarnessSnapshot } from "../../../harness/transport";
@@ -69,7 +69,7 @@ describe("timelineItems", () => {
   });
   it("falls back to the cited events alone when the record holds no membership", () => {
     const items = timelineItems(null, [{ ref: "e1", time: "2026-10-20T09:00:00Z", label: "Authentication" }]);
-    expect(items).toEqual([{ ref: "e1", time: "2026-10-20T09:00:00Z", label: "Authentication", category: "auth", ids: ["e1"] }]);
+    expect(items).toEqual([{ ref: "e1", time: "2026-10-20T09:00:00Z", label: "Authentication", category: "auth", ids: ["e1"], observations: [] }]);
   });
 });
 
@@ -275,6 +275,29 @@ const burst = events.slice(0, 2); // two events on one day: a group that does no
 const burstGroup = { ...nightlyGroup, count: 2, days: 1, first: burst[0]!.time, last: burst[1]!.time, eventIds: burst.map((e) => e.id).reverse() };
 const authKeys = { classUid: 3002, className: "Authentication", slots: [{ name: "user", label: "Account" }, { name: "logon_type", label: "Logon type" }, { name: "src", label: "Source" }, { name: "dst", label: "Destination" }, { name: "status", label: "Result" }], default: ["user", "logon_type", "src", "dst"], key: ["user", "logon_type", "src", "dst"] };
 const foldedData: HarnessSnapshot = { ...data, snapshot: { ...data.snapshot, events: [...nightly, ...events], eventsTotal: 6, eventGroups: [burstGroup, nightlyGroup], eventKeys: [authKeys], eventsFoldedOver: 6 } };
+
+describe("a timeline row's citations (adr/0364)", () => {
+  const od = "observed-data--7c1d5e4f-ae6f-4182-8d4e-5f6a7b8c9d04";
+  const rows = [row({ id: "0192f3a0-0000-7000-8000-00000000e101", observedDataRefs: [od] }), row({ id: "0192f3a0-0000-7000-8000-00000000e102", time: "2026-10-20T09:30:00Z" })];
+  const [h0] = data.snapshot.hypotheses;
+  const citing = (refs: string[]) => [{ ...h0!, predictions: [{ ...h0!.predictions[0]!, testResultRefs: refs }] }];
+
+  it("marks a row cited by a citation of its observation", () => {
+    const items = timelineItems(rows, []);
+    expect(citingPredictions(items[0]!, citing([od])).length).toBe(1);
+    expect(citingPredictions(items[1]!, citing([od])).length).toBe(0);
+  });
+
+  it("still marks a row cited by an older citation of its raw event", () => {
+    const items = timelineItems(rows, []);
+    expect(citingPredictions(items[1]!, citing([rows[1]!.id])).length).toBe(1);
+  });
+
+  it("folds a cited observation of a held event into the event's row", () => {
+    const items = timelineItems(rows, [{ ref: od, time: "2026-10-20T08:50:00Z", label: "observed-data" }]);
+    expect(items.map((it) => it.ref)).toEqual(rows.map((r) => r.id));
+  });
+});
 
 describe("timelineItems over groups", () => {
   it("folds a group that repeats into one item at its first event and leaves a group that does not as rows", () => {

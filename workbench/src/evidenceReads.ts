@@ -12,6 +12,7 @@ import { deriveEvidenceLabel } from "./evidenceLabel";
 import { bearsIdentity, identityKindOf, identityViewKeys, identityWord, isPersonDoc } from "./identityKinds";
 import type { IdentityOther, InspectorTarget, KnownAccount, RenderMessage } from "./protocol";
 import { SingleFlight } from "./singleFlight";
+import * as shapes from "./wire/backendShapes.generated";
 import { caseAnswer, procedureAnswer } from "./knowledgeAnswers";
 import { errText } from "./util";
 
@@ -32,18 +33,16 @@ function targetKey(target: InspectorTarget): string {
  */
 function refusal(ref: string, requestId: string, err: unknown): Extract<RenderMessage, { type: "identity.error" }> {
   const out: Extract<RenderMessage, { type: "identity.error" }> = { type: "identity.error", ref, requestId, message: errText(err) };
-  if (!(err instanceof BackendRequestError) || !err.body) return out;
-  const body = err.body;
-  if (typeof body.error === "string" && body.error) out.message = body.error;
-  if (err.status === 409 && Array.isArray(body.accounts)) {
-    out.accounts = body.accounts.flatMap((a): KnownAccount[] => {
-      const r = a as Record<string, unknown>;
-      return typeof r.ref === "string" ? [{ ref: r.ref, accountType: String(r.account_type ?? ""), accountLogin: String(r.account_login ?? "") }] : [];
-    });
+  if (!(err instanceof BackendRequestError)) return out;
+  const said = err.bodyAs(shapes.error)?.error;
+  if (said) out.message = said;
+  if (err.status !== 409) return out;
+  const accounts = err.bodyAs(shapes.accountCandidates)?.accounts;
+  if (accounts) {
+    out.accounts = accounts.map((a): KnownAccount => ({ ref: a.ref, accountType: a.account_type, accountLogin: a.account_login }));
   }
-  if (err.status === 409 && Array.isArray(body.persons)) {
-    out.persons = body.persons.filter((p): p is string => typeof p === "string");
-  }
+  const persons = err.bodyAs(shapes.personCandidates)?.persons;
+  if (persons) out.persons = persons;
   return out;
 }
 

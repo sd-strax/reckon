@@ -9,15 +9,17 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sd-strax/reckon/internal/agentapi"
 )
 
 // turnCommits is the turn commits the backend accepted, in order: the
 // interpretations that carry a transcript.
-func (f *fakeBackend) turnCommits(t *testing.T) []InterpretationRequest {
+func (f *fakeBackend) turnCommits(t *testing.T) []agentapi.RecordInterpretationBody {
 	t.Helper()
-	var out []InterpretationRequest
+	var out []agentapi.RecordInterpretationBody
 	for _, c := range f.callsTo("/api/interpretations") {
-		var req InterpretationRequest
+		var req agentapi.RecordInterpretationBody
 		if err := json.Unmarshal(c.Body, &req); err != nil {
 			t.Fatalf("decode interpretation: %v", err)
 		}
@@ -38,7 +40,7 @@ func (f *fakeBackend) failCommits(status, n int) *int {
 		}
 		body, _ := io.ReadAll(r.Body)
 		r.Body = io.NopCloser(strings.NewReader(string(body)))
-		var req InterpretationRequest
+		var req agentapi.RecordInterpretationBody
 		if json.Unmarshal(body, &req) != nil || req.Transcript == nil {
 			return false
 		}
@@ -327,7 +329,7 @@ func TestResetContext_RecordsHeldTurnsFirst(t *testing.T) {
 	}
 	var order []string
 	for _, c := range f.callsTo("/api/interpretations") {
-		var req InterpretationRequest
+		var req agentapi.RecordInterpretationBody
 		_ = json.Unmarshal(c.Body, &req)
 		if req.Transcript != nil {
 			order = append(order, "turn")

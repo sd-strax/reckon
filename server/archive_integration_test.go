@@ -107,14 +107,14 @@ func TestArchiveBundle_EndToEnd(t *testing.T) {
 	// Conclude (via pin + verdict — the conclude gate, 01).
 	if _, err := testHandler.Handle(ctx, env(""), aggregate.RecordInterpretation{
 		InterpretationID: uuid.New(), InterpretationType: aggregate.InterpretationEvidencePin,
-		InputRefs: []string{"observed-data--x"}, Rationale: "beaconing evidence",
+		InputRefs: []string{"observed-data--0d000000-0000-4000-8000-000000000001"}, Rationale: "beaconing evidence",
 	}); err != nil {
 		t.Fatalf("pin: %v", err)
 	}
 	if _, err := testHandler.Handle(ctx, env(""), aggregate.RecordInterpretation{
 		InterpretationID: uuid.New(), InterpretationType: aggregate.InterpretationVerdict,
 		Verdict:   &aggregate.VerdictNode{Disposition: aggregate.VerdictMalicious},
-		InputRefs: []string{"observed-data--x"}, Rationale: "confirmed C2",
+		InputRefs: []string{"observed-data--0d000000-0000-4000-8000-000000000001"}, Rationale: "confirmed C2",
 	}); err != nil {
 		t.Fatalf("verdict: %v", err)
 	}

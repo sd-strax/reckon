@@ -58,8 +58,8 @@ func TestRecordInterpretation_Records(t *testing.T) {
 	resp, out := postInterpretation(t, b, token, RecordInterpretationBody{
 		InvestigationRef:   invID.String(),
 		InterpretationType: "pivot",
-		InputRefs:          []string{"process--1"},
-		OutputRefs:         []string{"ipv4-addr--1"},
+		InputRefs:          []string{"process--639b30b9-f660-5ac3-b750-a82b236c3560"},
+		OutputRefs:         []string{"ipv4-addr--48a64808-4fdf-5ddf-ae70-6c141467e8fc"},
 		Rationale:          "beaconing consistent with C2",
 		Confidence:         "MEDIUM",
 		Transcript:         &TranscriptInput{TurnID: "t1", Body: transcript},
@@ -381,8 +381,8 @@ func TestRecordInterpretation_UnknownInvestigation(t *testing.T) {
 	resp, _ := postInterpretation(t, b, mintToken(t, nil), RecordInterpretationBody{
 		InvestigationRef:   uuid.NewString(), // no such investigation
 		InterpretationType: "pivot",
-		InputRefs:          []string{"process--1"},
-		OutputRefs:         []string{"ipv4-addr--1"},
+		InputRefs:          []string{"process--639b30b9-f660-5ac3-b750-a82b236c3560"},
+		OutputRefs:         []string{"ipv4-addr--48a64808-4fdf-5ddf-ae70-6c141467e8fc"},
 		Rationale:          "beaconing consistent with C2",
 		Confidence:         "MEDIUM",
 	})

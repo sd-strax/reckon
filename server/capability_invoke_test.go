@@ -92,7 +92,7 @@ func TestCapabilityInvoke_ResolvesFixture(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d; want 200", resp.StatusCode)
 	}
-	if out.Coverage != string(capability.CoverageComplete) {
+	if out.Coverage != capability.CoverageComplete {
 		t.Errorf("coverage = %q; want COMPLETE (notes: %v)", out.Coverage, out.DegradationNotes)
 	}
 	if len(out.Events) == 0 || len(out.OcsfEventRefs) != len(out.Events) {
@@ -124,7 +124,7 @@ func TestCapabilityInvoke_TemplatedEntity(t *testing.T) {
 	resp, out := postCapability(t, b, token, "get_network_connections", CapabilityInvokeBody{
 		Entity: map[string]any{"host": map[string]any{"hostname": "H1"}},
 	})
-	if resp.StatusCode != http.StatusOK || out.Coverage != string(capability.CoverageComplete) {
+	if resp.StatusCode != http.StatusOK || out.Coverage != capability.CoverageComplete {
 		t.Fatalf("with entity: status = %d coverage = %q; want 200 COMPLETE (notes: %v)",
 			resp.StatusCode, out.Coverage, out.DegradationNotes)
 	}
@@ -133,7 +133,7 @@ func TestCapabilityInvoke_TemplatedEntity(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("without entity: status = %d; want 200", resp.StatusCode)
 	}
-	if out.Coverage != string(capability.CoverageUnavailableTenant) {
+	if out.Coverage != capability.CoverageUnavailableTenant {
 		t.Errorf("without entity: coverage = %q; want UNAVAILABLE_TENANT", out.Coverage)
 	}
 }

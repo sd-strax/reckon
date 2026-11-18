@@ -257,8 +257,12 @@ func validateDescribe(desc *adapterplugin.DescribeResult, rep *confReport) {
 	for _, b := range desc.DefaultWriteBindings {
 		byType[b.ActionType] = append(byType[b.ActionType], b)
 	}
-	for _, p := range action.ValidateBindingParams(byType, action.DefaultActionCatalog()) {
-		rep.fail("describe: " + p)
+	if actions, err := action.DefaultActionCatalog(); err != nil {
+		rep.fail("describe: action catalog: " + err.Error())
+	} else {
+		for _, p := range action.ValidateBindingParams(byType, actions) {
+			rep.fail("describe: " + p)
+		}
 	}
 	rep.pass(fmt.Sprintf("describe well-formed: %d verb(s), %d action type(s), %d operation(s)",
 		len(desc.Verbs), len(desc.ActionTypes), len(desc.Operations)))
@@ -381,7 +385,7 @@ func printDescribe(desc *adapterplugin.DescribeResult) {
 	if len(desc.ActionTypes) > 0 {
 		fmt.Println("  action types (tier/reversibility are ENGINE-owned; adapter claims shown for reference):")
 		for _, a := range desc.ActionTypes {
-			fmt.Printf("    - %s [claims tier=%s reversibility=%s]\n", a.ActionType, orDefault(a.DefaultTier, "?"), orDefault(a.Reversibility, "?"))
+			fmt.Printf("    - %s [claims tier=%s reversibility=%s]\n", a.ActionType, orDefault(string(a.DefaultTier), "?"), orDefault(a.Reversibility, "?"))
 		}
 	}
 	if src := desc.SchemaSource; src != nil && len(src.Profiles) > 0 {

@@ -47,9 +47,9 @@ type CaseView struct {
 // CaseInvestigationRef points the queue row at the investigation already
 // rooted on the case.
 type CaseInvestigationRef struct {
-	ID     string `json:"id"`
-	Title  string `json:"title"`
-	Status string `json:"status"`
+	ID     string                        `json:"id"`
+	Title  string                        `json:"title"`
+	Status aggregate.InvestigationStatus `json:"status"`
 }
 
 // CaseListResponse is the body of GET /api/cases.
@@ -224,7 +224,7 @@ func (b *Backend) annotateInFlight(r *http.Request, cases []CaseView) error {
 	}
 	for i := range cases {
 		if ref, ok := byCase[cases[i].Number]; ok {
-			cases[i].Investigation = &CaseInvestigationRef{ID: ref.ID, Title: ref.Title, Status: ref.Status}
+			cases[i].Investigation = &CaseInvestigationRef{ID: ref.ID, Title: ref.Title, Status: aggregate.InvestigationStatus(ref.Status)}
 		}
 	}
 	return nil

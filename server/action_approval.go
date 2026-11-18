@@ -12,18 +12,6 @@ import (
 	"github.com/sd-strax/reckon/module"
 )
 
-// ApproveActionBody is the optional body of an approve request. ChallengeResponse
-// carries the typed-challenge value for higher-tier confirmations (04 §5.5); it
-// is recorded on the Authorization for audit.
-type ApproveActionBody struct {
-	ChallengeResponse string `json:"challenge_response,omitempty"`
-}
-
-// RejectActionBody is the body of a reject request.
-type RejectActionBody struct {
-	Reason string `json:"reason"`
-}
-
 // ResolveOutcomeBody is the body of a resolve request (adr/0216): what the
 // person found when they checked the tool, what they checked, and optionally
 // where the evidence is (adr/0139).
@@ -36,10 +24,10 @@ type ResolveOutcomeBody struct {
 
 // ActionDecisionResponse reports where an approve/reject left the action.
 type ActionDecisionResponse struct {
-	ActionID   string `json:"action_id"`
-	Status     string `json:"status"`
-	Stage      string `json:"stage,omitempty"`
-	WorkflowID string `json:"workflow_id,omitempty"`
+	ActionID   string                 `json:"action_id"`
+	Status     aggregate.ActionStatus `json:"status"`
+	Stage      aggregate.AuthStage    `json:"stage,omitempty"`
+	WorkflowID string                 `json:"workflow_id,omitempty"`
 }
 
 // approveAction handles POST /api/actions/{id}/approve. It honors the frozen
@@ -105,7 +93,7 @@ func (b *Backend) approveAction(w http.ResponseWriter, r *http.Request, actionID
 		writeCommandError(w, "approve action", err)
 		return
 	}
-	resp := ActionDecisionResponse{ActionID: actionID.String(), Stage: auth.Stage}
+	resp := ActionDecisionResponse{ActionID: actionID.String(), Stage: aggregate.AuthStage(auth.Stage)}
 	if willApprove {
 		resp.Status = aggregate.ActionStatusApproved
 		resp.WorkflowID = b.startActionWorkflow(r.Context(), dispatchSpec{
@@ -286,7 +274,7 @@ func (b *Backend) resolveActionOutcome(w http.ResponseWriter, r *http.Request, a
 	// here (adr/0101). The owner's confirmation stays a separate human act.
 	ac.Status = body.Outcome
 	b.markDependenciesSent(r.Context(), ac)
-	resp := ActionDecisionResponse{ActionID: actionID.String(), Status: body.Outcome}
+	resp := ActionDecisionResponse{ActionID: actionID.String(), Status: aggregate.ActionStatus(body.Outcome)}
 	if ac.ReversalOfRef != uuid.Nil && body.Outcome == aggregate.ActionStatusSucceeded {
 		resp.WorkflowID = b.startActionWorkflow(r.Context(), specFromCurrent(ac))
 	}

@@ -37,6 +37,15 @@ const (
 	StatusClosed        = "closed"
 )
 
+// Status is a thread's status as a served view carries it. The words are the
+// untyped constants above.
+type Status string
+
+// WireValues lists every thread status, in the order declared above.
+func (Status) WireValues() []string {
+	return []string{StatusAwaitingReply, StatusReplied, StatusFollowedUp, StatusClosed}
+}
+
 // Trail entry directions.
 const (
 	DirOutbound = "outbound"

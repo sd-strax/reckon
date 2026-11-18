@@ -1,10 +1,10 @@
 {
   "aggregate_id": "x",
   "title": "x",
-  "status": "x",
+  "status": "draft",
   "last_event_sequence": 1,
   "verdict": {
-    "disposition": "x",
+    "disposition": "BENIGN",
     "rationale": "x",
     "verdict_at": "2026-01-02T03:04:05Z",
     "interpretation_id": "x"

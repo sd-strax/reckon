@@ -28,7 +28,7 @@
       "backend": "x"
     }
   ],
-  "coverage": "x",
+  "coverage": "COMPLETE",
   "retrieval_at": "2026-01-02T03:04:05Z",
   "unmatched_tags": [
     "x"

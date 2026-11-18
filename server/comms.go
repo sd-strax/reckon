@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sd-strax/reckon/authz"
+	"github.com/sd-strax/reckon/comms"
 )
 
 // The comms/external-work read+act surface (binding §4). Threads are
@@ -30,7 +31,7 @@ type CommsThreadView struct {
 	ActionType    string           `json:"action_type"`
 	Target        string           `json:"target"`
 	Subject       string           `json:"subject,omitempty"`
-	Status        string           `json:"status"`
+	Status        comms.Status     `json:"status"`
 	FollowUpHours int              `json:"follow_up_hours,omitempty"`
 	FollowUps     int              `json:"follow_ups,omitempty"`
 	UnackedReply  bool             `json:"unacked_reply,omitempty"`
@@ -43,6 +44,11 @@ type CommsThreadView struct {
 	FollowUpDue         bool   `json:"follow_up_due,omitempty"`
 	EscalationTriggered bool   `json:"escalation_triggered,omitempty"`
 	EscalationPolicy    string `json:"escalation_policy,omitempty"`
+}
+
+// CommsThreadsResponse is GET /api/investigations/{id}/comms.
+type CommsThreadsResponse struct {
+	Threads []CommsThreadView `json:"threads"`
 }
 
 // listInvestigationComms serves GET /api/investigations/{id}/comms.
@@ -64,7 +70,7 @@ func (b *Backend) listInvestigationComms(w http.ResponseWriter, r *http.Request,
 			ActionType:          t.ActionType,
 			Target:              t.Target,
 			Subject:             t.Subject,
-			Status:              t.Status,
+			Status:              comms.Status(t.Status),
 			FollowUpHours:       t.FollowUpHours,
 			FollowUps:           t.FollowUps,
 			UnackedReply:        t.UnackedReply,
@@ -82,7 +88,30 @@ func (b *Backend) listInvestigationComms(w http.ResponseWriter, r *http.Request,
 		}
 		out = append(out, v)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"threads": out})
+	writeJSON(w, http.StatusOK, CommsThreadsResponse{Threads: out})
+}
+
+// CommsActResponse answers an inbound reply ("recorded") and an analyst's act
+// on a thread (its verb).
+type CommsActResponse struct {
+	Status CommsActStatus `json:"status"`
+}
+
+// CommsActStatus is what a comms write did: recorded an inbound reply, or the
+// analyst's act on a thread.
+type CommsActStatus string
+
+// The comms write answers.
+const (
+	CommsRecorded CommsActStatus = "recorded"
+	CommsAck      CommsActStatus = "ack"
+	CommsDone     CommsActStatus = "done"
+	CommsSnooze   CommsActStatus = "snooze"
+)
+
+// WireValues lists every comms write answer, in the order declared above.
+func (CommsActStatus) WireValues() []string {
+	return []string{string(CommsRecorded), string(CommsAck), string(CommsDone), string(CommsSnooze)}
 }
 
 // CommsInboundBody is POST /api/comms/inbound — the v0 ingestion seam for a
@@ -115,19 +144,19 @@ func (b *Backend) commsInbound(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"status": "recorded"})
+	writeJSON(w, http.StatusOK, CommsActResponse{Status: CommsRecorded})
 }
 
 // commsAck, commsDone and commsSnooze are the analyst's acts on a thread. The
 // acting principal is always the JWT subject.
 func (b *Backend) commsAck(w http.ResponseWriter, r *http.Request, threadID uuid.UUID) {
-	b.commsAct(w, r, "ack", func(subject string, now time.Time) error {
+	b.commsAct(w, r, CommsAck, func(subject string, now time.Time) error {
 		return b.cfg.Comms.Ack(r.Context(), threadID, subject, now)
 	})
 }
 
 func (b *Backend) commsDone(w http.ResponseWriter, r *http.Request, threadID uuid.UUID) {
-	b.commsAct(w, r, "done", func(subject string, now time.Time) error {
+	b.commsAct(w, r, CommsDone, func(subject string, now time.Time) error {
 		return b.cfg.Comms.Done(r.Context(), threadID, subject, now)
 	})
 }
@@ -136,18 +165,22 @@ func (b *Backend) commsSnooze(w http.ResponseWriter, r *http.Request, threadID u
 	if !b.commsConfigured(w) {
 		return
 	}
-	var body struct {
-		Hours int `json:"hours"`
-	}
+	var body CommsSnoozeBody
 	if !decodeBody(w, r, &body, maxBodyBytes) {
 		return
 	}
 	if body.Hours <= 0 {
 		body.Hours = 24
 	}
-	b.commsAct(w, r, "snooze", func(subject string, now time.Time) error {
+	b.commsAct(w, r, CommsSnooze, func(subject string, now time.Time) error {
 		return b.cfg.Comms.Snooze(r.Context(), threadID, subject, body.Hours, now)
 	})
+}
+
+// CommsSnoozeBody is POST /api/comms/{id}/snooze's body: how many hours to
+// push the follow-up clock, 24 when none is given.
+type CommsSnoozeBody struct {
+	Hours int `json:"hours"`
 }
 
 // commsConfigured answers 503 when there is no comms layer.
@@ -160,7 +193,7 @@ func (b *Backend) commsConfigured(w http.ResponseWriter) bool {
 }
 
 // commsAct runs one act and answers with its verb.
-func (b *Backend) commsAct(w http.ResponseWriter, r *http.Request, verb string, act func(subject string, now time.Time) error) {
+func (b *Backend) commsAct(w http.ResponseWriter, r *http.Request, verb CommsActStatus, act func(subject string, now time.Time) error) {
 	if !b.commsConfigured(w) {
 		return
 	}
@@ -169,5 +202,5 @@ func (b *Backend) commsAct(w http.ResponseWriter, r *http.Request, verb string, 
 		writeJSONError(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"status": verb})
+	writeJSON(w, http.StatusOK, CommsActResponse{Status: verb})
 }

@@ -1,6 +1,6 @@
 # 0249 — The workbench has a linter, and the compiler checks indexed reads
 
-Issue: #249 · PR: #298 · Status: accepted
+Issue: #249 · PR: #298 · Status: accepted · Amended by: adr/0278
 
 ## Context
 
@@ -15,7 +15,8 @@ comments described the code as it had been: the investigation document as a
 - **ESLint runs in `make workbench-ci`, and any finding fails it.** The config is
   `@eslint/js` and `typescript-eslint` recommended everywhere, plus
   `eslint-plugin-react-hooks` recommended on the webview. Unused disable
-  directives are errors. `make ci` stays Go-only.
+  directives are errors. `make ci` stays Go-only. *Amended (adr/0278): `make ci`
+  now runs `make workbench-ci`, lint included.*
 - **Underscore-prefixed names count as deliberately unused,** the convention
   `noUnusedParameters` already allows.
 - **Every finding is fixed, or kept with its reason inline.** The one kept is the

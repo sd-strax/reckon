@@ -39,7 +39,7 @@ func actionBackend(t *testing.T, policies ...action.Policy) *Backend {
 		t.Fatalf("NewGate2: %v", err)
 	}
 	b.cfg.Gate2 = g
-	b.cfg.ActionCatalog = action.DefaultActionCatalog()
+	b.cfg.ActionCatalog = defaultActionCatalog(t)
 	return b
 }
 
@@ -79,7 +79,7 @@ func TestRequestAction_AutoApprove(t *testing.T) {
 		ActionType:       "host.isolate",
 		Targets:          []aggregate.TargetSpec{{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-A"}},
 		Rationale:        "contain",
-		EvidenceRefs:     []string{"observed-data--od1"},
+		EvidenceRefs:     []string{"observed-data--18ef927c-93bc-5470-b729-1b40841d3947"},
 		InvestigationRef: invID.String(),
 	})
 	if resp.StatusCode != http.StatusCreated {
@@ -113,7 +113,7 @@ func TestRequestAction_ManualFallThrough(t *testing.T) {
 		ActionType:       "host.isolate",
 		Targets:          []aggregate.TargetSpec{{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-A"}},
 		Rationale:        "contain",
-		EvidenceRefs:     []string{"observed-data--od1"},
+		EvidenceRefs:     []string{"observed-data--18ef927c-93bc-5470-b729-1b40841d3947"},
 		InvestigationRef: invID.String(),
 	})
 	if out.Status != "PENDING_MANUAL" || out.Mode != action.ModeManual {
@@ -144,7 +144,7 @@ func TestRequestAction_InvisibleActivateOnDraft(t *testing.T) {
 
 	resp, out := postAction(t, b, mintToken(t, nil), RequestActionBody{
 		ActionType:       "host.isolate",
-		EvidenceRefs:     []string{"observed-data--od1"},
+		EvidenceRefs:     []string{"observed-data--18ef927c-93bc-5470-b729-1b40841d3947"},
 		Targets:          []aggregate.TargetSpec{{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-A"}},
 		Rationale:        "contain",
 		InvestigationRef: invID.String(),
@@ -302,7 +302,7 @@ func TestActionOutcome_ListAndRecordAgree(t *testing.T) {
 		if err != nil {
 			t.Fatalf("loadActionRecord: %v", err)
 		}
-		if row.Status != want[id] || row.Outcome != want[id] || rec.Action.Outcome != row.Outcome {
+		if string(row.Status) != want[id] || row.Outcome != want[id] || rec.Action.Outcome != row.Outcome {
 			t.Errorf("%s: list status/outcome = %q/%q, record outcome = %q; want %q on all three",
 				id, row.Status, row.Outcome, rec.Action.Outcome, want[id])
 		}
@@ -325,7 +325,7 @@ func TestRerequestAction(t *testing.T) {
 	_, orig := postAction(t, b, mintToken(t, nil), RequestActionBody{
 		ActionType:       "host.isolate",
 		Targets:          []aggregate.TargetSpec{{EntityRef: "reckon-host--9", ResolvedIdentifier: "WIN-9"}},
-		EvidenceRefs:     []string{"observed-data--od9"},
+		EvidenceRefs:     []string{"observed-data--dd9aa908-46a3-5066-b469-9cb0dd5ebfa2"},
 		Rationale:        "original containment rationale",
 		InvestigationRef: invID.String(),
 	})
@@ -384,7 +384,7 @@ func TestRerequestAction(t *testing.T) {
 	if nc.ActionType != "host.isolate" || len(nc.Targets) != 1 || nc.Targets[0].ResolvedIdentifier != "WIN-9" {
 		t.Errorf("frozen fields not carried: %+v", nc)
 	}
-	if len(nc.EvidenceRefs) != 1 || nc.EvidenceRefs[0] != "observed-data--od9" {
+	if len(nc.EvidenceRefs) != 1 || nc.EvidenceRefs[0] != "observed-data--dd9aa908-46a3-5066-b469-9cb0dd5ebfa2" {
 		t.Errorf("evidence not carried: %v", nc.EvidenceRefs)
 	}
 	// Fresh clock: the new window is in the future.
@@ -416,7 +416,7 @@ func TestRerequestAction_LazyExpiry(t *testing.T) {
 		ActionID: actionID, ActionType: "host.isolate", Tier: aggregate.TierT2,
 		Targets:   []aggregate.TargetSpec{{EntityRef: "reckon-host--l", ResolvedIdentifier: "WIN-L"}},
 		ExpiresAt: time.Now().Add(-time.Minute), Rationale: "contain",
-		EvidenceRefs: []string{"observed-data--od1"}, // the re-request inherits the original's grounding
+		EvidenceRefs: []string{"observed-data--18ef927c-93bc-5470-b729-1b40841d3947"}, // the re-request inherits the original's grounding
 	}); err != nil {
 		t.Fatalf("request: %v", err)
 	}
@@ -506,7 +506,7 @@ func TestExpiryTimer_RaceResolvesForTheHuman(t *testing.T) {
 		ActionID: pendingID, ActionType: "host.isolate", Tier: aggregate.TierT2,
 		Targets:   []aggregate.TargetSpec{{EntityRef: "reckon-host--p", ResolvedIdentifier: "WIN-P"}},
 		ExpiresAt: time.Now().Add(-time.Minute), Rationale: "contain",
-		EvidenceRefs: []string{"observed-data--od1"}, // the re-request inherits the original's grounding
+		EvidenceRefs: []string{"observed-data--18ef927c-93bc-5470-b729-1b40841d3947"}, // the re-request inherits the original's grounding
 	}); err != nil {
 		t.Fatalf("request pending: %v", err)
 	}
@@ -604,7 +604,7 @@ func TestListActionTypes(t *testing.T) {
 		t.Skip("integration test skipped in short mode")
 	}
 	b := newTestBackend(t)
-	b.cfg.ActionCatalog = action.DefaultActionCatalog()
+	b.cfg.ActionCatalog = defaultActionCatalog(t)
 	b.cfg.ActionResolver = action.NewActionResolver(nil, nil) // no bindings → all unavailable
 
 	srv := httptest.NewServer(b.buildRouter(b.verifier))
@@ -683,13 +683,13 @@ func TestListInvestigationActions(t *testing.T) {
 	_, first := postAction(t, b, mintToken(t, nil), RequestActionBody{
 		ActionType:       "host.isolate",
 		Targets:          []aggregate.TargetSpec{{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-FILE01"}},
-		EvidenceRefs:     []string{"observed-data--od1"},
+		EvidenceRefs:     []string{"observed-data--18ef927c-93bc-5470-b729-1b40841d3947"},
 		Rationale:        "contain",
 		InvestigationRef: invID.String(),
 	})
 	_, second := postAction(t, b, mintToken(t, nil), RequestActionBody{
 		ActionType:       "account.disable",
-		EvidenceRefs:     []string{"observed-data--od1"},
+		EvidenceRefs:     []string{"observed-data--18ef927c-93bc-5470-b729-1b40841d3947"},
 		Targets:          []aggregate.TargetSpec{{EntityRef: "user-account--1", ResolvedIdentifier: "svc_backup"}},
 		Rationale:        "contain",
 		InvestigationRef: invID.String(),
@@ -733,7 +733,7 @@ func TestListInvestigationActions(t *testing.T) {
 		t.Errorf("host.isolate row mangled: %+v", iso)
 	}
 	// The grounding surfaces on the durable view (10 §3 G1 reads it here).
-	if len(iso.EvidenceRefs) != 1 || iso.EvidenceRefs[0] != "observed-data--od1" {
+	if len(iso.EvidenceRefs) != 1 || iso.EvidenceRefs[0] != "observed-data--18ef927c-93bc-5470-b729-1b40841d3947" {
 		t.Errorf("evidence_refs not served: %+v", iso.EvidenceRefs)
 	}
 	if dis := byID[second.ActionID]; dis.ActionType != "account.disable" {
@@ -765,7 +765,7 @@ func TestListInvestigationActions(t *testing.T) {
 		timeout.String(): {aggregate.ActionStatusFailed, "TIMEOUT"},
 		first.ActionID:   {aggregate.ActionStatusRequested, ""},
 	} {
-		if got := byID[id]; got.Status != want[0] || got.Outcome != want[1] {
+		if got := byID[id]; string(got.Status) != want[0] || got.Outcome != want[1] {
 			t.Errorf("%s: status/outcome = %q/%q; want %q/%q", id, got.Status, got.Outcome, want[0], want[1])
 		}
 	}
@@ -800,7 +800,7 @@ func TestRequestAction_AIDelegatedT3BaselineDeny(t *testing.T) {
 	token := mintToken(t, map[string]any{"delegate_kind": "claude"})
 	_, out := postAction(t, b, token, RequestActionBody{
 		ActionType:       "email.purge",
-		EvidenceRefs:     []string{"observed-data--od1"},
+		EvidenceRefs:     []string{"observed-data--18ef927c-93bc-5470-b729-1b40841d3947"},
 		Targets:          []aggregate.TargetSpec{{EntityRef: "email-message--1", ResolvedIdentifier: "<msg@x>"}},
 		Rationale:        "phish",
 		InvestigationRef: invID.String(),
@@ -833,7 +833,7 @@ func TestRequestAction_RequesterAccountable(t *testing.T) {
 		Targets:          []aggregate.TargetSpec{{EntityRef: "reckon-queue--1", ResolvedIdentifier: "SEC"}},
 		Parameters:       json.RawMessage(`{"summary":"contain WIN-A"}`),
 		Rationale:        "hand off",
-		EvidenceRefs:     []string{"observed-data--od1"},
+		EvidenceRefs:     []string{"observed-data--18ef927c-93bc-5470-b729-1b40841d3947"},
 		InvestigationRef: invID.String(),
 	}
 
@@ -853,4 +853,15 @@ func TestRequestAction_RequesterAccountable(t *testing.T) {
 	if out.Status != "PENDING_MANUAL" {
 		t.Errorf("agent's ticket: status=%q mode=%q; want PENDING_MANUAL", out.Status, out.Mode)
 	}
+}
+
+// defaultActionCatalog is DefaultActionCatalog for a test: it fails the test
+// when the catalog is refused.
+func defaultActionCatalog(t testing.TB) *action.ActionCatalog {
+	t.Helper()
+	c, err := action.DefaultActionCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
 }

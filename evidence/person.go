@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sd-strax/reckon/identity"
+	"github.com/sd-strax/reckon/internal/ocsf"
 	"github.com/sd-strax/reckon/module"
 	"github.com/sd-strax/reckon/stix"
 )
@@ -398,11 +399,7 @@ func (s *Store) AccountIdentity(ctx context.Context, ref string) (AccountIdentit
 			}
 		}
 	}
-	keys, err := s.accountKeys(ctx, set)
-	if err != nil {
-		return AccountIdentityView{}, err
-	}
-	if out.SeenAs, err = s.accountSeenAs(ctx, set, keys); err != nil {
+	if out.SeenAs, err = s.accountSeenAs(ctx, set); err != nil {
 		return AccountIdentityView{}, err
 	}
 	return out, nil
@@ -525,146 +522,33 @@ func personsFirst(self string, set []string) []string {
 	return out
 }
 
-// accountKeySet is what the accounts of a set were minted on, folded: the
-// SIDs and provider ids, and the logins (principal names, "domain\sam", bare
-// names). A user object names the set when its own first identifier is one
-// of these (accountSeenAs).
-type accountKeySet struct {
-	ids, logins []string
-	// cloudIDs are the cloud and LDAP accounts' provider ids, folded as they
-	// are minted (identity.FoldCloudUID: a GUID lowercased, any other id
-	// exact), apart from ids, which are lowercased as SIDs and control-plane
-	// ids are minted.
-	cloudIDs []string
-}
-
-// accountKeys reads the identifier each user-account among refs was keyed on
-// (identity.Resolver.Account): a domain account's SID when its user_id is
-// one, else its login; a cloud or LDAP account's user_id (folded as minted,
-// cloudIDs), else its login; a well-known local principal's SID; a windows,
-// unix, local or login account's login (the sam part of a local one); a
-// control-plane principal's id. A placeholder reads as absent.
-func (s *Store) accountKeys(ctx context.Context, refs []string) (accountKeySet, error) {
-	var k accountKeySet
-	ids := make([]uuid.UUID, 0, len(refs))
-	for _, r := range refs {
-		if id, ok := refUUID(r); ok && strings.HasPrefix(r, identity.TypeUserAccount+"--") {
-			ids = append(ids, id)
-		}
-	}
-	if len(ids) == 0 {
-		return k, nil
-	}
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT payload FROM stix_objects
-		WHERE tenant_id = $3 AND id = ANY($1) AND type = $2
-	`, uuidArray(ids), identity.TypeUserAccount, module.SingleTenantUUID)
-	if err != nil {
-		return k, fmt.Errorf("query account identifiers: %w", err)
-	}
-	defer rows.Close()
-	add := func(list *[]string, v string) {
-		if v = strings.ToLower(strings.TrimSpace(v)); v != "" && !slices.Contains(*list, v) {
-			*list = append(*list, v)
-		}
-	}
-	for rows.Next() {
-		var raw []byte
-		if err := rows.Scan(&raw); err != nil {
-			return k, fmt.Errorf("scan account identifiers: %w", err)
-		}
-		var p struct {
-			Login  string `json:"account_login"`
-			UserID string `json:"user_id"`
-			Type   string `json:"account_type"`
-		}
-		_ = json.Unmarshal(raw, &p)
-		uid := p.UserID
-		if identity.PlaceholderUserID(uid) {
-			uid = ""
-		}
-		login := p.Login
-		if identity.PlaceholderLogin(login) {
-			login = ""
-		}
-		switch p.Type {
-		case identity.AccountWindowsDomain:
-			if identity.IsSID(uid) {
-				add(&k.ids, uid)
-				continue
-			}
-		case identity.AccountCloud, identity.AccountLDAP:
-			if f := identity.FoldCloudUID(uid); f != "" {
-				if !slices.Contains(k.cloudIDs, f) {
-					k.cloudIDs = append(k.cloudIDs, f)
-				}
-				continue
-			}
-		case identity.AccountWindowsLocal:
-			if identity.WellKnownLocalSID(uid) {
-				add(&k.ids, uid)
-				continue
-			}
-			if i := strings.LastIndex(login, `\`); i >= 0 {
-				login = login[i+1:]
-			}
-		case identity.AccountWindows, identity.AccountUnix, identity.AccountLocal, identity.AccountLogin:
-		default: // a control-plane principal: keyed on its id
-			if uid != "" {
-				add(&k.ids, uid)
-				continue
-			}
-		}
-		add(&k.logins, login)
-	}
-	return k, rows.Err()
-}
-
-// accountSeenAs collects what the user objects of the events referencing any
-// of refs report, for the objects that name the set. The user objects read
-// are actor.user, user, job.user, each entry of a group change's users[]
-// (03 §4.9, adr/0359), and actor.user and user in each artifact of a
-// detection's evidences[] (03 §4.12). On a group change this reads user and
-// every users[] entry, while the normalizer reads user only when no entry
-// names a user. Each object adds only its own ids to the account it names,
-// so the extra read lends no account another's ids. An object names the set when its
-// own first identifier, the one the account rule keys it on, is one of keys:
-// a SID that names a principal, else any other uid, else the principal name,
-// else "domain\sam", else the bare name; so a record keyed elsewhere lends
-// the set none of its identifiers. A matched object yields its login as
-// written, its uid and uid_alt keyed by the event's source tool, and its
-// principal name; placeholders are left out.
-func (s *Store) accountSeenAs(ctx context.Context, refs []string, keys accountKeySet) (AccountSeenAs, error) {
+// accountSeenAs collects what the user objects of the account set refs
+// report. The normalizer records, in each observation's user_accounts, the
+// strong accounts it minted for each user object, keyed by the object's
+// place in the event (adr/0398). A user object counts when one of its
+// accounts is in refs, so a record lends the set only its own users' forms. Each counted
+// object is read by the one rule, ocsf.ReadUser (adr/0367), and yields its
+// login, its uid and uid_alt keyed by the event's source tool, and its
+// principal name. Placeholders are left out.
+func (s *Store) accountSeenAs(ctx context.Context, refs []string) (AccountSeenAs, error) {
 	out := AccountSeenAs{Logins: []string{}, IDs: []SourceID{}, PrincipalNames: []string{}}
-	if len(keys.ids) == 0 && len(keys.cloudIDs) == 0 && len(keys.logins) == 0 {
+	if len(refs) == 0 {
 		return out, nil
 	}
+	accounts := stix.ObservationUserAccounts.JSONSQL("o.payload")
+	// Every account user_accounts lists is in object_refs, so the
+	// observations that name one of refs are read first, and only their
+	// user_accounts are expanded.
 	// #nosec G202 -- the joined fragments are fixed JSON paths from the stix package, never input.
 	rows, err := s.db.QueryContext(ctx, `
-		WITH ev AS (
-			SELECT e.source_tool, e.payload FROM ocsf_events e
-			WHERE EXISTS (
-				SELECT 1 FROM observed_data_events ode JOIN stix_objects o ON o.id = ode.observed_data_id AND o.tenant_id = $2
-				WHERE ode.ocsf_event_id = e.id AND `+observationNamesAny("o.payload", "$1::text[]")+`)
-		),
-		-- The artifacts of a detection's evidences[] (adr/0356).
-		art AS (
-			SELECT ev.source_tool, a FROM ev,
-				jsonb_array_elements(CASE WHEN jsonb_typeof(ev.payload->'evidences') = 'array' THEN ev.payload->'evidences' ELSE '[]'::jsonb END) AS t(a)
-		),
-		-- The members of a group change, users[] from OCSF 1.9.0 (adr/0359).
-		mem AS (
-			SELECT ev.source_tool, m FROM ev,
-				jsonb_array_elements(CASE WHEN jsonb_typeof(ev.payload->'users') = 'array' THEN ev.payload->'users' ELSE '[]'::jsonb END) AS t(m)
-		)
-		SELECT source_tool, u FROM (
-			SELECT source_tool, payload->'actor'->'user' AS u FROM ev
-			UNION ALL SELECT source_tool, payload->'user' FROM ev
-			UNION ALL SELECT source_tool, payload->'job'->'user' FROM ev
-			UNION ALL SELECT source_tool, m FROM mem
-			UNION ALL SELECT source_tool, a->'actor'->'user' FROM art
-			UNION ALL SELECT source_tool, a->'user' FROM art
-		) x WHERE jsonb_typeof(u) = 'object'
+		SELECT e.source_tool, e.payload, `+accounts+`
+		FROM ocsf_events e
+		JOIN observed_data_events ode ON ode.ocsf_event_id = e.id
+		JOIN stix_objects o ON o.id = ode.observed_data_id AND o.tenant_id = $2
+		WHERE `+observationNamesAny("o.payload", "$1::text[]")+` AND EXISTS (
+			SELECT 1 FROM jsonb_each(CASE WHEN jsonb_typeof(`+accounts+`) = 'object' THEN `+accounts+` ELSE '{}'::jsonb END) AS a(place, accts),
+				jsonb_array_elements_text(CASE WHEN jsonb_typeof(a.accts) = 'array' THEN a.accts ELSE '[]'::jsonb END) AS r(ref)
+			WHERE r.ref = ANY($1::text[]))
 	`, textArray(refs), module.SingleTenantUUID)
 	if err != nil {
 		return AccountSeenAs{}, fmt.Errorf("query account seen-as: %w", err)
@@ -684,27 +568,31 @@ func (s *Store) accountSeenAs(ctx context.Context, refs []string, keys accountKe
 			out.IDs = append(out.IDs, id)
 		}
 	}
+	field := func(obj map[string]any, key string) any { return obj[key] }
 	for rows.Next() {
 		var tool string
-		var raw []byte
-		if err := rows.Scan(&tool, &raw); err != nil {
+		var payloadJSON, accountsJSON []byte
+		if err := rows.Scan(&tool, &payloadJSON, &accountsJSON); err != nil {
 			return AccountSeenAs{}, fmt.Errorf("scan account seen-as: %w", err)
 		}
-		var u struct {
-			Name   string `json:"name"`
-			Domain string `json:"domain"`
-			UID    string `json:"uid"`
-			UIDAlt string `json:"uid_alt"`
+		var payload map[string]any
+		var placed map[string][]string
+		_ = json.Unmarshal(payloadJSON, &payload)
+		_ = json.Unmarshal(accountsJSON, &placed)
+		for place, accounts := range placed {
+			if !slices.ContainsFunc(accounts, func(a string) bool { return slices.Contains(refs, a) }) {
+				continue
+			}
+			user := ocsf.ObjectAt(payload, place)
+			if user == nil {
+				continue
+			}
+			u := ocsf.ReadUser(user, field)
+			addStr(&out.Logins, u.Login)
+			addStr(&out.PrincipalNames, u.PrincipalName)
+			addID(tool, u.UID)
+			addID(tool, u.UIDAlt)
 		}
-		_ = json.Unmarshal(raw, &u)
-		o := seenUser(u.Name, u.Domain, u.UID, u.UIDAlt)
-		if !o.matches(keys) {
-			continue
-		}
-		addStr(&out.Logins, o.login)
-		addStr(&out.PrincipalNames, o.principal)
-		addID(tool, o.uid)
-		addID(tool, o.uidAlt)
 	}
 	if err := rows.Err(); err != nil {
 		return AccountSeenAs{}, fmt.Errorf("iterate account seen-as: %w", err)
@@ -718,82 +606,6 @@ func (s *Store) accountSeenAs(ctx context.Context, refs []string, keys accountKe
 		return strings.Compare(a.UID, b.UID)
 	})
 	return out, nil
-}
-
-// seenObject is one user object as the seen-as read folds it.
-type seenObject struct {
-	login, principal, uid, uidAlt string
-	first                         string // the identifier it is keyed on, folded
-	firstIsID                     bool
-}
-
-func seenUser(name, domain, uid, uidAlt string) seenObject {
-	name, domain, uid, uidAlt = strings.TrimSpace(name), strings.TrimSpace(domain), strings.TrimSpace(uid), strings.TrimSpace(uidAlt)
-	if domain == "" {
-		if d, n, ok := strings.Cut(name, `\`); ok {
-			domain, name = d, n
-		}
-	}
-	if identity.PlaceholderLogin(name) {
-		name = ""
-	}
-	if identity.PlaceholderDomain(domain) {
-		domain = ""
-	}
-	if identity.PlaceholderUserID(uid) {
-		uid = ""
-	}
-	o := seenObject{uid: uid, uidAlt: uidAlt}
-	switch {
-	case strings.Contains(name, "@"):
-		o.principal = name
-	case strings.Contains(uidAlt, "@"):
-		o.principal = uidAlt
-	}
-	o.login = name
-	if domain != "" && name != "" && !strings.Contains(name, "@") {
-		o.login = domain + `\` + name
-	}
-	switch {
-	case uid != "":
-		o.first, o.firstIsID = strings.ToLower(uid), true
-	case o.principal != "":
-		o.first = strings.ToLower(o.principal)
-	default:
-		o.first = strings.ToLower(o.login)
-	}
-	return o
-}
-
-// matches reports whether the object's first identifier is one the set is
-// keyed on. A bare login also matches a set keyed on that sam alone (a local
-// account's key carries no domain).
-func (o seenObject) matches(k accountKeySet) bool {
-	if o.first == "" {
-		return false
-	}
-	if o.firstIsID {
-		if slices.Contains(k.ids, o.first) || slices.Contains(k.cloudIDs, identity.FoldCloudUID(o.uid)) {
-			return true
-		}
-		// A uid that keys no account of the set (a non-SID id beside a
-		// domain login) leaves the login to match.
-		if identity.IsSID(o.first) {
-			return false
-		}
-		first := strings.ToLower(firstNonEmptyString(o.principal, o.login))
-		return first != "" && slices.Contains(k.logins, first)
-	}
-	return slices.Contains(k.logins, o.first)
-}
-
-func firstNonEmptyString(vals ...string) string {
-	for _, v := range vals {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
 }
 
 // AccountMatch is a persisted account a typed token names: its ref, type and

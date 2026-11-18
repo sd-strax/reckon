@@ -24,17 +24,17 @@ import (
 // /api/evidence/{id} serves that): the record, the call that retrieved it, the
 // interpretation-layer refs derived from it, and its rendering (adr/0090).
 type EventRowView struct {
-	ID               string    `json:"id"`
-	ClassUID         int       `json:"class_uid"`
-	ClassName        string    `json:"class_name"`
-	Time             time.Time `json:"time"`
-	RecordedAt       time.Time `json:"recorded_at"`
-	SourceTool       string    `json:"source_tool"`
-	CallID           string    `json:"call_id"`
-	Verb             string    `json:"verb"`
-	Coverage         string    `json:"coverage"`
-	ObservedDataRefs []string  `json:"observed_data_refs"`
-	EntityRefs       []string  `json:"entity_refs"`
+	ID               string              `json:"id"`
+	ClassUID         int                 `json:"class_uid"`
+	ClassName        string              `json:"class_name"`
+	Time             time.Time           `json:"time"`
+	RecordedAt       time.Time           `json:"recorded_at"`
+	SourceTool       string              `json:"source_tool"`
+	CallID           string              `json:"call_id"`
+	Verb             string              `json:"verb"`
+	Coverage         capability.Coverage `json:"coverage"`
+	ObservedDataRefs []string            `json:"observed_data_refs"`
+	EntityRefs       []string            `json:"entity_refs"`
 	// View is the sentence, the curated fields and the category word, rendered
 	// at read time from the payload and the record's entities (adr/0090).
 	View ocsfview.View `json:"view"`
@@ -68,20 +68,20 @@ type EventClassKeysView struct {
 // CapabilityCallView is one call as a surface opens it: which binding
 // answered, with what, how it went, and what it left behind.
 type CapabilityCallView struct {
-	CallID           string          `json:"call_id"`
-	InvestigationID  string          `json:"investigation_id,omitempty"`
-	Verb             string          `json:"verb"`
-	Adapter          string          `json:"adapter,omitempty"`
-	Operation        string          `json:"operation,omitempty"`
-	Priority         int             `json:"priority"`
-	ParamsSent       json.RawMessage `json:"params_sent,omitempty"`
-	Coverage         string          `json:"coverage"`
-	BindingsAnswered int             `json:"bindings_answered"`
-	BindingsTotal    int             `json:"bindings_total"`
-	NullObservation  string          `json:"null_observation_ref,omitempty"`
-	DegradationNotes []string        `json:"degradation_notes"`
-	StartedAt        time.Time       `json:"started_at"`
-	DurationMS       int             `json:"duration_ms"`
+	CallID           string              `json:"call_id"`
+	InvestigationID  string              `json:"investigation_id,omitempty"`
+	Verb             string              `json:"verb"`
+	Adapter          string              `json:"adapter,omitempty"`
+	Operation        string              `json:"operation,omitempty"`
+	Priority         int                 `json:"priority"`
+	ParamsSent       json.RawMessage     `json:"params_sent,omitempty"`
+	Coverage         capability.Coverage `json:"coverage"`
+	BindingsAnswered int                 `json:"bindings_answered"`
+	BindingsTotal    int                 `json:"bindings_total"`
+	NullObservation  string              `json:"null_observation_ref,omitempty"`
+	DegradationNotes []string            `json:"degradation_notes"`
+	StartedAt        time.Time           `json:"started_at"`
+	DurationMS       int                 `json:"duration_ms"`
 	// Outcomes is every binding the resolver walked, in priority order, with
 	// what each did; adapter, operation, priority and params_sent summarize the
 	// first that answered.
@@ -279,22 +279,23 @@ func eventRowView(row evidence.EventRow) EventRowView {
 		SourceTool:       row.SourceTool,
 		CallID:           row.CallID.String(),
 		Verb:             row.Verb,
-		Coverage:         row.Coverage,
+		Coverage:         capability.Coverage(row.Coverage),
 		ObservedDataRefs: nonNilStrings(row.ObservedDataRefs),
 		EntityRefs:       nonNilStrings(row.EntityRefs),
-		View:             eventView(row.Event, row.Entities),
+		View:             eventView(row.Event, evidence.Derived{Entities: row.Entities, UserAccounts: row.UserAccounts}),
 	}
 }
 
-// eventView renders one event with the entities the record derived from it.
-func eventView(e evidence.Event, entities []evidence.Object) ocsfview.View {
+// eventView renders one event with the entities the record derived from it
+// and the account minted for each user object (adr/0398).
+func eventView(e evidence.Event, d evidence.Derived) ocsfview.View {
 	var payload map[string]any
 	_ = json.Unmarshal(e.Payload, &payload)
-	ents := make([]ocsfview.Entity, 0, len(entities))
-	for _, o := range entities {
+	ents := make([]ocsfview.Entity, 0, len(d.Entities))
+	for _, o := range d.Entities {
 		ents = append(ents, ocsfview.EntityFromObject(o.Ref, o.Type, o.Payload))
 	}
-	return ocsfview.Render(ocsfview.Event{ClassUID: e.ClassUID, ClassName: e.ClassName, Payload: payload}, ents)
+	return ocsfview.Render(ocsfview.Event{ClassUID: e.ClassUID, ClassName: e.ClassName, Payload: payload}, ents, d.UserAccounts)
 }
 
 // listInvestigationCalls serves GET /api/investigations/{id}/calls.
@@ -354,7 +355,7 @@ func callView(c evidence.CallRecord) CapabilityCallView {
 		Operation:        c.Operation,
 		Priority:         c.Priority,
 		ParamsSent:       c.ParamsSent,
-		Coverage:         c.Coverage,
+		Coverage:         capability.Coverage(c.Coverage),
 		BindingsAnswered: c.BindingsAnswered,
 		BindingsTotal:    c.BindingsTotal,
 		NullObservation:  c.NullObservation,

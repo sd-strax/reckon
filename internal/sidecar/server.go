@@ -1,18 +1,21 @@
 package sidecar
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/sd-strax/reckon/agent"
+	"github.com/sd-strax/reckon/internal/agentapi"
 	"github.com/sd-strax/reckon/internal/apiversion"
 )
 
@@ -121,6 +124,18 @@ type sessionState struct {
 	closed bool // set by closeSession: nothing new may begin
 }
 
+// decodeParams reads a method's params into p. It refuses a field p does not
+// have (adr/0278), so a renamed param is an invalid-params error naming the
+// field, not a default value.
+func decodeParams(method string, raw json.RawMessage, p any) error {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(p); err != nil {
+		return errInvalidParams("%s: %v", method, err)
+	}
+	return nil
+}
+
 // --- initialize -------------------------------------------------------------
 
 type initializeParams struct {
@@ -151,8 +166,8 @@ type initializeResult struct {
 // sidecar dispatches against that API itself. Both fail closed.
 func (s *service) handleInitialize(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p initializeParams
-	if err := json.Unmarshal(raw, &p); err != nil {
-		return nil, errInvalidParams("initialize: %v", err)
+	if err := decodeParams("initialize", raw, &p); err != nil {
+		return nil, err
 	}
 	if p.ProtocolVersion != ProtocolVersion {
 		return nil, &rpcErr{Code: codeInvalidParams, Message: fmt.Sprintf(
@@ -242,8 +257,8 @@ type createSessionResult struct {
 // loop makes acquires a short-lived token from the extension at use time.
 func (s *service) handleCreateSession(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p createSessionParams
-	if err := json.Unmarshal(raw, &p); err != nil {
-		return nil, errInvalidParams("createSession: %v", err)
+	if err := decodeParams("createSession", raw, &p); err != nil {
+		return nil, err
 	}
 	if p.InvestigationID == "" {
 		return nil, errInvalidParams("createSession: investigation_id is required")
@@ -298,7 +313,7 @@ func (s *service) handleCreateSession(ctx context.Context, raw json.RawMessage) 
 				// mid-JSON). Absent when the result is not a capability
 				// envelope (e.g. list_actions).
 				if cov, n, refs, ok := summarizeEnvelope(content); ok && !isError {
-					note.Coverage = cov
+					note.Coverage = resultCoverage(cov)
 					note.EventCount = &n
 					note.Refs = refs
 					note.CallID = envelopeCallID(content)
@@ -360,15 +375,32 @@ type turnUsage struct {
 // needs to render and act (approve/reject go extension→backend directly on
 // the human token — never through this process, §5).
 type pendingAction struct {
-	ActionID   string   `json:"action_id"`
-	ActionType string   `json:"action_type"`
-	Tier       string   `json:"tier"`
-	Status     string   `json:"status"`
-	Targets    []string `json:"targets,omitempty"`
+	ActionID   string                 `json:"action_id"`
+	ActionType string                 `json:"action_type"`
+	Tier       agentapi.Tier          `json:"tier"`
+	Status     agentapi.PendingStatus `json:"status"`
+	Targets    []string               `json:"targets,omitempty"`
 	// Expired: the approval window elapsed — the engine refuses an approve
 	// even though Status may still read pending (lazy expiry, 04). Surfaces
 	// must not offer an approve affordance on these.
 	Expired bool `json:"expired,omitempty"`
+}
+
+// resultCoverage is the coverage a tool result's envelope states: a capability
+// call's, or a knowledge recall's. The words are the backend's, from
+// internal/agentapi (adr/0278).
+type resultCoverage string
+
+// WireValues lists the capability coverages, then the recall coverages the
+// capability list lacks.
+func (resultCoverage) WireValues() []string {
+	out := agentapi.Coverage("").WireValues()
+	for _, w := range agentapi.RecallCoverage("").WireValues() {
+		if !slices.Contains(out, w) {
+			out = append(out, w)
+		}
+	}
+	return out
 }
 
 // turnTextNote rides both text notifications: turn/text carries a
@@ -404,8 +436,8 @@ type turnToolResultNote struct {
 	// a large result. Present only when the result parsed as a capability
 	// envelope; EventCount is a pointer so an honest zero ("COMPLETE · 0
 	// events") is distinguishable from not-an-envelope.
-	Coverage   string `json:"coverage,omitempty"`
-	EventCount *int   `json:"event_count,omitempty"`
+	Coverage   resultCoverage `json:"coverage,omitempty"`
+	EventCount *int           `json:"event_count,omitempty"`
 	// Refs are the envelope's citation ids (observed-data, entities, raw
 	// events) — what the client's pin-from-result and citation-open surfaces
 	// act on (design/ui 02 §2.8), extracted pre-clip like the ticker fields.
@@ -463,8 +495,8 @@ func summarizeEnvelope(content string) (coverage string, eventCount int, refs []
 
 func (s *service) handleTurn(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p turnParams
-	if err := json.Unmarshal(raw, &p); err != nil {
-		return nil, errInvalidParams("turn: %v", err)
+	if err := decodeParams("turn", raw, &p); err != nil {
+		return nil, err
 	}
 	st, err := s.session(p.SessionID)
 	if err != nil {
@@ -546,8 +578,8 @@ type resetSessionParams struct {
 // so a reset never yanks the history out from under an in-flight completion.
 func (s *service) handleResetSession(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p resetSessionParams
-	if err := json.Unmarshal(raw, &p); err != nil {
-		return nil, errInvalidParams("resetSession: %v", err)
+	if err := decodeParams("resetSession", raw, &p); err != nil {
+		return nil, err
 	}
 	st, err := s.session(p.SessionID)
 	if err != nil {
@@ -578,8 +610,8 @@ type summarizeConcludedParams struct {
 // server's structured baseline stands either way.
 func (s *service) handleSummarizeConcluded(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p summarizeConcludedParams
-	if err := json.Unmarshal(raw, &p); err != nil {
-		return nil, errInvalidParams("summarizeConcluded: %v", err)
+	if err := decodeParams("summarizeConcluded", raw, &p); err != nil {
+		return nil, err
 	}
 	st, err := s.session(p.SessionID)
 	if err != nil {
@@ -594,7 +626,13 @@ func (s *service) handleSummarizeConcluded(ctx context.Context, raw json.RawMess
 	if err != nil {
 		return nil, cancelledOr(runCtx, err)
 	}
-	return map[string]any{"chars": len(narrative)}, nil
+	return summarizeConcludedResult{Chars: len(narrative)}, nil
+}
+
+// summarizeConcludedResult is the wire shape of a written summary narrative:
+// the size of the text.
+type summarizeConcludedResult struct {
+	Chars int `json:"chars"`
 }
 
 // draftNarrativeParams identifies the session whose investigation to narrate.
@@ -616,8 +654,8 @@ type draftNarrativeResult struct {
 // under the signed-in person. It holds the session like a turn (begin).
 func (s *service) handleDraftNarrative(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p draftNarrativeParams
-	if err := json.Unmarshal(raw, &p); err != nil {
-		return nil, errInvalidParams("draftNarrative: %v", err)
+	if err := decodeParams("draftNarrative", raw, &p); err != nil {
+		return nil, err
 	}
 	st, err := s.session(p.SessionID)
 	if err != nil {
@@ -663,8 +701,8 @@ type proposeSOPResult struct {
 // and warranted=false is a valid, non-error "no new SOP worth it" answer.
 func (s *service) handleProposeSOP(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p proposeSOPParams
-	if err := json.Unmarshal(raw, &p); err != nil {
-		return nil, errInvalidParams("proposeSOP: %v", err)
+	if err := decodeParams("proposeSOP", raw, &p); err != nil {
+		return nil, err
 	}
 	st, err := s.session(p.SessionID)
 	if err != nil {
@@ -691,8 +729,8 @@ func (s *service) handleProposeSOP(ctx context.Context, raw json.RawMessage) (an
 
 func (s *service) handleCancel(_ context.Context, raw json.RawMessage) (any, error) {
 	var p cancelParams
-	if err := json.Unmarshal(raw, &p); err != nil {
-		return nil, errInvalidParams("cancel: %v", err)
+	if err := decodeParams("cancel", raw, &p); err != nil {
+		return nil, err
 	}
 	st, err := s.session(p.SessionID)
 	if err != nil {
@@ -721,8 +759,8 @@ type closeSessionParams struct {
 // rehydrates. An error means a held turn could not be recorded and is lost.
 func (s *service) handleCloseSession(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p closeSessionParams
-	if err := json.Unmarshal(raw, &p); err != nil {
-		return nil, errInvalidParams("closeSession: %v", err)
+	if err := decodeParams("closeSession", raw, &p); err != nil {
+		return nil, err
 	}
 	st, err := s.session(p.SessionID)
 	if err != nil {

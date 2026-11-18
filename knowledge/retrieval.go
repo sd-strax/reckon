@@ -8,16 +8,23 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/sd-strax/reckon/internal/agentapi"
 	"github.com/sd-strax/reckon/knowledge/substrate"
 )
 
 // Coverage is retrieval's coarse outcome (design/06 §4.3), mirroring the
 // substrate's verdict. EMPTY is meaningful evidence-of-absence: "we have no
 // institutional procedure for this."
+// The words are defined once in internal/agentapi, which the sidecar shares
+// (adr/0278).
 const (
-	CoverageComplete = "COMPLETE"
-	CoverageEmpty    = "EMPTY"
+	CoverageComplete = agentapi.RecallComplete
+	CoverageEmpty    = agentapi.RecallEmpty
 )
+
+// Coverage is a recall's outcome as a served result carries it. The words are
+// the untyped constants above and CoverageEmptyUnderFilter.
+type Coverage = agentapi.RecallCoverage
 
 // Recall units (design/06 §4.2): what one hit stands for. A procedure answers
 // "which procedure applies"; a section answers "what do our procedures say
@@ -40,54 +47,6 @@ type RecallRequest struct {
 	// ExcerptBudget bounds a hit's excerpt in runes; zero means the store's
 	// configured budget. It can shrink an excerpt, never grow a section.
 	ExcerptBudget int `json:"excerpt_budget,omitempty"`
-}
-
-// SectionRef locates the section a hit carries within its document (design/06
-// §4.2): where in the source the excerpt came from.
-type SectionRef struct {
-	Idx         int      `json:"idx"`
-	Of          int      `json:"of"`
-	HeadingPath []string `json:"heading_path"`
-	Part        int      `json:"part,omitempty"`
-	Parts       int      `json:"parts,omitempty"`
-	Location    string   `json:"location"`
-}
-
-// SOPMatch is one ranked retrieval result (design/06 §4). Excerpt is the text
-// of Section — the piece that matched — up to the budget; Outline is one
-// location per section of the document, so the reader knows what else it
-// holds and can read it by section.
-type SOPMatch struct {
-	SOPID uuid.UUID `json:"sop_id"`
-	Title string    `json:"title"`
-	// Revision is the SOP revision the hit's section indexes belong to; a
-	// section read passes it back so a re-import between recall and read is
-	// detected (ErrRevisionChanged) rather than answered with another section.
-	Revision int `json:"revision"`
-	// Cut names the cut the section indexes belong to (substrate
-	// Section.Cut); a section read passes it back with the revision, since a
-	// changed section budget re-cuts a revision without changing it.
-	Cut            string     `json:"cut"`
-	Excerpt        string     `json:"excerpt"`
-	Truncated      bool       `json:"truncated,omitempty"`
-	Section        SectionRef `json:"section"`
-	Outline        []string   `json:"outline"`
-	Score          float64    `json:"score"`
-	MatchRationale string     `json:"match_rationale"`
-	Tags           []string   `json:"tags,omitempty"`
-	Recommendation string     `json:"recommendation,omitempty"`
-	Status         string     `json:"status"`
-	// Backend attributes the ranker that produced this result (substrate §5.2)
-	// — "vector-cosine/<model>" or the degraded "pg-fts", so a consumer can tell
-	// semantic recall from the keyword fallback.
-	Backend string `json:"backend,omitempty"`
-}
-
-// RecallResult is the recall_sops response envelope.
-type RecallResult struct {
-	Results     []SOPMatch `json:"results"`
-	Coverage    string     `json:"coverage"`
-	RetrievalAt time.Time  `json:"retrieval_at"`
 }
 
 const defaultRecallLimit = 5
@@ -123,7 +82,7 @@ func (s *Store) RecallSOPs(ctx context.Context, tenantID uuid.UUID, req RecallRe
 		return RecallResult{}, fmt.Errorf("recall_sops: %w", err)
 	}
 	out := RecallResult{
-		Coverage:    string(res.Coverage),
+		Coverage:    Coverage(res.Coverage),
 		RetrievalAt: res.RetrievalAt,
 		Results:     make([]SOPMatch, 0, len(res.Results)),
 	}

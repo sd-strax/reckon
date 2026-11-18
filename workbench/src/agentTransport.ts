@@ -26,10 +26,11 @@ import { TokenKind } from "./auth";
 import { SingleFlight } from "./singleFlight";
 import { errText } from "./util";
 import { decode, type Decoded, type Decoder } from "./wire/decode";
-import * as shapes from "./wire/sidecarShapes";
+import * as shapes from "./wire/sidecarShapes.generated";
+import { PROTOCOL_VERSION } from "./wire/sidecarShapes.generated";
 
-/** The stdio protocol contract version (sidecar.ProtocolVersion). */
-export const PROTOCOL_VERSION = 1;
+/** The stdio protocol contract version (sidecar.ProtocolVersion), generated from Go (adr/0278). */
+export { PROTOCOL_VERSION };
 
 /** Progress callbacks one turn renders. */
 export interface TurnProgress {
@@ -237,13 +238,13 @@ export class SidecarTransport implements AgentTransport {
       }
       const { conn, sessionId } = opened;
       cancelAtSidecar = (reason) => {
-        conn.sendRequest("cancel", { session_id: sessionId, reason }).catch((err: unknown) => {
+        conn.sendRequest("cancel", { session_id: sessionId, reason } satisfies shapes.CancelParams).catch((err: unknown) => {
           this.log.warn(`cancelling a timed-out turn: ${err instanceof Error ? err.message : String(err)}`);
         });
       };
       this.inFlight.set(sessionId, progress);
       try {
-        const raw = decode("turn", shapes.turn, await conn.sendRequest("turn", { session_id: sessionId, text }));
+        const raw = decode("turn", shapes.turn, await conn.sendRequest("turn", { session_id: sessionId, text } satisfies shapes.TurnParams));
         const notices = [timedOut && raw.stopped ? timedOutNotice : undefined, this.malformed.get(sessionId)];
         return { ...toOutcome(raw), notice: notices.filter(Boolean).join(" ") || undefined };
       } finally {
@@ -268,7 +269,7 @@ export class SidecarTransport implements AgentTransport {
     if (!sessionId || !this.connection) {
       return; // nothing in flight on this process — cancel is idempotent
     }
-    await this.connection.sendRequest("cancel", { session_id: sessionId });
+    await this.connection.sendRequest("cancel", { session_id: sessionId } satisfies shapes.CancelParams);
   }
 
   /**
@@ -285,7 +286,7 @@ export class SidecarTransport implements AgentTransport {
       return;
     }
     this.sessions.delete(investigationId);
-    const closing = this.connection.sendRequest("closeSession", { session_id: sessionId }).then(
+    const closing = this.connection.sendRequest("closeSession", { session_id: sessionId } satisfies shapes.CloseSessionParams).then(
       () => undefined,
       (err: unknown) => this.log.warn(`closing session ${sessionId}: ${err instanceof Error ? err.message : String(err)}`),
     ).finally(() => {
@@ -318,7 +319,7 @@ export class SidecarTransport implements AgentTransport {
   async resetSession(investigationId: string): Promise<void> {
     const conn = await this.ensureConnection();
     const sessionId = await this.ensureSession(conn, investigationId);
-    await conn.sendRequest("resetSession", { session_id: sessionId });
+    await conn.sendRequest("resetSession", { session_id: sessionId } satisfies shapes.ResetSessionParams);
   }
 
   /**
@@ -332,7 +333,7 @@ export class SidecarTransport implements AgentTransport {
   async summarizeConcluded(investigationId: string): Promise<void> {
     const conn = await this.ensureConnection();
     const sessionId = await this.ensureSession(conn, investigationId);
-    await conn.sendRequest("summarizeConcluded", { session_id: sessionId });
+    await conn.sendRequest("summarizeConcluded", { session_id: sessionId } satisfies shapes.SummarizeConcludedParams);
   }
 
   /**
@@ -344,13 +345,13 @@ export class SidecarTransport implements AgentTransport {
   async draftNarrative(investigationId: string): Promise<{ revision: number; chars: number }> {
     const conn = await this.ensureConnection();
     const sessionId = await this.ensureSession(conn, investigationId);
-    return decode("draftNarrative", shapes.draftNarrative, await conn.sendRequest("draftNarrative", { session_id: sessionId }));
+    return decode("draftNarrative", shapes.draftNarrative, await conn.sendRequest("draftNarrative", { session_id: sessionId } satisfies shapes.DraftNarrativeParams));
   }
 
   async proposeSOP(investigationId: string, force?: boolean): Promise<SOPCandidate> {
     const conn = await this.ensureConnection();
     const sessionId = await this.ensureSession(conn, investigationId);
-    return decode("proposeSOP", shapes.proposeSOP, await conn.sendRequest("proposeSOP", { session_id: sessionId, force: force || undefined }));
+    return decode("proposeSOP", shapes.proposeSOP, await conn.sendRequest("proposeSOP", { session_id: sessionId, force: force || undefined } satisfies shapes.ProposeSOPParams));
   }
 
   dispose(): void {
@@ -432,7 +433,7 @@ export class SidecarTransport implements AgentTransport {
     this.handshaking = connection;
 
     // The token handoff (§5): the loop asks, the auth session answers.
-    connection.onRequest("getToken", async (params: { kind?: string; force?: boolean }) => {
+    connection.onRequest("getToken", async (params: Partial<shapes.GetTokenParams> | undefined): Promise<shapes.GetTokenResult> => {
       const kind: TokenKind = params?.kind === "human" ? "human" : "delegate";
       const token = await this.deps.getToken(kind, params?.force ?? false);
       return { token };
@@ -457,7 +458,7 @@ export class SidecarTransport implements AgentTransport {
       anthropic_api_key: (await this.deps.apiKey()) ?? "",
       max_tool_result_kb: this.deps.maxToolResultKB(),
       context_window_tokens: this.deps.contextWindowTokens(),
-    }));
+    } satisfies shapes.InitializeParams));
     if (init.protocol_version !== PROTOCOL_VERSION) {
       throw new Error(`sidecar protocol v${init.protocol_version} unsupported (this workbench speaks v${PROTOCOL_VERSION}) — align versions`);
     }
@@ -488,7 +489,7 @@ export class SidecarTransport implements AgentTransport {
   }
 
   private async createSession(conn: MessageConnection, investigationId: string): Promise<string> {
-    const res = decode("createSession", shapes.createSession, await conn.sendRequest("createSession", { investigation_id: investigationId }));
+    const res = decode("createSession", shapes.createSession, await conn.sendRequest("createSession", { investigation_id: investigationId } satisfies shapes.CreateSessionParams));
     if (!res.session_id) {
       throw new Error("sidecar returned no session id");
     }

@@ -2,8 +2,8 @@
 // (02 §2.8), and where an entity appears across investigations (binding §6.1).
 // Answers are decoded through the wire shapes (adr/0244).
 import type { BackendHttp } from "./http";
-import * as shapes from "../wire/backendShapes";
-import type { RawAccountIdentity, RawEvidence, RawEventView, RawHostIdentity, RawPersonIdentity } from "../wire/backendShapes";
+import * as shapes from "../wire/backendShapes.generated";
+import type { EvidenceAccountIdentity as RawAccountIdentity, EvidenceView as RawEvidence, View as RawEventView, EvidenceIdentity as RawHostIdentity, EvidencePersonIdentity as RawPersonIdentity } from "../wire/backendShapes.generated";
 import type { Decoded } from "../wire/decode";
 import type { AccountIdentity, Appearance, CutEdge, CapabilityCall, EventClassKeys, EventGroup, EventRow, EventView, EvidenceDoc, HostIdentity, IdentityEdge, IdentityViews, PersonIdentity } from "../viewTypes";
 import { identityKindOf } from "../identityKinds";
@@ -95,9 +95,9 @@ export type { IdentityOther };
 export type OwnerPerson = { personRef: string } | { personHint: string };
 
 /** The assert body for the other end; a bare string is a host's, as otherHostBody reads it. */
-export function otherBody(other: IdentityOther | string, note?: string): Record<string, string> {
+export function otherBody(other: IdentityOther | string, note?: string): shapes.IdentityAssertBody {
   if (typeof other === "string") return otherHostBody(other, note);
-  const body: Record<string, string> = "ref" in other ? { other_ref: other.ref.trim() }
+  const body: shapes.IdentityAssertBody = "ref" in other ? { other_ref: other.ref.trim() }
     : "hostname" in other ? { other_hostname: other.hostname.trim() } : { other_hint: other.hint.trim() };
   if (note && note.trim()) body.note = note.trim();
   return body;
@@ -108,9 +108,9 @@ export function otherBody(other: IdentityOther | string, note?: string): Record<
  * (`reckon-host--…`) goes as `other_ref`, anything else as a hostname the server
  * mints as the seed does (a hostname may itself hold "--", as punycode does).
  */
-export function otherHostBody(other: string, note?: string): Record<string, string> {
+export function otherHostBody(other: string, note?: string): shapes.IdentityAssertBody {
   const v = other.trim();
-  const body: Record<string, string> = v.toLowerCase().startsWith("reckon-host--") ? { other_ref: v } : { other_hostname: v };
+  const body: shapes.IdentityAssertBody = v.toLowerCase().startsWith("reckon-host--") ? { other_ref: v } : { other_hostname: v };
   if (note && note.trim()) body.note = note.trim();
   return body;
 }
@@ -140,6 +140,7 @@ function mapEvidence(r: RawEvidence): EvidenceDoc {
     recordedAt: r.recorded_at,
     sourceTool: r.source_tool,
   };
+  if (r.source_event_ids?.length) doc.sourceEventIds = r.source_event_ids;
   if (r.view) doc.view = mapView(r.view);
   if (r.related) {
     doc.related = {
@@ -296,7 +297,7 @@ export class EvidenceClient {
    * after it, or null when it could not be read.
    */
   async assertOwner(accountRef: string, person: OwnerPerson, note?: string): Promise<IdentityViews | null> {
-    const body: Record<string, string> = "personRef" in person ? { person_ref: person.personRef.trim() } : { person_hint: person.personHint.trim() };
+    const body: shapes.IdentityOwnerBody = "personRef" in person ? { person_ref: person.personRef.trim() } : { person_hint: person.personHint.trim() };
     if (note && note.trim()) body.note = note.trim();
     const r = await this.http.post(`/api/entities/${encodeURIComponent(accountRef)}/owner`, body, shapes.identityAct);
     return actViews(r, accountRef);
@@ -308,7 +309,7 @@ export class EvidenceClient {
    * ends, or null when it could not be read.
    */
   async withdrawIdentity(edgeId: string, ref: string, note?: string): Promise<IdentityViews | null> {
-    const body: Record<string, string> = { ref };
+    const body: shapes.IdentityWithdrawBody = { ref };
     if (note && note.trim()) body.note = note.trim();
     const r = await this.http.post(`/api/identity/${encodeURIComponent(edgeId)}/withdraw`, body, shapes.identityAct);
     return actViews(r, ref);

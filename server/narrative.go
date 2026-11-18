@@ -10,51 +10,12 @@ import (
 	"errors"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/sd-strax/reckon/aggregate"
 	"github.com/sd-strax/reckon/authz"
 )
-
-// NarrativeAuthorView is who recorded a revision.
-type NarrativeAuthorView struct {
-	Kind string `json:"kind"` // HUMAN | AI_DELEGATED
-	Name string `json:"name,omitempty"`
-	// Model is the drafting model, on an AI_DELEGATED revision.
-	Model string `json:"model,omitempty"`
-}
-
-// NarrativeRevisionView is one revision of the history, newest first.
-type NarrativeRevisionView struct {
-	Revision   int                 `json:"revision"`
-	SequenceNo int64               `json:"sequence_no"`
-	OccurredAt time.Time           `json:"occurred_at"`
-	Author     NarrativeAuthorView `json:"author"`
-	Body       string              `json:"body"`
-}
-
-// NarrativeView is the current narrative: its body, who recorded this
-// revision, who drafted the first one, the event it was written at (so a
-// reader can say how far the record has moved since), and the history.
-type NarrativeView struct {
-	InvestigationRef string                  `json:"investigation_ref"`
-	Revision         int                     `json:"revision"`
-	Body             string                  `json:"body"`
-	SequenceNo       int64                   `json:"sequence_no"`
-	OccurredAt       time.Time               `json:"occurred_at"`
-	Author           NarrativeAuthorView     `json:"author"`
-	DraftedBy        NarrativeAuthorView     `json:"drafted_by"`
-	Revisions        []NarrativeRevisionView `json:"revisions"`
-}
-
-// NarrativeRequestBody appends a revision. Model is set by a delegate's
-// draft only; the aggregate refuses it on a human actor.
-type NarrativeRequestBody struct {
-	Body  string `json:"body"`
-	Model string `json:"model,omitempty"`
-}
 
 func narrativeAuthorView(a aggregate.NarrativeAuthor) NarrativeAuthorView {
 	name := a.Name
