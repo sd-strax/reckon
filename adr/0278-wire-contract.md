@@ -48,14 +48,19 @@ TypeScript decoders. Drift was still possible:
     backend and the sidecar alike;
   - a field without `omitempty` is required; with `omitempty` it may be absent
     or null; a pointer without `omitempty` is a required key whose value may be
-    null;
+    null; `omitzero` is read as `omitempty`, since the field is left out when
+    it is zero;
+  - a `time.Time` is an RFC 3339 string; any other type with its own
+    `MarshalJSON` or `MarshalText` is refused unless the generator lists it;
   - null and empty mean the same for a list or a map;
   - an `int64` is a count or a sequence below 2^53 and stays a JSON number; an
     identifier is a string; `uint64` is refused;
   - `json.RawMessage`, `any` and `map[string]any` are opaque; a field the
     workbench reads into needs a named Go type;
   - a named string type whose package lists its values is strict: the
-    TypeScript is a union and its decoder refuses any other word;
+    TypeScript is a union and its decoder refuses any other word. It lists
+    them through a `WireValues() []string` method, and a zero sample writes
+    the first word for a required field of that type;
   - a generated decoder reads every field the Go type sends.
 
 ## Alternatives rejected
