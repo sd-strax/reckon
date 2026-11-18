@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { anything, bool, decode, DecodeError, lazy, list, namedButAbsent, nullable, num, object, oneOf, optional, record, recordOf, str, type Decoder } from "./decode";
-import * as backend from "./backendShapes";
+import * as backend from "./backendShapes.generated";
 
 const shape = object({ title: str, n: optional(num), tags: list(str), nested: optional(object({ ok: bool })) });
 

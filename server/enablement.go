@@ -34,14 +34,61 @@ type EnablementAdapterView struct {
 	Class    string `json:"class"`
 	Enabled  bool   `json:"enabled"`
 	Scenario string `json:"scenario,omitempty"`
-	// ConfigSchema is the 11 §4.3 JSON-schema-shaped form source for this
-	// class. Only the fixture class has one here: a plugin's describe handshake
-	// carries its own schema, which this view does not read yet.
-	ConfigSchema map[string]any `json:"config_schema,omitempty"`
+	// ConfigSchema is the form source for this class: the parts of its 11 §4.3
+	// JSON-schema-shaped config descriptor the workbench's form reads. Only
+	// the fixture class has one here: a plugin's describe handshake carries
+	// its own schema, which this view does not read yet.
+	ConfigSchema *ConfigSchemaView `json:"config_schema,omitempty"`
 	// Supportable is true only for the fixture class. Plugin classes
 	// (MCP/NATIVE_API/CUSTOM/SOAR_PLAYBOOK) run under the adapter host, but this
 	// form does not enable them, so it offers no enable affordance.
 	Supportable bool `json:"supportable"`
+}
+
+// ConfigSchemaView is what an adapter's config form is built from: each
+// field's JSON Schema property, and the fields that are required.
+type ConfigSchemaView struct {
+	Properties map[string]ConfigPropertyView `json:"properties,omitempty"`
+	Required   []string                      `json:"required,omitempty"`
+}
+
+// ConfigPropertyView is one field of the form: its JSON Schema type, the
+// prompt text, and whether the value must be a secret reference (x-secret).
+type ConfigPropertyView struct {
+	Type        string `json:"type,omitempty"`
+	Description string `json:"description,omitempty"`
+	Secret      bool   `json:"x-secret,omitempty"`
+}
+
+// configSchemaView reads the form's parts out of a JSON-schema-shaped config
+// descriptor, or nil when there is none. A key of another type than JSON
+// Schema gives it is left out.
+func configSchemaView(schema map[string]any) *ConfigSchemaView {
+	if schema == nil {
+		return nil
+	}
+	view := &ConfigSchemaView{}
+	if props, ok := schema["properties"].(map[string]any); ok {
+		view.Properties = make(map[string]ConfigPropertyView, len(props))
+		for name, p := range props {
+			prop, _ := p.(map[string]any)
+			typ, _ := prop["type"].(string)
+			desc, _ := prop["description"].(string)
+			secret, _ := prop["x-secret"].(bool)
+			view.Properties[name] = ConfigPropertyView{Type: typ, Description: desc, Secret: secret}
+		}
+	}
+	switch req := schema["required"].(type) {
+	case []string:
+		view.Required = req
+	case []any:
+		for _, r := range req {
+			if name, ok := r.(string); ok {
+				view.Required = append(view.Required, name)
+			}
+		}
+	}
+	return view
 }
 
 // EnablementVerbView maps a verb to the adapter instances bound to serve it —
@@ -93,7 +140,7 @@ func buildEnablementView(path string, tc capability.TenantConfig) EnablementResp
 			Class:        string(spec.Class),
 			Enabled:      spec.Enabled,
 			Scenario:     spec.Scenario,
-			ConfigSchema: capability.AdapterConfigSchema(spec.Class),
+			ConfigSchema: configSchemaView(capability.AdapterConfigSchema(spec.Class)),
 			Supportable:  supportable[name],
 		})
 	}

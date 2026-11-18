@@ -165,9 +165,7 @@ func (b *Backend) commsSnooze(w http.ResponseWriter, r *http.Request, threadID u
 	if !b.commsConfigured(w) {
 		return
 	}
-	var body struct {
-		Hours int `json:"hours"`
-	}
+	var body CommsSnoozeBody
 	if !decodeBody(w, r, &body, maxBodyBytes) {
 		return
 	}
@@ -177,6 +175,12 @@ func (b *Backend) commsSnooze(w http.ResponseWriter, r *http.Request, threadID u
 	b.commsAct(w, r, CommsSnooze, func(subject string, now time.Time) error {
 		return b.cfg.Comms.Snooze(r.Context(), threadID, subject, body.Hours, now)
 	})
+}
+
+// CommsSnoozeBody is POST /api/comms/{id}/snooze's body: how many hours to
+// push the follow-up clock, 24 when none is given.
+type CommsSnoozeBody struct {
+	Hours int `json:"hours"`
 }
 
 // commsConfigured answers 503 when there is no comms layer.

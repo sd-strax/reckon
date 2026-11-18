@@ -10,11 +10,13 @@
 //     field stays required;
 //   - a list or a map may be null, which reads as empty;
 //   - an int64 is a number, and uint, uint64 and uintptr are refused;
-//   - json.RawMessage, any and map[string]any are opaque;
+//   - a map[string]any is an object of opaque values, and json.RawMessage
+//     and any are opaque;
 //   - a named string type with a WireValues method is a union of its words,
 //     and its decoder refuses any other word;
-//   - a time.Time is an RFC 3339 string, and any other type with its own
-//     MarshalJSON or MarshalText is refused unless listed here;
+//   - a time.Time is an RFC 3339 string, and a uuid.UUID is a string in its
+//     canonical text form; any other type with its own MarshalJSON or
+//     MarshalText is refused unless listed here;
 //   - an embedded struct without a tag name is flattened into its parent.
 //
 // The output depends only on the types and the order they are registered in.
@@ -32,6 +34,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/google/uuid"
 )
 
 // Generator collects the types one TypeScript file holds.
@@ -39,6 +43,7 @@ type Generator struct {
 	source string
 	roots  []root
 	consts []constant
+	names  map[reflect.Type]string
 }
 
 type root struct {
@@ -55,7 +60,14 @@ type constant struct {
 // New starts a file for the wire types of the Go package source, which the
 // header names.
 func New(source string) *Generator {
-	return &Generator{source: source}
+	return &Generator{source: source, names: map[reflect.Type]string{}}
+}
+
+// Name gives t the TypeScript type name ts, in place of its Go name. Its
+// decoder, unless t is registered with a name of its own, is ts in camel
+// case. It is for two Go types whose names give one TypeScript name.
+func (g *Generator) Name(t reflect.Type, ts string) {
+	g.names[t] = ts
 }
 
 // Decoder registers a type the workbench receives: a result, a response or a
@@ -68,6 +80,17 @@ func (g *Generator) Decoder(name string, t reflect.Type) {
 // gets a type and no decoder.
 func (g *Generator) Type(t reflect.Type) {
 	g.roots = append(g.roots, root{typ: t})
+}
+
+// Decoded lists the types registered with Decoder, in registration order.
+func (g *Generator) Decoded() []reflect.Type {
+	var out []reflect.Type
+	for _, r := range g.roots {
+		if r.decoded {
+			out = append(out, r.typ)
+		}
+	}
+	return out
 }
 
 // Const registers a number constant, such as a protocol version.
@@ -88,6 +111,7 @@ func (g *Generator) Generate() ([]byte, error) {
 		decNames:  map[string]reflect.Type{},
 		used:      map[string]bool{},
 		refusedAt: map[string]bool{},
+		names:     g.names,
 	}
 	// Every root's name is known before any type is marked, so the order of
 	// registration does not change what is written.
@@ -157,8 +181,9 @@ var (
 
 // listed are the types with their own marshaling whose JSON is known.
 var listed = map[reflect.Type]expr{
-	timeType: {ts: "string", dec: "str"}, // RFC 3339
-	rawType:  {ts: "unknown", dec: "anything"},
+	timeType:                     {ts: "string", dec: "str"}, // RFC 3339
+	rawType:                      {ts: "unknown", dec: "anything"},
+	reflect.TypeFor[uuid.UUID](): {ts: "string", dec: "str"}, // its canonical text form
 }
 
 // expr is a type's TypeScript and decoder. When null is set the value may also
@@ -175,8 +200,11 @@ type decl struct {
 	tsName  string
 	decName string // empty when no decoder is written
 	export  bool   // the decoder is exported
-	done    bool
-	text    string
+	// exportAs is the name a decoder is exported under when that name is a
+	// reserved word, which a const cannot have.
+	exportAs string
+	done     bool
+	text     string
 }
 
 type writer struct {
@@ -189,6 +217,7 @@ type writer struct {
 	used      map[string]bool
 	errs      []error
 	refusedAt map[string]bool
+	names     map[reflect.Type]string
 }
 
 func (w *writer) refuse(at, why string) {
@@ -298,16 +327,27 @@ func (w *writer) declare(t reflect.Type, at string) *decl {
 		w.refuse(at, fmt.Sprintf("%s is a generic type; give the instance a name of its own", t))
 		return nil
 	}
-	d := &decl{typ: t, tsName: pascal(t.Name())}
+	tsName := pascal(t.Name())
+	if name, ok := w.names[t]; ok {
+		tsName = name
+	}
+	d := &decl{typ: t, tsName: tsName}
 	if other, ok := w.tsNames[d.tsName]; ok && other != t {
 		w.refuse(at, fmt.Sprintf("%s and %s both give the TypeScript type %s", other, t, d.tsName))
 		return nil
 	}
 	w.tsNames[d.tsName] = t
 	if w.decoded[t] {
-		d.decName = camel(t.Name())
+		d.decName = camel(tsName)
 		if name := w.rootName[t]; name != "" {
-			d.decName, d.export = name, true
+			d.export = true
+			if reserved[name] {
+				// The const keeps the type's name and is exported under the
+				// registered one.
+				d.exportAs = name
+			} else {
+				d.decName = name
+			}
 		}
 		if reserved[d.decName] {
 			w.refuse(at, fmt.Sprintf("the decoder name %s is a reserved word in TypeScript", d.decName))
@@ -380,7 +420,13 @@ func (w *writer) write(d *decl, at string) {
 		if d.export {
 			keyword = "export const"
 		}
+		if d.exportAs != "" {
+			keyword = "const"
+		}
 		fmt.Fprintf(&b, "%s %s: Decoder<%s> = %s;\n", keyword, d.decName, d.tsName, dec)
+		if d.exportAs != "" {
+			fmt.Fprintf(&b, "export { %s as %s };\n", d.decName, d.exportAs)
+		}
 	}
 	d.text = b.String()
 	d.done = true
@@ -538,16 +584,11 @@ func (w *writer) value(t reflect.Type, at string, withDec, top bool) expr {
 	return expr{}
 }
 
-// mapValue returns a map's TypeScript and decoder. A map[string]any is
-// opaque; a map keyed by a word type checks its keys.
+// mapValue returns a map's TypeScript and decoder: an object, whose keys are
+// checked when the map is keyed by a word type. A map[string]any is an object
+// of opaque values.
 func (w *writer) mapValue(t reflect.Type, at string, withDec bool) expr {
 	key := t.Key()
-	if key.Kind() == reflect.String && t.Elem().Kind() == reflect.Interface && t.Elem().NumMethod() == 0 {
-		if withDec {
-			w.use("anything")
-		}
-		return expr{ts: "unknown", dec: "anything"}
-	}
 	if w.marshals(key, at+" (key)") {
 		return expr{}
 	}

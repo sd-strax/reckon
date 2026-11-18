@@ -8,7 +8,7 @@ import * as path from "path";
 import { describe, expect, it } from "vitest";
 import { PROTOCOL_VERSION } from "../agentTransport";
 import { SUPPORTED_API_VERSIONS } from "../backend";
-import * as backend from "./backendShapes";
+import * as backend from "./backendShapes.generated";
 import { decode, namedButAbsent, type Decoder } from "./decode";
 import * as sidecar from "./sidecarShapes.generated";
 

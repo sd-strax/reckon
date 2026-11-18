@@ -97,12 +97,26 @@ func bearerToken(r *http.Request) (string, bool) {
 	return token, true
 }
 
+// ErrorBody is the body of a refused request: what was wrong. It has the
+// JSON of the server's ErrorResponse, which a server test holds it to.
+type ErrorBody struct {
+	Error string `json:"error"`
+}
+
+// ForbiddenBody is a 403's body: the roles of which the caller holds none.
+// It has the JSON of the server's ForbiddenResponse.
+type ForbiddenBody struct {
+	Error         string   `json:"error"`
+	RequiredAny   bool     `json:"required_any"`
+	RequiredRoles []string `json:"required_roles"`
+}
+
 // writeAuthError renders a JSON error body matching the auth scheme
 // downstream callers expect. Keeps the contract simple: { error: string }.
 func writeAuthError(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]any{"error": msg})
+	_ = json.NewEncoder(w).Encode(ErrorBody{Error: msg})
 }
 
 // writeAuthErrorWithRoles surfaces the missing-role list, so the missing
@@ -110,9 +124,5 @@ func writeAuthError(w http.ResponseWriter, status int, msg string) {
 func writeAuthErrorWithRoles(w http.ResponseWriter, status int, msg string, requiredRoles []string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"error":          msg,
-		"required_roles": requiredRoles,
-		"required_any":   true,
-	})
+	_ = json.NewEncoder(w).Encode(ForbiddenBody{Error: msg, RequiredAny: true, RequiredRoles: requiredRoles})
 }

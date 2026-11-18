@@ -1,6 +1,6 @@
 # 0278 — The Go type is the one definition of every wire shape; TypeScript is generated from it and `make ci` checks both halves
 
-Issue: #278 · PRs: #416 (step 1), #417 (step 2), #418 (step 3), #419 (step 4) · Status: accepted
+Issue: #278 · PRs: #416 (step 1), #417 (step 2), #418 (step 3), #419 (step 4), #420 (step 5) · Status: accepted
 
 ## Context
 
@@ -55,8 +55,8 @@ TypeScript decoders. Drift was still possible:
   - null and empty mean the same for a list or a map;
   - an `int64` is a count or a sequence below 2^53 and stays a JSON number; an
     identifier is a string; `uint64` is refused;
-  - `json.RawMessage`, `any` and `map[string]any` are opaque; a field the
-    workbench reads into needs a named Go type;
+  - a `map[string]any` is an object of opaque values; `json.RawMessage` and
+    `any` are opaque; a field the workbench reads into needs a named Go type;
   - a named string type whose package lists its values is strict: the
     TypeScript is a union and its decoder refuses any other word. It lists
     them through a `WireValues() []string` method, and a zero sample writes

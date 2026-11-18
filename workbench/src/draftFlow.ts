@@ -6,20 +6,15 @@ import * as vscode from "vscode";
 import { BackendRequestError, InvestigationDetail, existingInvestigation } from "./backend";
 import type { DocumentHost } from "./documentHost";
 import type { KnownAccount, SeedEntityKind } from "./protocol";
+import * as shapes from "./wire/backendShapes.generated";
 import { errText, panelTitle } from "./util";
 
 /**
  * The accounts a 422 on an account seed lists (adr/0324): the persisted
- * accounts the record holds under the name, well-formed entries only.
+ * accounts the record holds under the name (server.UnknownAccountResponse).
  */
-export function knownAccountsOf(body: Record<string, unknown> | undefined): KnownAccount[] | undefined {
-  if (!body || !Array.isArray(body.known_accounts)) return undefined;
-  return body.known_accounts.flatMap((a): KnownAccount[] => {
-    const r = a as Record<string, unknown>;
-    return r && typeof r.ref === "string" && typeof r.account_login === "string"
-      ? [{ ref: r.ref, accountType: typeof r.account_type === "string" ? r.account_type : "", accountLogin: r.account_login }]
-      : [];
-  });
+export function knownAccountsOf(err: BackendRequestError): KnownAccount[] | undefined {
+  return err.bodyAs(shapes.unknownAccount)?.known_accounts.map((a) => ({ ref: a.ref, accountType: a.account_type, accountLogin: a.account_login }));
 }
 
 /** A not-yet-seeded draft's synthetic key: no aggregate id until the seed persists. */
@@ -128,10 +123,11 @@ export class DraftFlow {
           // adr/0324): say so, list the accounts the record holds under the
           // name, and let the analyst start anyway. A person seed the record
           // does not know is a 404 or a 409, never this: no start anyway.
-          const unknownEntity = err instanceof BackendRequestError && err.status === 422 && err.body?.unknown_entity === true;
-          const said = err instanceof BackendRequestError && typeof err.body?.error === "string" ? err.body.error : undefined;
+          const refused = err instanceof BackendRequestError ? err : undefined;
+          const unknownEntity = refused?.status === 422 && refused.bodyAs(shapes.unknownEntity)?.unknown_entity === true;
+          const said = refused?.bodyAs(shapes.error)?.error;
           const message = (unknownEntity || seed.entityKind === "person") && said ? said : errText(err);
-          const knownAccounts = unknownEntity ? knownAccountsOf(err.body) : undefined;
+          const knownAccounts = unknownEntity && refused ? knownAccountsOf(refused) : undefined;
           void this.host.post(panel, { type: "draft.error", message, unknownEntity, ...(knownAccounts?.length ? { knownAccounts } : {}) });
         },
       );

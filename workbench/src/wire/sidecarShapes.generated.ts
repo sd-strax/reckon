@@ -3,7 +3,6 @@
 import { anything, bool, list, num, object, oneOf, optional, str, type Decoder } from "./decode";
 
 export const PROTOCOL_VERSION = 1;
-export const API_VERSION = 1;
 
 export interface InitializeResult {
   protocol_version: number;

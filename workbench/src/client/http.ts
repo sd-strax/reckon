@@ -3,6 +3,7 @@
 // authenticated call passes (adr/0244), how a refusal is reported, and how an
 // answer is read: through a wire shape, never cast. The domain clients
 // (./investigations, ./actions, …) are built on this and hold nothing of it.
+import * as shapes from "../wire/backendShapes.generated";
 import { decode, DecodeError, type Decoder } from "../wire/decode";
 
 /** A refused request, with its status and the server's JSON body when it sent one. */
@@ -10,12 +11,31 @@ export class BackendRequestError extends Error {
   constructor(message: string, readonly status: number, readonly body?: Record<string, unknown>) {
     super(message);
   }
+
+  /**
+   * The body read through one of the backend's error bodies, or undefined
+   * when there is none or it is another body.
+   */
+  bodyAs<T>(shape: Decoder<T>): T | undefined {
+    return readAs(shape, this.body);
+  }
+}
+
+/** value read through shape, or undefined when it is not that shape. */
+function readAs<T>(shape: Decoder<T>, value: unknown): T | undefined {
+  if (value === undefined) return undefined;
+  try {
+    return shape(value, "");
+  } catch (err) {
+    if (err instanceof DecodeError) return undefined;
+    throw err;
+  }
 }
 
 /** The investigation a refused create points at — a case already investigated (#158) — or undefined. */
 export function existingInvestigation(err: unknown): string | undefined {
-  if (err instanceof BackendRequestError && err.status === 409 && typeof err.body?.investigation_id === "string") {
-    return err.body.investigation_id;
+  if (err instanceof BackendRequestError && err.status === 409) {
+    return err.bodyAs(shapes.investigationExists)?.investigation_id;
   }
   return undefined;
 }
@@ -94,7 +114,8 @@ export class BackendHttp {
       let parsed: Record<string, unknown> | undefined;
       try {
         parsed = (await res.json()) as Record<string, unknown>;
-        detail = typeof parsed.error === "string" && parsed.error ? `: ${parsed.error}` : "";
+        const said = readAs(shapes.error, parsed)?.error;
+        detail = said ? `: ${said}` : "";
       } catch {
         // non-JSON error body — the status alone will have to do
       }

@@ -43,7 +43,7 @@ describe("CaseDocuments: a change of identity", () => {
     const { docs } = started(() => new Promise((_, r) => { fail = r; }));
 
     docs.closeAll();
-    fail(new BackendRequestError("exists", 409, { investigation_id: "inv-9" }));
+    fail(new BackendRequestError("exists", 409, { error: "exists", investigation_id: "inv-9" }));
     await settle();
 
     expect(vscode.commands.executeCommand).not.toHaveBeenCalled();

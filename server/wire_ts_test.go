@@ -2,21 +2,31 @@ package server
 
 import (
 	"reflect"
-	"slices"
-	"strings"
-	"testing"
 
+	"github.com/sd-strax/reckon/comms"
+	"github.com/sd-strax/reckon/dependency"
+	"github.com/sd-strax/reckon/internal/apiversion"
 	"github.com/sd-strax/reckon/internal/wirets"
 	"github.com/sd-strax/reckon/knowledge"
 )
 
-// TestWireTS_BackendTypes runs the generator over every backend response the
-// workbench decodes, and discards the output (adr/0278). The backend's
-// TypeScript is generated in a later step. Until then the generator's
-// refusals of these types are listed here, so a new one fails this test, and
-// so does one that is fixed and left on the list.
-func TestWireTS_BackendTypes(t *testing.T) {
+const backendShapes = "../workbench/src/wire/backendShapes.generated.ts"
+
+// backendGenerator registers every shape on the workbench ↔ backend
+// connection (adr/0278). A decoder's name is its sample's name, which the
+// workbench's fixture test holds one to one. TestWireFixtures writes the file.
+func backendGenerator() *wirets.Generator {
 	g := wirets.New("server")
+	g.Const("API_VERSION", apiversion.Current)
+
+	// Two packages each call their status word Status, and the server's
+	// status response already takes the decoder name status.
+	g.Name(reflect.TypeFor[comms.Status](), "CommsStatus")
+	g.Name(reflect.TypeFor[dependency.Status](), "DependencyStatus")
+	// The section read is registered as sopSection; a section alone is an item.
+	g.Name(reflect.TypeFor[knowledge.SOPSection](), "SOPSectionItem")
+
+	// What the backend sends: every response the workbench reads.
 	g.Decoder("status", reflect.TypeFor[StatusResponse]())
 	g.Decoder("authConfig", reflect.TypeFor[AuthConfigResponse]())
 	g.Decoder("me", reflect.TypeFor[MeResponse]())
@@ -62,26 +72,47 @@ func TestWireTS_BackendTypes(t *testing.T) {
 	g.Decoder("sopImported", reflect.TypeFor[SOPMarkdownImportResponse]())
 	g.Decoder("cases", reflect.TypeFor[CaseListResponse]())
 	g.Decoder("case", reflect.TypeFor[CaseView]())
-	_, err := g.Generate()
-	var got []string
-	if err != nil {
-		got = strings.Split(err.Error(), "\n")
-	}
-	want := []string{
-		"server.CommsThreadsResponse.threads[].status: server.StatusResponse and comms.Status both give the decoder status (adr/0278)",
-		"server.DependenciesResponse.dependencies[].status: comms.Status and dependency.Status both give the TypeScript type Status (adr/0278)",
-		"server.SOPListResponse.sops[].id: uuid.UUID has its own MarshalText, so its JSON is not what its fields say; list it in internal/wirets or drop the method (adr/0278)",
-		"server.SOPListResponse.sops[].tenant_id: uuid.UUID has its own MarshalText, so its JSON is not what its fields say; list it in internal/wirets or drop the method (adr/0278)",
-		"agentapi.RecallResult.results[].sop_id: uuid.UUID has its own MarshalText, so its JSON is not what its fields say; list it in internal/wirets or drop the method (adr/0278)",
-		"knowledge.SOP.id: uuid.UUID has its own MarshalText, so its JSON is not what its fields say; list it in internal/wirets or drop the method (adr/0278)",
-		"knowledge.SOP.tenant_id: uuid.UUID has its own MarshalText, so its JSON is not what its fields say; list it in internal/wirets or drop the method (adr/0278)",
-		"knowledge.SOPRevisions.sop_id: uuid.UUID has its own MarshalText, so its JSON is not what its fields say; list it in internal/wirets or drop the method (adr/0278)",
-		"agentapi.SOPOutline.sop_id: uuid.UUID has its own MarshalText, so its JSON is not what its fields say; list it in internal/wirets or drop the method (adr/0278)",
-		"agentapi.SOPSectionRead: agentapi.SOPSection and agentapi.SOPSectionRead both give the decoder sopSection (adr/0278)",
-		"server.CaseListResponse.cases[]: the decoder name case is a reserved word in TypeScript (adr/0278)",
-		"server.CaseView: the decoder name case is a reserved word in TypeScript (adr/0278)",
-	}
-	if !slices.Equal(got, want) {
-		t.Errorf("the generator's refusals of the backend types changed:\n got: %q\nwant: %q", got, want)
-	}
+
+	// The error bodies, which the workbench reads by key, and the
+	// acknowledgements of the writes it makes, whose answer it reads only as
+	// success.
+	g.Decoder("error", reflect.TypeFor[ErrorResponse]())
+	g.Decoder("internalError", reflect.TypeFor[InternalErrorResponse]())
+	g.Decoder("forbidden", reflect.TypeFor[ForbiddenResponse]())
+	g.Decoder("unknownEntity", reflect.TypeFor[UnknownEntityResponse]())
+	g.Decoder("unknownAccount", reflect.TypeFor[UnknownAccountResponse]())
+	g.Decoder("investigationExists", reflect.TypeFor[InvestigationExistsResponse]())
+	g.Decoder("personCandidates", reflect.TypeFor[PersonCandidatesResponse]())
+	g.Decoder("accountCandidates", reflect.TypeFor[AccountCandidatesResponse]())
+	g.Decoder("superseded", reflect.TypeFor[SupersedeResponse]())
+	g.Decoder("commsAct", reflect.TypeFor[CommsActResponse]())
+	g.Decoder("enablementChanged", reflect.TypeFor[ApplyEnablementResponse]())
+
+	// What the workbench sends: the body of every call it makes.
+	g.Type(reflect.TypeFor[RequestActionBody]())
+	g.Type(reflect.TypeFor[ApproveActionBody]())
+	g.Type(reflect.TypeFor[RejectActionBody]())
+	g.Type(reflect.TypeFor[EditActionBody]())
+	g.Type(reflect.TypeFor[RerequestBody]())
+	g.Type(reflect.TypeFor[ResolveOutcomeBody]())
+	g.Type(reflect.TypeFor[CommsSnoozeBody]())
+	g.Type(reflect.TypeFor[CreateDependencyBody]())
+	g.Type(reflect.TypeFor[AttachDependencyBody]())
+	g.Type(reflect.TypeFor[ResolveDependencyBody]())
+	g.Type(reflect.TypeFor[ApplyEnablementBody]())
+	g.Type(reflect.TypeFor[CapabilityInvokeBody]())
+	g.Type(reflect.TypeFor[CreateInvestigationRequest]())
+	g.Type(reflect.TypeFor[RenameRequestBody]())
+	g.Type(reflect.TypeFor[LifecycleRequestBody]())
+	g.Type(reflect.TypeFor[CaseNoteRequest]())
+	g.Type(reflect.TypeFor[NarrativeRequestBody]())
+	g.Type(reflect.TypeFor[RecordInterpretationBody]())
+	g.Type(reflect.TypeFor[SupersedeBody]())
+	g.Type(reflect.TypeFor[IdentityAssertBody]())
+	g.Type(reflect.TypeFor[IdentityOwnerBody]())
+	g.Type(reflect.TypeFor[IdentityWithdrawBody]())
+	g.Type(reflect.TypeFor[knowledge.RecallRequest]())
+	g.Type(reflect.TypeFor[knowledge.SimilarRequest]())
+	g.Type(reflect.TypeFor[SOPMarkdownBody]())
+	return g
 }
