@@ -10,12 +10,17 @@ action_adapters:
     enabled: true
     scenario: lateral-movement-via-rdp
 
+# Each typed binding declares how a target's identifier is derived from the
+# stored entity (adr/0406). A domain account's stored login is already
+# domain-qualified (CONTOSO\jdoe).
 action_bindings:
   host.isolate:
     - action_type: host.isolate
       adapter: fixture_write
       operation: dispatch
       priority: 100
+      identifier:
+        reckon-host: "${target.entity.hostname}"
       params:
         device_id: "${target.resolved_identifier}"
 
@@ -26,6 +31,8 @@ action_bindings:
       adapter: fixture_write
       operation: dispatch
       priority: 100
+      identifier:
+        reckon-host: "${target.entity.hostname}"
       params:
         device_id: "${target.resolved_identifier}"
 
@@ -34,6 +41,8 @@ action_bindings:
       adapter: fixture_write
       operation: dispatch
       priority: 100
+      identifier:
+        user-account: "${target.entity.account_login}"
       params:
         account: "${target.resolved_identifier}"
 
@@ -44,6 +53,8 @@ action_bindings:
       adapter: fixture_write
       operation: dispatch
       priority: 100
+      identifier:
+        user-account: "${target.entity.account_login}"
       params:
         account: "${target.resolved_identifier}"
 
@@ -55,6 +66,12 @@ action_bindings:
       adapter: fixture_write
       operation: dispatch
       priority: 100
+      identifier:
+        ipv4-addr: "${target.entity.value}"
+        ipv6-addr: "${target.entity.value}"
+        domain-name: "${target.entity.value}"
+        url: "${target.entity.value}"
+        file: "${target.entity.hashes.SHA-256}"
       params:
         indicator: "${target.resolved_identifier}"
 
@@ -65,6 +82,12 @@ action_bindings:
       adapter: fixture_write
       operation: dispatch
       priority: 100
+      identifier:
+        ipv4-addr: "${target.entity.value}"
+        ipv6-addr: "${target.entity.value}"
+        domain-name: "${target.entity.value}"
+        url: "${target.entity.value}"
+        file: "${target.entity.hashes.SHA-256}"
       params:
         indicator: "${target.resolved_identifier}"
 

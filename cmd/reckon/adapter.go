@@ -263,6 +263,12 @@ func validateDescribe(desc *adapterplugin.DescribeResult, rep *confReport) {
 		for _, p := range action.ValidateBindingParams(byType, actions) {
 			rep.fail("describe: " + p)
 		}
+		// A typed action's default binding declares its identifier rule, and
+		// a destination type's does not (adr/0406): config load refuses
+		// either mistake, so an adopted default must not carry one.
+		if err := action.ValidateActionBindings(byType, actions); err != nil {
+			rep.fail("describe: write binding: " + err.Error())
+		}
 	}
 	rep.pass(fmt.Sprintf("describe well-formed: %d verb(s), %d action type(s), %d operation(s)",
 		len(desc.Verbs), len(desc.ActionTypes), len(desc.Operations)))

@@ -70,6 +70,10 @@ type ActionCurrent struct {
 	// CreatedAt is when the action was requested: the ActionRequested event's
 	// time. The Response lens's timeline is ordered by it (adr/0361).
 	CreatedAt time.Time
+	// Binding is the write binding frozen at request time (adr/0406). The
+	// approval surface previews its adapter, and dispatch uses it and no
+	// other.
+	Binding FrozenBinding
 }
 
 // ActionCurrentProjector populates the action_current table — one row per
@@ -114,12 +118,14 @@ func (ActionCurrentProjector) Apply(ctx context.Context, tx *sql.Tx, evt Event) 
 				action_id, aggregate_id, tenant_id, action_type, tier, status,
 				is_reversal, reversal_of_ref, retry_of, reversibility, required_mode,
 				secondary_approver_pool, parameters, targets, evidence_refs, expires_at,
-				created_at, updated_at, last_event_sequence, requesting_interpretation_id
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $17, $18, $19)
+				created_at, updated_at, last_event_sequence, requesting_interpretation_id,
+				binding_adapter, binding_operation
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $17, $18, $19, $20, $21)
 			ON CONFLICT (action_id) DO NOTHING
 		`, p.ActionID, evt.AggregateID, evt.TenantID, p.ActionType, p.Tier, ActionStatusRequested,
 			p.IsReversal, nullUUID(p.ReversalOfRef), nullUUID(p.RetryOf), nullString(p.Reversibility), nullString(p.RequiredMode),
-			pool, params, targets, evidence, nullTime(p.ExpiresAt), evt.OccurredAt, evt.SequenceNo, nullUUID(p.RequestingInterpretationID))
+			pool, params, targets, evidence, nullTime(p.ExpiresAt), evt.OccurredAt, evt.SequenceNo, nullUUID(p.RequestingInterpretationID),
+			p.Binding.Adapter, p.Binding.Operation)
 		if err != nil {
 			return fmt.Errorf("insert action_current: %w", err)
 		}
@@ -208,10 +214,9 @@ func (ActionCurrentProjector) Apply(ctx context.Context, tx *sql.Tx, evt Event) 
 		}
 		status := resultStatus(p.FinalOutcome)
 		// Store the failure reason alongside the terminal status so the ledger
-		// can say WHY a FAILED action failed (08 §6c) — and converge adapter to
-		// the tool the dispatch ACTUALLY used when the resulted event carries it
-		// (the dispatched event recorded the planned selection; a live reload
-		// between the two could differ). Empty actual keeps the planned value.
+		// can say WHY a FAILED action failed (08 §6c). The resulted event's
+		// adapter is the frozen binding's (adr/0406), the one the dispatched
+		// event recorded; an empty one keeps the recorded value.
 		_, err := tx.ExecContext(ctx, `
 			UPDATE action_current
 			SET status = $2, error_detail = $3,
@@ -339,7 +344,8 @@ const actionCurrentColumns = `action_id, aggregate_id, action_type, tier, status
 	       primary_approver_ref, primary_approved_at, is_reversal, reversal_of_ref, retry_of,
 	       reversibility, reversed_by_ref, reversal_attempted_by_ref,
 	       required_mode, secondary_approver_pool, parameters, targets, evidence_refs,
-	       expires_at, adapter, error_detail, raw_response_ref, last_event_sequence, requesting_interpretation_id, edited_at, created_at`
+	       expires_at, adapter, error_detail, raw_response_ref, last_event_sequence, requesting_interpretation_id, edited_at, created_at,
+	       binding_adapter, binding_operation`
 
 // scanActionCurrent decodes one actionCurrentColumns row (sql.Row or sql.Rows).
 func scanActionCurrent(scan func(dest ...any) error) (ActionCurrent, error) {
@@ -352,7 +358,8 @@ func scanActionCurrent(scan func(dest ...any) error) (ActionCurrent, error) {
 		&mode, &approver, &primaryAt, &a.IsReversal, &reversalOf, &retryOf,
 		&reversibility, &reversedBy, &attemptedBy,
 		&requiredMode, &pool, &params, &targets, &evidence, &expiresAt,
-		&a.Adapter, &a.ErrorDetail, &a.RawResponseRef, &a.LastEventSequence, &requesting, &editedAt, &a.CreatedAt)
+		&a.Adapter, &a.ErrorDetail, &a.RawResponseRef, &a.LastEventSequence, &requesting, &editedAt, &a.CreatedAt,
+		&a.Binding.Adapter, &a.Binding.Operation)
 	if err != nil {
 		return ActionCurrent{}, err
 	}

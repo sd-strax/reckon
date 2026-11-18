@@ -25,14 +25,24 @@ func actionToolName(actionType string) string {
 }
 
 // actionShared is the fields every action tool carries beside its type's
-// inputs (catalog.ActionRequestFields). It is the schema of those fields and
-// their decoder.
-type actionShared struct {
-	Targets      []targetInput `json:"targets" required:"true" desc:"the distinct targets; blast radius drives the trust tier"`
-	Rationale    string        `json:"rationale" required:"true" desc:"why this action, now"`
-	EvidenceRefs []string      `json:"evidence_refs" required:"true" nonempty:"true" desc:"REQUIRED: the STIX refs that ground this action — the observed_data_refs / entity_refs / reckon-hypothesis ids you observed. A containment or remediation with no cited evidence is invalid and the engine rejects it."`
-	RetryOf      string        `json:"retry_of" desc:"when re-requesting a FAILED or EXPIRED action: that action's id (records the retry lineage); omit it otherwise"`
+// inputs (catalog.ActionRequestFields), over the shape of a target T. It is
+// one definition for both target shapes, so their schemas cannot drift
+// apart: destinationShared for an action type with no target types, whose
+// target also names the destination, and entityShared for one with target
+// types, whose target is its entity only (adr/0406). destinationShared is
+// also the decoder of every action tool's shared fields.
+type actionShared[T any] struct {
+	Targets      []T      `json:"targets" required:"true" desc:"the distinct targets; blast radius drives the trust tier"`
+	Rationale    string   `json:"rationale" required:"true" desc:"why this action, now"`
+	EvidenceRefs []string `json:"evidence_refs" required:"true" nonempty:"true" desc:"REQUIRED: the STIX refs that ground this action — the observed_data_refs / entity_refs / reckon-hypothesis ids you observed. A containment or remediation with no cited evidence is invalid and the engine rejects it."`
+	RetryOf      string   `json:"retry_of" desc:"when re-requesting a FAILED or EXPIRED action: that action's id (records the retry lineage); omit it otherwise"`
 }
+
+// destinationShared is the shared fields with a destination target.
+type destinationShared = actionShared[targetInput]
+
+// entityShared is the shared fields with an entity target.
+type entityShared = actionShared[entityTargetInput]
 
 // unavailable reports whether an action type has nothing to dispatch to: it
 // cannot be carried out in this install. The engine refuses its requests.
@@ -58,7 +68,7 @@ func actionTools(actionTypes []agentapi.ActionSummary) []tool {
 			kind:       ToolKindAction,
 			actionType: a.Descriptor.ActionType,
 			origin:     "#380",
-			revised:    []string{"#386"},
+			revised:    []string{"#386", "#406"},
 			run: func(ctx context.Context, s *Session, input json.RawMessage) (toolResult, error) {
 				return s.requestAction(ctx, a, input)
 			},
@@ -83,7 +93,10 @@ func ParameterInputs(a agentapi.ActionSummary) []agentapi.InputParam {
 // the type's inputs as top-level properties, required as the descriptor
 // requires them.
 func actionToolDef(a agentapi.ActionSummary) ToolDef {
-	schema := inputSchema[actionShared](nil)
+	schema := inputSchema[destinationShared](nil)
+	if len(a.Descriptor.TargetTypes) > 0 {
+		schema = inputSchema[entityShared](nil)
+	}
 	props := schema["properties"].(map[string]any)
 	required, _ := schema["required"].([]string)
 	for _, in := range ParameterInputs(a) {
@@ -145,9 +158,16 @@ func (s *Session) requestAction(ctx context.Context, a agentapi.ActionSummary, i
 		return toolResult{}, fmt.Errorf("bad %s input: %w", name, err)
 	}
 	parameters := actionParameters(a, all)
+	// A typed action's target is its entity: the engine derives the
+	// identifier (adr/0406), so none the model sent is passed on.
+	typed := len(a.Descriptor.TargetTypes) > 0
 	targets := make([]agentapi.TargetSpec, 0, len(shared.Targets))
 	for _, t := range shared.Targets {
-		targets = append(targets, agentapi.TargetSpec{EntityRef: t.EntityRef, ResolvedIdentifier: t.ResolvedIdentifier})
+		spec := agentapi.TargetSpec{EntityRef: t.EntityRef}
+		if !typed {
+			spec.ResolvedIdentifier = t.ResolvedIdentifier
+		}
+		targets = append(targets, spec)
 	}
 	resp, err := s.backend.RequestAction(ctx, agentapi.RequestActionBody{
 		ActionType:       a.Descriptor.ActionType,
@@ -209,16 +229,16 @@ func actionParameters(a agentapi.ActionSummary, all map[string]json.RawMessage) 
 }
 
 // sharedFields takes the shared fields out of a call's decoded input and
-// decodes them into actionShared, so the shapes the schema declares are the
+// decodes them into destinationShared, so the shapes the schema declares are the
 // ones read.
-func sharedFields(all map[string]json.RawMessage) (actionShared, error) {
+func sharedFields(all map[string]json.RawMessage) (destinationShared, error) {
 	subset := make(map[string]json.RawMessage, len(actionSharedFields))
 	for k, v := range all {
 		if IsActionSharedField(k) {
 			subset[k] = v
 		}
 	}
-	var shared actionShared
+	var shared destinationShared
 	raw, _ := json.Marshal(subset) // a map of raw JSON values always marshals
 	err := json.Unmarshal(raw, &shared)
 	return shared, err
@@ -234,7 +254,7 @@ func IsActionSharedField(key string) bool {
 // actionSharedFields is the names of the fields every action tool carries,
 // read from actionShared so the two cannot drift apart.
 var actionSharedFields = func() map[string]bool {
-	props := inputSchema[actionShared](nil)["properties"].(map[string]any)
+	props := inputSchema[destinationShared](nil)["properties"].(map[string]any)
 	names := make(map[string]bool, len(props))
 	for name := range props {
 		names[name] = true

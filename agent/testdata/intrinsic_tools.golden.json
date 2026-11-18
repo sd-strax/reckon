@@ -32,15 +32,10 @@
                 "entity_ref": {
                   "description": "STIX id of the target entity",
                   "type": "string"
-                },
-                "resolved_identifier": {
-                  "description": "the concrete identifier the tool acts on (hostname, account id)",
-                  "type": "string"
                 }
               },
               "required": [
-                "entity_ref",
-                "resolved_identifier"
+                "entity_ref"
               ],
               "type": "object"
             },
@@ -84,15 +79,10 @@
                 "entity_ref": {
                   "description": "STIX id of the target entity",
                   "type": "string"
-                },
-                "resolved_identifier": {
-                  "description": "the concrete identifier the tool acts on (hostname, account id)",
-                  "type": "string"
                 }
               },
               "required": [
-                "entity_ref",
-                "resolved_identifier"
+                "entity_ref"
               ],
               "type": "object"
             },

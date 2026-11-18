@@ -57,7 +57,8 @@ func describe() adapterplugin.DescribeResult {
 			{Verb: "enumerate_logons", Adapter: "okta", Operation: "get_logs", Priority: 100, Params: map[string]any{"since": "${window.start?}", "q": "${entity.account_login??}"}},
 		},
 		DefaultWriteBindings: []action.ActionBinding{
-			{ActionType: "account.disable", Adapter: "okta", Operation: "deactivate_user"},
+			{ActionType: "account.disable", Adapter: "okta", Operation: "deactivate_user",
+				Identifier: map[string]string{"user-account": "${target.entity.account_login}"}},
 		},
 		// It decodes a vendor API's response, tolerantly (11 §4.4).
 		SchemaSource: &adapterplugin.SchemaSource{Kind: adapterplugin.SchemaSourceResponse},

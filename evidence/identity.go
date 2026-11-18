@@ -328,6 +328,55 @@ func (s *Store) HostIdentity(ctx context.Context, ref string) (HostIdentityView,
 	return out, nil
 }
 
+// HostDeviceIDs reads the device ids sources reported for a host (adr/0406):
+// for each source tool, the uid of each device object that names the host or
+// a member of its alias set, matched as HostIdentity's SeenAs matches them.
+// Only the device object's own uid counts. Its uid_alt and the agent_list
+// uids SeenAs.Agents also shows are other ids of the device, or other
+// agents' ids, not a second device id, so they are left out here. A
+// placeholder uid (identity.PlaceholderDeviceUID) is no id and is left out.
+// The answer is sorted by tool, then uid, one entry per distinct pair.
+func (s *Store) HostDeviceIDs(ctx context.Context, ref string) ([]SourceID, error) {
+	if _, ok := refUUID(ref); !ok {
+		return nil, ErrMalformedRef
+	}
+	set, err := s.aliasSets(ctx, []string{ref})
+	if err != nil {
+		return nil, err
+	}
+	match, err := s.hostMatchers(ctx, set)
+	if err != nil {
+		return nil, err
+	}
+	out := []SourceID{}
+	if match.empty() {
+		return out, nil // nothing a device object could be matched on
+	}
+	// #nosec G202 -- the joined fragments are fixed JSON paths from the stix package, never input.
+	rows, err := s.db.QueryContext(ctx, matchedDevicesSQL+`
+		SELECT DISTINCT source_tool, btrim(d->>'uid') FROM m
+		WHERE btrim(COALESCE(d->>'uid', '')) <> ''
+		ORDER BY 1, 2
+	`, matchedDevicesArgs(set, match)...)
+	if err != nil {
+		return nil, fmt.Errorf("query host device ids: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id SourceID
+		if err := rows.Scan(&id.Tool, &id.UID); err != nil {
+			return nil, fmt.Errorf("scan host device id: %w", err)
+		}
+		if !identity.PlaceholderDeviceUID(id.UID) {
+			out = append(out, id)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate host device ids: %w", err)
+	}
+	return out, nil
+}
+
 // identityEdges answers the aliases and distinct-from edges with id at either
 // end, oldest first.
 func (s *Store) identityEdges(ctx context.Context, id uuid.UUID) (aliases, distinct []IdentityEdge, err error) {
@@ -580,12 +629,70 @@ func (s *Store) hostMatchers(ctx context.Context, refs []string) (hostMatch, err
 func (s *Store) seenAs(ctx context.Context, refs []string, match hostMatch) (SeenAs, error) {
 	out := SeenAs{Domains: []string{}, Agents: []SourceID{}, IPs: []string{}}
 	// #nosec G202 -- the joined fragments are fixed JSON paths from the stix package, never input.
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := s.db.QueryContext(ctx, matchedDevicesSQL+`
+		SELECT DISTINCT kind, tool, value FROM (
+			SELECT 'domain' AS kind, '' AS tool, lower(btrim(d->>'domain')) AS value FROM m
+			-- The FQDN's remainder only when the hostname names a host: the
+			-- "localdomain" of localhost.localdomain is no domain.
+			UNION ALL SELECT 'domain', '', substr(h, strpos(h, '.') + 1) FROM m WHERE NOT literal AND NOT noname AND strpos(h, '.') > 0
+			UNION ALL SELECT 'agent', source_tool, btrim(d->>'uid') FROM m
+			UNION ALL SELECT 'agent', source_tool, btrim(d->>'uid_alt') FROM m
+			UNION ALL SELECT 'agent', source_tool, btrim(a->>'uid') FROM m,
+				jsonb_array_elements(CASE WHEN jsonb_typeof(d->'agent_list') = 'array' THEN d->'agent_list' ELSE '[]'::jsonb END) AS a
+			UNION ALL SELECT 'ip', '', btrim(d->>'ip') FROM m
+		) x
+		-- A placeholder domain is no discriminator: the hostname list, $6.
+		WHERE value IS NOT NULL AND value <> '' AND NOT (kind = 'domain' AND value = ANY($6::text[]))
+	`, matchedDevicesArgs(refs, match)...)
+	if err != nil {
+		return SeenAs{}, fmt.Errorf("query seen-as: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var kind, tool, value string
+		if err := rows.Scan(&kind, &tool, &value); err != nil {
+			return SeenAs{}, fmt.Errorf("scan seen-as: %w", err)
+		}
+		// A placeholder id or address is no discriminator (adr/0211); the
+		// domains were filtered in the query.
+		switch {
+		case kind == "domain":
+			out.Domains = append(out.Domains, value)
+		case kind == "agent" && !identity.PlaceholderDeviceUID(value):
+			out.Agents = append(out.Agents, SourceID{Tool: tool, UID: value})
+		case kind == "ip" && !identity.PlaceholderIP(value):
+			out.IPs = append(out.IPs, value)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return SeenAs{}, fmt.Errorf("iterate seen-as: %w", err)
+	}
+	slices.Sort(out.Domains)
+	slices.Sort(out.IPs)
+	slices.SortFunc(out.Agents, func(a, b SourceID) int {
+		if c := strings.Compare(a.Tool, b.Tool); c != 0 {
+			return c
+		}
+		return strings.Compare(a.UID, b.UID)
+	})
+	return out, nil
+}
+
+// matchedDevicesSQL is the device objects of the events that reference any
+// of a host set, kept when they name one of the set's hosts on their own
+// first tier: the CTE m (source_tool, d, h, literal, noname) that seenAs and
+// HostDeviceIDs read. Its arguments are matchedDevicesArgs.
+//
+// Each device object (device, src_endpoint, dst_endpoint, at the top level
+// and in each artifact of a detection's evidences[], 03 §4.12) is matched on
+// its own first tier only, the tier identity.Host would mint it on.
+// #nosec G202 -- the joined fragments are fixed JSON paths from the stix package, never input.
+var matchedDevicesSQL = `
 		WITH ev AS (
 			SELECT e.source_tool, e.payload FROM ocsf_events e
 			WHERE EXISTS (
 				SELECT 1 FROM observed_data_events ode JOIN stix_objects o ON o.id = ode.observed_data_id AND o.tenant_id = $8
-				WHERE ode.ocsf_event_id = e.id AND `+observationNamesAny("o.payload", "$1::text[]")+`)
+				WHERE ode.ocsf_event_id = e.id AND ` + observationNamesAny("o.payload", "$1::text[]") + `)
 		),
 		-- The artifacts of a detection's evidences[] (adr/0356).
 		art AS (
@@ -621,7 +728,7 @@ func (s *Store) seenAs(ctx context.Context, refs []string, match hostMatch) (See
 		-- accepted form (its hex digits, lowercased) must agree with
 		-- identity.FoldMAC.
 		tiered AS (
-			SELECT source_tool, d, h, literal, short, mac, (short = ANY($6::text[]) OR `+literalPlaceholderSQL+`) AS noname
+			SELECT source_tool, d, h, literal, short, mac, (short = ANY($6::text[]) OR ` + literalPlaceholderSQL + `) AS noname
 			FROM (
 				SELECT source_tool, d, h, literal,
 					CASE WHEN literal THEN h ELSE split_part(h, '.', 1) END AS short,
@@ -640,53 +747,12 @@ func (s *Store) seenAs(ctx context.Context, refs []string, match hostMatch) (See
 					WHERE p.tool = lower(btrim(source_tool)) AND p.uid = btrim(d->>'uid'))
 			END
 		)
-		SELECT DISTINCT kind, tool, value FROM (
-			SELECT 'domain' AS kind, '' AS tool, lower(btrim(d->>'domain')) AS value FROM m
-			-- The FQDN's remainder only when the hostname names a host: the
-			-- "localdomain" of localhost.localdomain is no domain.
-			UNION ALL SELECT 'domain', '', substr(h, strpos(h, '.') + 1) FROM m WHERE NOT literal AND NOT noname AND strpos(h, '.') > 0
-			UNION ALL SELECT 'agent', source_tool, btrim(d->>'uid') FROM m
-			UNION ALL SELECT 'agent', source_tool, btrim(d->>'uid_alt') FROM m
-			UNION ALL SELECT 'agent', source_tool, btrim(a->>'uid') FROM m,
-				jsonb_array_elements(CASE WHEN jsonb_typeof(d->'agent_list') = 'array' THEN d->'agent_list' ELSE '[]'::jsonb END) AS a
-			UNION ALL SELECT 'ip', '', btrim(d->>'ip') FROM m
-		) x
-		-- A placeholder domain is no discriminator: the hostname list, $6.
-		WHERE value IS NOT NULL AND value <> '' AND NOT (kind = 'domain' AND value = ANY($6::text[]))
-	`, textArray(refs), textArray(match.names), textArray(match.macs), textArray(match.tools), textArray(match.uids),
-		textArray(identity.PlaceholderHostnames()), macForm, module.SingleTenantUUID)
-	if err != nil {
-		return SeenAs{}, fmt.Errorf("query seen-as: %w", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var kind, tool, value string
-		if err := rows.Scan(&kind, &tool, &value); err != nil {
-			return SeenAs{}, fmt.Errorf("scan seen-as: %w", err)
-		}
-		// A placeholder id or address is no discriminator (adr/0211); the
-		// domains were filtered in the query.
-		switch {
-		case kind == "domain":
-			out.Domains = append(out.Domains, value)
-		case kind == "agent" && !identity.PlaceholderDeviceUID(value):
-			out.Agents = append(out.Agents, SourceID{Tool: tool, UID: value})
-		case kind == "ip" && !identity.PlaceholderIP(value):
-			out.IPs = append(out.IPs, value)
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return SeenAs{}, fmt.Errorf("iterate seen-as: %w", err)
-	}
-	slices.Sort(out.Domains)
-	slices.Sort(out.IPs)
-	slices.SortFunc(out.Agents, func(a, b SourceID) int {
-		if c := strings.Compare(a.Tool, b.Tool); c != 0 {
-			return c
-		}
-		return strings.Compare(a.UID, b.UID)
-	})
-	return out, nil
+`
+
+// matchedDevicesArgs are matchedDevicesSQL's arguments, $1 to $8.
+func matchedDevicesArgs(refs []string, match hostMatch) []any {
+	return []any{textArray(refs), textArray(match.names), textArray(match.macs), textArray(match.tools), textArray(match.uids),
+		textArray(identity.PlaceholderHostnames()), macForm, module.SingleTenantUUID}
 }
 
 // textArray renders refs as a Postgres text[] literal, each element quoted.

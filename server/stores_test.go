@@ -302,6 +302,9 @@ func (f *fakeEvidence) FindAccounts(_ context.Context, token string, limit int) 
 func (f *fakeEvidence) FindPersons(_ context.Context, token string) ([]string, error) {
 	return f.personsByName[token], f.err
 }
+func (f *fakeEvidence) HostDeviceIDs(_ context.Context, _ string) ([]evidence.SourceID, error) {
+	return nil, f.err
+}
 func (f *fakeEvidence) HostIdentity(_ context.Context, ref string) (evidence.HostIdentityView, error) {
 	f.identityRef = ref
 	if f.identityErr != nil {

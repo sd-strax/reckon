@@ -5,8 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/sd-strax/reckon/aggregate"
 )
 
@@ -40,20 +38,16 @@ func TestShippedActionScenario(t *testing.T) {
 
 	// ioc.block dispatches end-to-end against the C2 indicator — the containment
 	// the agent could not complete before the catalog was frozen + surfaced.
-	blockCmd, err := BuildRequestCommand(catalog, ActionRequest{
+	c2 := map[string]any{"value": "185.220.101.5"}
+	blockCmd, blockRes, _, err := planAndResolve(t, resolver, catalog, ActionRequest{
 		ActionType:   "ioc.block",
-		Targets:      []aggregate.TargetSpec{{EntityRef: "ipv4-addr--1", ResolvedIdentifier: "185.220.101.5"}},
+		Targets:      []aggregate.TargetSpec{{EntityRef: "ipv4-addr--1"}},
 		EvidenceRefs: []string{"observed-data--0d000000-0000-4000-8000-0000000000c2"},
 		Rationale:    "block the C2 channel",
-	}, time.Now())
-	if err != nil {
-		t.Fatalf("build ioc.block request: %v", err)
+	}, c2)
+	if blockCmd.Targets[0].ResolvedIdentifier != "185.220.101.5" {
+		t.Errorf("ioc.block identifier = %q; want the address's value", blockCmd.Targets[0].ResolvedIdentifier)
 	}
-	blockRes, _, err := resolver.Resolve(context.Background(), DispatchRequest{
-		ActionID:   blockCmd.ActionID,
-		ActionType: blockCmd.ActionType,
-		Targets:    blockCmd.Targets,
-	})
 	if err != nil {
 		t.Fatalf("resolve/dispatch ioc.block: %v", err)
 	}
@@ -63,20 +57,12 @@ func TestShippedActionScenario(t *testing.T) {
 
 	// ioc.unblock dispatches as a standalone action — not a tracked reversal of
 	// the block (04 §7): no reversal_of_ref, and the block record stays SUCCEEDED.
-	unblockCmd, err := BuildRequestCommand(catalog, ActionRequest{
+	_, unblockRes, _, err := planAndResolve(t, resolver, catalog, ActionRequest{
 		ActionType:   "ioc.unblock",
-		Targets:      []aggregate.TargetSpec{{EntityRef: "ipv4-addr--1", ResolvedIdentifier: "185.220.101.5"}},
+		Targets:      []aggregate.TargetSpec{{EntityRef: "ipv4-addr--1"}},
 		EvidenceRefs: []string{"observed-data--0d000000-0000-4000-8000-0000000000c2"},
 		Rationale:    "shared CDN edge — legit traffic breaking; analyst judged removal safe",
-	}, time.Now())
-	if err != nil {
-		t.Fatalf("build ioc.unblock request: %v", err)
-	}
-	unblockRes, _, err := resolver.Resolve(context.Background(), DispatchRequest{
-		ActionID:   unblockCmd.ActionID,
-		ActionType: unblockCmd.ActionType,
-		Targets:    unblockCmd.Targets,
-	})
+	}, c2)
 	if err != nil {
 		t.Fatalf("resolve/dispatch ioc.unblock: %v", err)
 	}
@@ -87,24 +73,20 @@ func TestShippedActionScenario(t *testing.T) {
 	// ticket.create dispatches end-to-end — the operational handoff (04 §2.2):
 	// target = the DESTINATION queue (not the hosts being handed off, which ride
 	// in evidence_refs); irreversible-additive, stays T2.
-	ticketCmd, err := BuildRequestCommand(catalog, ActionRequest{
+	ticketCmd, ticketRes, _, err := planAndResolve(t, resolver, catalog, ActionRequest{
 		ActionType:   "ticket.create",
 		Targets:      []aggregate.TargetSpec{{ResolvedIdentifier: "IT-OPS"}},
 		EvidenceRefs: []string{"reckon-host--0d000000-0000-4000-8000-000000000001"},
 		Parameters:   []byte(`{"summary":"Reimage WIN-FILE01 after RDP lateral movement","issue_type":"remediation"}`),
 		Rationale:    "hand off host rebuild to IT after containment",
-	}, time.Now())
-	if err != nil {
-		t.Fatalf("build ticket.create request: %v", err)
-	}
+	}, nil)
 	if ticketCmd.Tier != aggregate.TierT2 || ticketCmd.Reversibility != ReversibilityIrreversible {
 		t.Errorf("ticket.create tier/reversibility = %s/%s; want T2/irreversible", ticketCmd.Tier, ticketCmd.Reversibility)
 	}
-	ticketRes, _, err := resolver.Resolve(context.Background(), DispatchRequest{
-		ActionID:   ticketCmd.ActionID,
-		ActionType: ticketCmd.ActionType,
-		Targets:    ticketCmd.Targets,
-	})
+	// A destination type keeps the requester's identifier (adr/0406).
+	if ticketCmd.Targets[0].ResolvedIdentifier != "IT-OPS" {
+		t.Errorf("ticket.create destination = %q; want IT-OPS as requested", ticketCmd.Targets[0].ResolvedIdentifier)
+	}
 	if err != nil {
 		t.Fatalf("resolve/dispatch ticket.create: %v", err)
 	}
@@ -112,26 +94,22 @@ func TestShippedActionScenario(t *testing.T) {
 		t.Errorf("ticket.create outcome = %q; want SUCCEEDED", ticketRes.FinalOutcome)
 	}
 
-	// Build a request_action for host.isolate (T2, single target), then dispatch
-	// it through the resolver into the fixture write adapter.
-	cmd, err := BuildRequestCommand(catalog, ActionRequest{
+	// Build a request_action for host.isolate (T2, single target), plan it
+	// against the stored host, then dispatch it through the frozen binding
+	// into the fixture write adapter. The host stores its hostname with the
+	// reported case.
+	cmd, res, binding, err := planAndResolve(t, resolver, catalog, ActionRequest{
 		ActionType:   "host.isolate",
-		Targets:      []aggregate.TargetSpec{{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-FILE01"}},
+		Targets:      []aggregate.TargetSpec{{EntityRef: "reckon-host--1"}},
 		EvidenceRefs: []string{"observed-data--0d000000-0000-4000-8000-000000000ad9"},
 		Rationale:    "contain the RDP lateral movement",
-	}, time.Now())
-	if err != nil {
-		t.Fatalf("build request: %v", err)
-	}
+	}, map[string]any{"hostname": "WIN-FILE01"})
 	if cmd.Tier != aggregate.TierT2 {
 		t.Errorf("host.isolate tier = %q; want T2", cmd.Tier)
 	}
-
-	res, binding, err := resolver.Resolve(context.Background(), DispatchRequest{
-		ActionID:   cmd.ActionID,
-		ActionType: cmd.ActionType,
-		Targets:    cmd.Targets,
-	})
+	if cmd.Targets[0].ResolvedIdentifier != "WIN-FILE01" || cmd.Binding.Adapter != "fixture_write" {
+		t.Errorf("planned identifier %q via %+v; want WIN-FILE01 via fixture_write", cmd.Targets[0].ResolvedIdentifier, cmd.Binding)
+	}
 	if err != nil {
 		t.Fatalf("resolve/dispatch: %v", err)
 	}
@@ -174,16 +152,14 @@ func TestShippedImpossibleTravelActionScenario(t *testing.T) {
 		}
 	}
 
-	cmd, err := BuildRequestCommand(catalog, ActionRequest{
+	// The domain account stores its login domain-qualified, as the
+	// normalizer composes it (capability/normalizer_user.go).
+	_, res, _, err := planAndResolve(t, resolver, catalog, ActionRequest{
 		ActionType:   "account.disable",
-		Targets:      []aggregate.TargetSpec{{EntityRef: "user-account--1", ResolvedIdentifier: `CONTOSO\m.reyes`}},
+		Targets:      []aggregate.TargetSpec{{EntityRef: "user-account--1"}},
 		EvidenceRefs: []string{"observed-data--0d000000-0000-4000-8000-00000000f051"},
 		Rationale:    "contain the account behind the foreign legacy-protocol sign-in",
-	}, time.Now())
-	if err != nil {
-		t.Fatalf("build account.disable request: %v", err)
-	}
-	res, _, err := resolver.Resolve(context.Background(), DispatchRequest{ActionID: cmd.ActionID, ActionType: cmd.ActionType, Targets: cmd.Targets})
+	}, map[string]any{"account_login": `CONTOSO\m.reyes`, "domain": "CONTOSO", "account_type": "windows-domain"})
 	if err != nil {
 		t.Fatalf("resolve/dispatch account.disable: %v", err)
 	}
@@ -220,29 +196,33 @@ func TestShippedExposedBucketActionScenario(t *testing.T) {
 		}
 	}
 
-	dispatch := func(actionType, ref, identifier string) (WriteResult, error) {
+	// A cloud principal stores no login: the identifier rule reads its
+	// display name, the IAM user name (capability/normalizer_cloud.go).
+	principal := func(name string) map[string]any {
+		return map[string]any{"user_id": "arn:aws:iam::111122223333:user/" + name, "account_type": "aws", "display_name": name}
+	}
+	dispatch := func(actionType, ref string, entity map[string]any) (WriteResult, error) {
 		t.Helper()
-		cmd, err := BuildRequestCommand(catalog, ActionRequest{
+		_, res, _, err := planAndResolve(t, resolver, catalog, ActionRequest{
 			ActionType:   actionType,
-			Targets:      []aggregate.TargetSpec{{EntityRef: ref, ResolvedIdentifier: identifier}},
+			Targets:      []aggregate.TargetSpec{{EntityRef: ref}},
 			EvidenceRefs: []string{"observed-data--0d000000-0000-4000-8000-0000000000b9"},
 			Rationale:    "contain the principal behind the public bucket policy",
-		}, time.Now())
-		if err != nil {
-			t.Fatalf("build %s request: %v", actionType, err)
-		}
-		res, _, err := resolver.Resolve(context.Background(), DispatchRequest{ActionID: cmd.ActionID, ActionType: cmd.ActionType, Targets: cmd.Targets})
+		}, entity)
 		return res, err
 	}
-	for _, c := range []struct{ actionType, ref, identifier string }{
-		{"account.disable", "user-account--1", "deploy-ci"}, {"account.enable", "user-account--1", "deploy-ci"},
-		{"ioc.block", "ipv4-addr--1", "203.0.113.77"}, {"ioc.unblock", "ipv4-addr--1", "203.0.113.77"},
+	for _, c := range []struct {
+		actionType, ref string
+		entity          map[string]any
+	}{
+		{"account.disable", "user-account--1", principal("deploy-ci")}, {"account.enable", "user-account--1", principal("deploy-ci")},
+		{"ioc.block", "ipv4-addr--1", map[string]any{"value": "203.0.113.77"}}, {"ioc.unblock", "ipv4-addr--1", map[string]any{"value": "203.0.113.77"}},
 	} {
-		if res, err := dispatch(c.actionType, c.ref, c.identifier); err != nil || res.FinalOutcome != OutcomeSucceeded {
-			t.Errorf("%s(%s): outcome=%q err=%v; want SUCCEEDED", c.actionType, c.identifier, res.FinalOutcome, err)
+		if res, err := dispatch(c.actionType, c.ref, c.entity); err != nil || res.FinalOutcome != OutcomeSucceeded {
+			t.Errorf("%s(%v): outcome=%q err=%v; want SUCCEEDED", c.actionType, c.entity, res.FinalOutcome, err)
 		}
 	}
-	if _, err := dispatch("account.disable", "user-account--1", "someone-else"); err == nil {
+	if _, err := dispatch("account.disable", "user-account--1", principal("someone-else")); err == nil {
 		t.Error("account.disable on a principal the scenario never mentions should fail, not succeed")
 	}
 }
@@ -282,15 +262,19 @@ func TestShippedScenarioContainsEveryAccountItSurfaces(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolver, _, err := BuildActionResolver(cfg, "../fixtures", true)
+	resolver, catalog, err := BuildActionResolver(cfg, "../fixtures", true)
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Each account stores its login domain-qualified, as the normalizer
+	// composes a domain account's (capability/normalizer_user.go).
 	dispatch := func(actionType, account string) (WriteResult, error) {
-		res, _, err := resolver.Resolve(context.Background(), DispatchRequest{
-			ActionID: uuid.New(), ActionType: actionType,
-			Targets: []aggregate.TargetSpec{{EntityRef: "user-account--1", ResolvedIdentifier: account}},
-		})
+		_, res, _, err := planAndResolve(t, resolver, catalog, ActionRequest{
+			ActionType:   actionType,
+			Targets:      []aggregate.TargetSpec{{EntityRef: "user-account--1"}},
+			EvidenceRefs: []string{"observed-data--0d000000-0000-4000-8000-0000000000a1"},
+			Rationale:    "contain the account",
+		}, map[string]any{"account_login": account, "domain": "CONTOSO", "account_type": "windows-domain"})
 		return res, err
 	}
 	for _, account := range []string{`CONTOSO\svc_backup`, `CONTOSO\jdoe`} {
@@ -304,4 +288,31 @@ func TestShippedScenarioContainsEveryAccountItSurfaces(t *testing.T) {
 	if _, err := dispatch("account.disable", `CONTOSO\nobody`); err == nil {
 		t.Error("an account the scenario never mentions should fail, not succeed")
 	}
+}
+
+// planAndResolve is the request path a shipped scenario exercises (adr/0406):
+// build the request, plan it against the target's stored entity (nil for a
+// destination type), and dispatch through the frozen binding. entity holds
+// the properties the normalizer stores for the scenario's entity.
+func planAndResolve(t *testing.T, resolver *ActionResolver, catalog *ActionCatalog, req ActionRequest, entity map[string]any) (aggregate.RequestAction, WriteResult, ActionBinding, error) {
+	t.Helper()
+	cmd, err := BuildRequestCommand(catalog, req, time.Now())
+	if err != nil {
+		t.Fatalf("build %s request: %v", req.ActionType, err)
+	}
+	in := PlanInput{ActionType: cmd.ActionType, Targets: cmd.Targets}
+	if d, _ := catalog.Descriptor(cmd.ActionType); len(d.TargetTypes) > 0 {
+		for range cmd.Targets {
+			in.Entities = append(in.Entities, TargetEntity{Properties: entity})
+		}
+	}
+	plan, err := resolver.Plan(in)
+	if err != nil {
+		return cmd, WriteResult{}, ActionBinding{}, err
+	}
+	cmd.Targets, cmd.Binding = plan.Targets, plan.Binding
+	res, binding, err := resolver.Resolve(context.Background(), DispatchRequest{
+		ActionID: cmd.ActionID, ActionType: cmd.ActionType, Targets: cmd.Targets, Binding: cmd.Binding,
+	})
+	return cmd, res, binding, err
 }

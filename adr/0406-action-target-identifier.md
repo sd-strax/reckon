@@ -65,9 +65,10 @@ takes its own vendor's id. No vendor's tool takes another vendor's id.
   the engine loads a target entity, it adds `vendor_ids` beside its
   properties. For each vendor, that's the id when every id under that
   vendor's labels is the same. A vendor whose ids disagree is left out, and
-  a refusal names the conflict. For a host, the ids are the ones its
-  identity view has seen across every record naming it or its alias set
-  (`SeenAs.Agents`), with contested aliases cut as identity cuts them.
+  a refusal names the conflict. For a host, the ids are the device `uid`
+  that each record naming it or its alias set reported, with contested
+  aliases cut as identity cuts them. A device's second id (`uid_alt`) and
+  the ids of other agents on it are not vendor ids.
   A stored object keeps only its first source's properties, so for other
   types the ids are the stored `source_ids`. A containment binding that
   takes a Falcon device id declares:

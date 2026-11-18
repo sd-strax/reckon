@@ -223,11 +223,15 @@ TargetSpec:
                          of a declared type, for an action type that declares
                          target types (see below)
   resolved_identifier    string (e.g., hostname, mailbox, account UPN —
-                         what the adapter actually sends to the downstream tool)
+                         what the adapter actually sends to the downstream tool);
+                         derived by the engine for a typed action (§8.1),
+                         the requester's destination otherwise
   asset_criticality      optional string (see §10)
 ```
 
 Each action type declares the STIX types it acts on (`target_types` on the descriptor, `08 §3`; adr/0354). Host actions act on `reckon-host`, account actions on `user-account`, email actions on `email-message`, and indicator actions on `ipv4-addr`, `ipv6-addr`, `domain-name`, `url` and `file`. An IP address is not a host. The ticket and notify actions declare none, because their target is a destination (a project, a ticket, a channel, an address), not an entity in the evidence. For a type that declares target types, every target must carry an `entity_ref` whose type (the part before `--`) is declared. Otherwise the request is refused and nothing is recorded. For a type that declares none, `entity_ref` is not read.
+
+A request for a typed action names only the entity. The engine derives `resolved_identifier` from the stored entity and ignores any value the requester sent (§8.1, adr/0406). For a ticket or notify action the requester's `resolved_identifier` is the destination, and it is kept.
 
 Every `reckon-action` has a `produced-by` edge to an Interpretation of type `action-request` (a value in the canonical `interpretation_type` enum — this *is* a kind of reasoning, even though the action itself is not). This piggybacks on the existing produced-by mechanism in the domain model and keeps the reasoning thread intact.
 
@@ -686,6 +690,10 @@ Every `TargetSpec` has both an `entity_ref` (STIX id, stable across investigatio
 - The same STIX entity can resolve differently in different environments (a hostname can change FQDN).
 - An attacker watching telemetry shouldn't be able to manipulate resolution between request and execution.
 - The audit record needs to capture exactly what string was sent to the tool.
+
+The engine resolves, not the requester (adr/0406). Tools that carry out one action take different strings for the same entity: one takes a hostname, another its own device id. So the binding that will carry the action out says how its identifier is derived, in its identifier rule (`08 §4`). When an action is requested, the engine loads each target's entity from the evidence. It walks the usable bindings by priority and renders each one's rule for each target. The first binding whose rule and params render is chosen. The rendered string becomes the target's `resolved_identifier`. The chosen binding is frozen on the action with it, and dispatch uses that binding only (`08 §7.1`). So the approver sees the exact string that will be sent, and to which tool.
+
+A request is refused with a 503 when the install has no write bindings, or when a typed action has no evidence store to read its targets from. Nothing is recorded then. A target whose entity is not in the evidence is refused with a 422, and nothing is recorded. So is a target that no usable binding can derive an identifier for, such as a host whose binding needs a field the stored host does not have. The refusal names the reason. A re-request, a retry and a reversal derive afresh; a reversal derives for the inverse type's bindings. An edit changes parameters only, so it keeps the frozen binding. It is refused if that binding's params no longer render with the new parameters. A ticket or notify action keeps the requester's destination, and its binding is frozen too.
 
 ### 8.2 Blast radius and asset criticality
 

@@ -43,6 +43,7 @@ func applyRequestAction(env Envelope, state aggregateState, c RequestAction, new
 		RetryOf:                    c.RetryOf,
 		RequiredMode:               c.RequiredMode,
 		SecondaryApproverPool:      c.SecondaryApproverPool,
+		Binding:                    c.Binding,
 		RequestingInterpretationID: interpID,
 	}, interpID, InterpretationActionRequest, c.Rationale, c.EvidenceRefs)
 	if err != nil {

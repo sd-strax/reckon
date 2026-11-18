@@ -97,6 +97,29 @@ func ExtensionFrom(obj map[string]any, ext string) map[string]any {
 	return m
 }
 
+// PropertiesFrom is Build's inverse for a decoded STIX object of type typ:
+// the properties the object was built from. They are its top-level
+// properties less the ones the serializer sets (serializerSet), with the
+// properties of the type's property-extension beside them, less its
+// extension_type. A property-extension property that shares a name with a
+// top-level one replaces it.
+func PropertiesFrom(obj map[string]any, typ string) map[string]any {
+	props := make(map[string]any, len(obj))
+	for k, v := range obj {
+		if !slices.Contains(serializerSet, k) {
+			props[k] = v
+		}
+	}
+	if ext := PropertyExtensionOf(typ); ext != "" {
+		for k, v := range ExtensionFrom(obj, ext) {
+			if k != "extension_type" {
+				props[k] = v
+			}
+		}
+	}
+	return props
+}
+
 // DecodeExtension decodes a property-extension of the STIX object in payload
 // into v. found is false, and v is left alone, when the object does not carry
 // the extension.

@@ -91,6 +91,11 @@ action_bindings:
       adapter: crowdstrike-falcon
       operation: add_ioc
       priority: 100
+      identifier:
+        ipv4-addr: "${target.entity.value}"
+        ipv6-addr: "${target.entity.value}"
+        domain-name: "${target.entity.value}"
+        file: "${target.entity.hashes.SHA-256}"
       params:
         value: "${target.resolved_identifier}"
   ioc.unblock:
@@ -98,13 +103,24 @@ action_bindings:
       adapter: crowdstrike-falcon
       operation: remove_iocs
       priority: 100
+      identifier:
+        ipv4-addr: "${target.entity.value}"
+        ipv6-addr: "${target.entity.value}"
+        domain-name: "${target.entity.value}"
+        file: "${target.entity.hashes.SHA-256}"
       params:
         value: "${target.resolved_identifier}"
+  # Containment takes the Falcon device id. The engine reads it from the
+  # ids Falcon sources reported for the host (vendor_ids.falcon, adr/0406);
+  # a host no Falcon source reported, or one Falcon reported under two ids,
+  # is refused at request time.
   host.isolate:
     - action_type: host.isolate
       adapter: crowdstrike-response
       operation: contain
       priority: 100
+      identifier:
+        reckon-host: "${target.entity.vendor_ids.falcon}"
       params:
         device_id: "${target.resolved_identifier}"
   host.unisolate:
@@ -112,5 +128,7 @@ action_bindings:
       adapter: crowdstrike-response
       operation: lift_containment
       priority: 100
+      identifier:
+        reckon-host: "${target.entity.vendor_ids.falcon}"
       params:
         device_id: "${target.resolved_identifier}"

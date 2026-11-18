@@ -574,3 +574,70 @@ func defaultActionCatalog(t testing.TB) *action.ActionCatalog {
 	}
 	return c
 }
+
+// targetSchemaOf returns the item schema of a tool's targets property.
+func targetSchemaOf(t *testing.T, tl tool) map[string]any {
+	t.Helper()
+	props := tl.def.InputSchema["properties"].(map[string]any)
+	targets, ok := props["targets"].(map[string]any)
+	if !ok {
+		t.Fatalf("%s has no targets property", tl.def.Name)
+	}
+	return targets["items"].(map[string]any)
+}
+
+// TestActionTools_EntityTargetIsTheEntity (adr/0406): the tool of an action
+// type with target types asks for the target's entity only, since the engine
+// derives the identifier the tool receives. A type with none still asks for
+// the destination's resolved_identifier.
+func TestActionTools_EntityTargetIsTheEntity(t *testing.T) {
+	tools := actionToolsOf(t, builtInCatalog(t))
+	for _, a := range builtInCatalog(t) {
+		tl := tools[actionToolName(a.Descriptor.ActionType)]
+		item := targetSchemaOf(t, tl)
+		var names []string
+		for name := range item["properties"].(map[string]any) {
+			names = append(names, name)
+		}
+		slices.Sort(names)
+		required, _ := item["required"].([]string)
+		if len(a.Descriptor.TargetTypes) > 0 {
+			if !slices.Equal(names, []string{"entity_ref"}) || !slices.Equal(required, []string{"entity_ref"}) {
+				t.Errorf("%s target properties = %v, required %v; want entity_ref only", tl.def.Name, names, required)
+			}
+			continue
+		}
+		if !slices.Equal(names, []string{"entity_ref", "resolved_identifier"}) {
+			t.Errorf("%s target properties = %v; want entity_ref and resolved_identifier", tl.def.Name, names)
+		}
+	}
+}
+
+// TestRequestAction_EntityTargetSendsNoIdentifier (adr/0406): a call to a
+// typed action's tool passes the target's entity on, and no identifier the
+// model sent anyway.
+func TestRequestAction_EntityTargetSendsNoIdentifier(t *testing.T) {
+	f := newFakeBackend(t)
+	s := newToolSession(t, f)
+	var isolate agentapi.ActionSummary
+	for _, a := range builtInCatalog(t) {
+		if a.Descriptor.ActionType == "host.isolate" {
+			isolate = a
+		}
+	}
+	input := `{"rationale":"r","evidence_refs":["e"],"targets":[{"entity_ref":"reckon-host--1","resolved_identifier":"H"}]}`
+	if _, err := s.requestAction(context.Background(), isolate, json.RawMessage(input)); err != nil {
+		t.Fatalf("requestAction: %v", err)
+	}
+	calls := f.callsTo("/api/actions")
+	if len(calls) != 1 {
+		t.Fatalf("%d calls", len(calls))
+	}
+	var body agentapi.RequestActionBody
+	if err := json.Unmarshal(calls[0].Body, &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Targets) != 1 || body.Targets[0].EntityRef != "reckon-host--1" || body.Targets[0].ResolvedIdentifier != "" {
+		t.Errorf("targets sent = %+v; want the entity only", body.Targets)
+	}
+}

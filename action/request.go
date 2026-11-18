@@ -58,9 +58,16 @@ func BuildRequestCommand(catalog *ActionCatalog, req ActionRequest, now time.Tim
 	if req.Rationale == "" {
 		return aggregate.RequestAction{}, fmt.Errorf("action_type %q: rationale required", req.ActionType)
 	}
-	for i, t := range req.Targets {
-		if t.ResolvedIdentifier == "" {
-			return aggregate.RequestAction{}, fmt.Errorf("action_type %q: target %d has no resolved_identifier", req.ActionType, i)
+	// A type with target types names its targets by entity_ref only: the
+	// engine derives each resolved_identifier from the stored entity when it
+	// plans the request (adr/0406), and a value sent here is not used. A
+	// type with none targets a destination, which only the requester can
+	// name.
+	if len(d.TargetTypes) == 0 {
+		for i, t := range req.Targets {
+			if t.ResolvedIdentifier == "" {
+				return aggregate.RequestAction{}, fmt.Errorf("action_type %q: target %d has no resolved_identifier (the destination this action goes to)", req.ActionType, i)
+			}
 		}
 	}
 	if err := validateTargetTypes(d, req.Targets); err != nil {
@@ -91,12 +98,23 @@ func BuildRequestCommand(catalog *ActionCatalog, req ActionRequest, now time.Tim
 		ttl = DefaultRequestTTL
 	}
 
+	// A requester's resolved_identifier on a typed target is dropped here,
+	// so only the planner's derived value can reach the record (adr/0406).
+	targets := req.Targets
+	if len(d.TargetTypes) > 0 {
+		targets = make([]aggregate.TargetSpec, len(req.Targets))
+		for i, t := range req.Targets {
+			t.ResolvedIdentifier = ""
+			targets[i] = t
+		}
+	}
+
 	return aggregate.RequestAction{
 		ActionID:      uuid.New(),
 		ActionType:    req.ActionType,
-		Tier:          EscalateTier(string(d.DefaultTier), distinctTargets(req.Targets), DefaultBlastRadiusThreshold),
+		Tier:          EscalateTier(string(d.DefaultTier), distinctTargets(targets), DefaultBlastRadiusThreshold),
 		Reversibility: d.Reversibility, // frozen at request time (04 §7.1)
-		Targets:       req.Targets,
+		Targets:       targets,
 		Parameters:    req.Parameters,
 		EvidenceRefs:  req.EvidenceRefs,
 		ExpiresAt:     now.Add(ttl),

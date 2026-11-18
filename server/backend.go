@@ -245,6 +245,11 @@ type Backend struct {
 	// /action-types readout — the write-side reload swap (11 §5.1).
 	actionOverride *action.ActionResolver
 
+	// targetEntities, when set, supersedes cfg.Evidence as the store an
+	// action request's target entities are read from (adr/0406). Tests set
+	// it; nil reads cfg.Evidence.
+	targetEntities targetEntityStore
+
 	// identityOnce/identityRes memoize the tenant identity resolver used to
 	// mint STIX ids for entity seeds (createInvestigation). Built lazily from
 	// cfg.TenantNamespace; nil when the namespace is unset/invalid, which

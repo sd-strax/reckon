@@ -77,10 +77,14 @@ func describe() adapterplugin.DescribeResult {
 				Params: map[string]any{"filter": "indicator:'${entity.value}'"}},
 		},
 		DefaultWriteBindings: []action.ActionBinding{
+			// The identifier is the indicator's value, or a file's SHA-256
+			// (adr/0406); Falcon takes no URL indicator.
 			{ActionType: "ioc.block", Adapter: "crowdstrike-falcon", Operation: "add_ioc",
-				Params: map[string]any{"value": "${target.resolved_identifier}"}},
+				Identifier: falconIOCIdentifier,
+				Params:     map[string]any{"value": "${target.resolved_identifier}"}},
 			{ActionType: "ioc.unblock", Adapter: "crowdstrike-falcon", Operation: "remove_iocs",
-				Params: map[string]any{"value": "${target.resolved_identifier}"}},
+				Identifier: falconIOCIdentifier,
+				Params:     map[string]any{"value": "${target.resolved_identifier}"}},
 		},
 		// It decodes a vendor API's response, tolerantly (11 §4.4).
 		SchemaSource: &adapterplugin.SchemaSource{Kind: adapterplugin.SchemaSourceResponse},
@@ -145,4 +149,13 @@ func stringSlice(v any) []string {
 		}
 	}
 	return out
+}
+
+// falconIOCIdentifier is the identifier rule of the indicator bindings
+// (adr/0406): an address's or a domain's value, a file's SHA-256.
+var falconIOCIdentifier = map[string]string{
+	"ipv4-addr":   "${target.entity.value}",
+	"ipv6-addr":   "${target.entity.value}",
+	"domain-name": "${target.entity.value}",
+	"file":        "${target.entity.hashes.SHA-256}",
 }

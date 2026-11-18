@@ -37,10 +37,14 @@ func describe() adapterplugin.DescribeResult {
 			{Name: "lift_containment", Params: objSchema()},
 		},
 		DefaultWriteBindings: []action.ActionBinding{
+			// The device id is the one Falcon sources reported for the host
+			// (adr/0406).
 			{ActionType: "host.isolate", Adapter: "crowdstrike-response", Operation: "contain",
-				Params: map[string]any{"device_id": "${target.resolved_identifier}"}},
+				Identifier: map[string]string{"reckon-host": "${target.entity.vendor_ids.falcon}"},
+				Params:     map[string]any{"device_id": "${target.resolved_identifier}"}},
 			{ActionType: "host.unisolate", Adapter: "crowdstrike-response", Operation: "lift_containment",
-				Params: map[string]any{"device_id": "${target.resolved_identifier}"}},
+				Identifier: map[string]string{"reckon-host": "${target.entity.vendor_ids.falcon}"},
+				Params:     map[string]any{"device_id": "${target.resolved_identifier}"}},
 		},
 		// It decodes a vendor API's response, tolerantly (11 §4.4).
 		SchemaSource: &adapterplugin.SchemaSource{Kind: adapterplugin.SchemaSourceResponse},
