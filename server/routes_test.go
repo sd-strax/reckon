@@ -9,7 +9,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/sd-strax/reckon/action"
 	"github.com/sd-strax/reckon/authz"
 )
 
@@ -101,7 +100,7 @@ func TestRouteAuthorization(t *testing.T) {
 	b := newFakeBackend(t)
 	withEnablementConfig(t, b)
 	b.cfg.CapabilityResolver, b.cfg.CapabilityCatalog = buildInvokeCapability(t)
-	b.cfg.ActionCatalog = action.DefaultActionCatalog()
+	b.cfg.ActionCatalog = defaultActionCatalog(t)
 	b.cfg.ActionResolver = newActionResolver()
 	srv := httptest.NewServer(b.buildRouter(b.verifier))
 	t.Cleanup(srv.Close)

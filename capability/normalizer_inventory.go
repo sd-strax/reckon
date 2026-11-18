@@ -4,8 +4,8 @@ import "github.com/sd-strax/reckon/identity"
 
 // deviceInventoryNormalizer handles OCSF inventory_info (class_uid 5001, Device
 // Inventory Info) → STIX (§4.17): the reckon-host the inventory names, shaped by the shared host
-// extractor, under one ObservedData that carries the os, owner and criticality
-// in its extensions. An inventory record naming the hostname beside the
+// extractor, and the device owner's account, under one ObservedData that
+// carries the os, owner and criticality in its extensions. An inventory record naming the hostname beside the
 // source's device id is the record that aliases the source's weak host to the
 // strong one (adr/0211).
 type deviceInventoryNormalizer struct{ r *identity.Resolver }
@@ -20,12 +20,16 @@ func (*deviceInventoryNormalizer) ClassUID() int { return 5001 }
 // 4: STIX 2.1 output through the one serializer, an artifact for a record
 // naming nothing, and a broken record is a normalize error; addresses in
 // canonical text, adr/0357
-func (*deviceInventoryNormalizer) Version() int { return 4 }
+// 5: the device owner's account, scoped to the device's host and recorded in
+// user_accounts, adr/0398
+func (*deviceInventoryNormalizer) Version() int { return 5 }
 
 func (n *deviceInventoryNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
 	b := newBuilder(n.r, evt, "inventory_info", n.Version())
-	b.host("device")
+	b.deviceObjects("device")
+	host := b.host("device")
+	b.userAccount("device.owner", "device", host)
 	b.ipAddr("device.ip")
 
 	ext := map[string]any{}

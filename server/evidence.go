@@ -262,12 +262,12 @@ func (b *Backend) getEvidence(w http.ResponseWriter, r *http.Request) {
 		writeInternalError(w, "query ocsf event", err)
 		return
 	}
-	entities, err := b.cfg.Evidence.EventEntities(r.Context(), id)
+	derived, err := b.cfg.Evidence.EventDerived(r.Context(), id)
 	if err != nil {
 		writeInternalError(w, "query derived objects", err)
 		return
 	}
-	view := eventView(e, entities)
+	view := eventView(e, derived)
 	writeJSON(w, http.StatusOK, EvidenceView{
 		Ref: ref, Kind: "ocsf", Type: e.ClassName, Payload: e.Payload,
 		ClassUID: e.ClassUID, Time: &e.Time, RecordedAt: &e.RecordedAt, SourceTool: e.SourceTool,

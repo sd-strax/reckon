@@ -3,6 +3,8 @@ package capability
 import (
 	"fmt"
 	"sort"
+
+	"github.com/sd-strax/reckon/internal/catalog"
 )
 
 // CapabilityDescriptor is the LLM-facing declaration of a verb (§5.3): its name,
@@ -32,8 +34,17 @@ type Catalog struct {
 // NewCatalog returns an empty catalog.
 func NewCatalog() *Catalog { return &Catalog{byVerb: make(map[string]CapabilityDescriptor)} }
 
-// Register adds or replaces a descriptor.
-func (c *Catalog) Register(d CapabilityDescriptor) { c.byVerb[d.Verb] = d }
+// Register adds or replaces a descriptor. It refuses a verb the agent could
+// not offer as a tool (adr/0382): its name is not a valid tool name, or is one
+// of the agent's built-in tool names. A clash with an action type's tool name
+// is checked where both catalogs are known (runtime).
+func (c *Catalog) Register(d CapabilityDescriptor) error {
+	if err := catalog.ValidateVerb(d.Verb); err != nil {
+		return fmt.Errorf("register verb: %w", err)
+	}
+	c.byVerb[d.Verb] = d
+	return nil
+}
 
 // Descriptor returns the descriptor for a verb, if registered.
 func (c *Catalog) Descriptor(verb string) (CapabilityDescriptor, bool) {
@@ -86,7 +97,10 @@ func optionalEntityInput(name, desc string) InputParam {
 // scalar inputs on the wire, the convention query_external_cases set for
 // CaseFilter: every verb tool shares one input shape — an entity, a window and
 // scalar extras — and each scalar is a template root a binding can address.
-func DefaultCatalog() *Catalog {
+//
+// It fails when Register refuses a verb, and backend startup fails with it
+// (adr/0382).
+func DefaultCatalog() (*Catalog, error) {
 	c := NewCatalog()
 	for _, d := range []CapabilityDescriptor{
 		{
@@ -254,7 +268,9 @@ func DefaultCatalog() *Catalog {
 			Output: "list<capability_summary>",
 		},
 	} {
-		c.Register(d)
+		if err := c.Register(d); err != nil {
+			return nil, err
+		}
 	}
-	return c
+	return c, nil
 }

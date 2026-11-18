@@ -10,22 +10,25 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/sd-strax/reckon/internal/catalog"
 )
 
 // Intrinsic tool names — the reasoning/action surface that exists regardless of
 // tenant capability config. Capability verbs are appended per session from the
-// live catalog (05 §3.4 step 2).
+// live catalog (05 §3.4 step 2). The names are defined in internal/catalog, so
+// the backend refuses a verb that takes one (adr/0382).
 const (
-	ToolRecallSOPs              = "recall_sops"
-	ToolRecallSimilar           = "recall_similar_investigations"
-	ToolPriorInvestigations     = "prior_investigations"
-	ToolProposeHypothesis       = "propose_hypothesis"
-	ToolRecordPrediction        = "record_prediction"
-	ToolEvaluateHypothesis      = "evaluate_hypothesis"
-	ToolRecordPredictionOutcome = "record_prediction_outcome"
-	ToolListActions             = "list_actions"
-	ToolReadResult              = "read_result"
-	ToolReadSOP                 = "read_sop"
+	ToolRecallSOPs              = catalog.ToolRecallSOPs
+	ToolRecallSimilar           = catalog.ToolRecallSimilar
+	ToolPriorInvestigations     = catalog.ToolPriorInvestigations
+	ToolProposeHypothesis       = catalog.ToolProposeHypothesis
+	ToolRecordPrediction        = catalog.ToolRecordPrediction
+	ToolEvaluateHypothesis      = catalog.ToolEvaluateHypothesis
+	ToolRecordPredictionOutcome = catalog.ToolRecordPredictionOutcome
+	ToolListActions             = catalog.ToolListActions
+	ToolReadResult              = catalog.ToolReadResult
+	ToolReadSOP                 = catalog.ToolReadSOP
 )
 
 // buildTools assembles the session's tool definitions: one tool per AVAILABLE
@@ -38,11 +41,12 @@ const (
 // What the model is shown and what dispatch can run come from this one step: the
 // definitions are the list, and the map is the list by name. Two tools of one
 // name would leave the model's list ambiguous, so a verb or an action tool
-// that takes another tool's name fails here.
+// that takes another tool's name fails here. The backend refuses such a name
+// when it is registered (adr/0382), so this is a last guard.
 func buildTools(caps []Capability, actionTypes []ActionType) ([]ToolDef, map[string]tool, error) {
 	var tools []tool
 	for _, c := range caps {
-		if c.Status != "available" {
+		if c.Status != catalog.StatusAvailable {
 			continue
 		}
 		if c.Descriptor.Verb == "list_capabilities" {
@@ -56,11 +60,7 @@ func buildTools(caps []Capability, actionTypes []ActionType) ([]ToolDef, map[str
 	// action type.
 	slices.SortStableFunc(tools, func(a, b tool) int { return strings.Compare(a.def.Name, b.def.Name) })
 	tools = append(tools, intrinsicTools()...)
-	actions, err := actionTools(actionTypes)
-	if err != nil {
-		return nil, nil, err
-	}
-	tools = append(tools, actions...)
+	tools = append(tools, actionTools(actionTypes)...)
 
 	defs := make([]ToolDef, 0, len(tools))
 	byName := make(map[string]tool, len(tools))

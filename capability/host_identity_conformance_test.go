@@ -339,7 +339,7 @@ func TestDeviceInventoryFixture(t *testing.T) {
 	for _, s := range res.SCOs {
 		ents = append(ents, ocsfview.Entity{Ref: string(s.ID), Type: s.Type, Props: s.Properties})
 	}
-	v := ocsfview.Render(ocsfview.Event{ClassUID: 5001, Payload: f.OCSF}, ents)
+	v := ocsfview.Render(ocsfview.Event{ClassUID: 5001, Payload: f.OCSF}, ents, nil)
 	if len(v.Sentence) == 0 || v.Sentence[0].T != "entity" || v.Sentence[0].Ref != string(host) {
 		t.Errorf("rendered sentence = %+v; want it to open on the host", v.Sentence)
 	}

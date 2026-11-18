@@ -209,7 +209,11 @@ func (*emailURLNormalizer) ClassUID() int { return 4012 }
 // URIs, adr/0357
 // 7: an account typed Windows only on a Windows signal, account type 19
 // read as one, adr/0366
-func (*emailURLNormalizer) Version() int { return 7 }
+// 8: the account type read by the one rule, a caption for every type and
+// the id over it, adr/0367
+// 9: the account minted for each user object recorded in user_accounts,
+// adr/0398
+func (*emailURLNormalizer) Version() int { return 9 }
 
 func (n *emailURLNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
@@ -245,7 +249,11 @@ func (*emailFileNormalizer) ClassUID() int { return 4011 }
 // names STIX can hold, adr/0357
 // 7: an account typed Windows only on a Windows signal, account type 19
 // read as one, adr/0366
-func (*emailFileNormalizer) Version() int { return 7 }
+// 8: the account type read by the one rule, a caption for every type and
+// the id over it, adr/0367
+// 9: the account minted for each user object recorded in user_accounts,
+// adr/0398
+func (*emailFileNormalizer) Version() int { return 9 }
 
 func (n *emailFileNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload

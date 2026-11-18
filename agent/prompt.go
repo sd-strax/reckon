@@ -3,6 +3,8 @@ package agent
 import (
 	"fmt"
 	"strings"
+
+	"github.com/sd-strax/reckon/internal/catalog"
 )
 
 // Hypothesis-framing shapes (01 §reckon-hypothesis "Competing hypotheses"), mirrored
@@ -443,7 +445,7 @@ func systemPrompt(inv Investigation, caps []Capability) string {
 func degradedVerbs(caps []Capability) []string {
 	var degraded []string
 	for _, c := range caps {
-		if c.Status == "degraded" {
+		if c.Status == catalog.StatusDegraded {
 			degraded = append(degraded, c.Descriptor.Verb)
 		}
 	}

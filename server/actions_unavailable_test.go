@@ -90,7 +90,7 @@ func TestRequestAction_UnavailableRefused(t *testing.T) {
 		cfg: BackendConfig{
 			Handler:        new(aggregate.Handler),
 			Gate2:          g,
-			ActionCatalog:  action.DefaultActionCatalog(),
+			ActionCatalog:  defaultActionCatalog(t),
 			ActionResolver: bindingResolver(&healthCalls),
 		},
 		verifier: testVerifier(t),

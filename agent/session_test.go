@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/sd-strax/reckon/aggregate"
+	"github.com/sd-strax/reckon/internal/catalog"
 )
 
 // scriptedLLM replays a fixed sequence of completions and records what it was
@@ -1952,7 +1953,7 @@ func TestCapabilityCallID(t *testing.T) {
 // TestToolSetHash: the hash moves with what the model is offered — a verb's
 // description or availability — and not with the order the backend served.
 func TestToolSetHash(t *testing.T) {
-	verb := func(name, intent, status string) Capability {
+	verb := func(name, intent string, status catalog.CapabilityStatus) Capability {
 		var c Capability
 		c.Status = status
 		c.Descriptor.Verb = name

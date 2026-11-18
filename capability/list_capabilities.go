@@ -3,21 +3,24 @@ package capability
 import (
 	"slices"
 	"sort"
+
+	"github.com/sd-strax/reckon/internal/catalog"
 )
 
-// CapabilityStatus is a verb's current resolvability in the tenant (§6.3).
-type CapabilityStatus string
+// CapabilityStatus is a verb's current resolvability in the tenant (§6.3). It
+// is defined once in internal/catalog, which the agent shares (adr/0385).
+type CapabilityStatus = catalog.CapabilityStatus
 
 const (
 	// StatusAvailable: at least one configured binding's adapter is present and
 	// healthy — the agent may advertise this verb to the LLM.
-	StatusAvailable CapabilityStatus = "available"
+	StatusAvailable = catalog.StatusAvailable
 	// StatusDegraded: bindings are configured but every adapter is absent or
 	// unhealthy. Recoverable; the agent may re-list later in the session.
-	StatusDegraded CapabilityStatus = "degraded"
+	StatusDegraded = catalog.StatusDegraded
 	// StatusUnavailable: no binding is configured for this verb in the tenant.
 	// Structural — will not change without a config edit.
-	StatusUnavailable CapabilityStatus = "unavailable"
+	StatusUnavailable = catalog.StatusUnavailable
 )
 
 // CapabilitySummary pairs a verb descriptor with its current availability and
@@ -46,16 +49,16 @@ type Limitation struct {
 // and the limitations of the bindings that answer it. Each adapter's health is
 // probed at most once per listing. Results are sorted by verb for stable
 // output.
-func (r *Resolver) ListCapabilities(catalog *Catalog) []CapabilitySummary {
-	return r.listCapabilities(catalog, true)
+func (r *Resolver) ListCapabilities(cat *Catalog) []CapabilitySummary {
+	return r.listCapabilities(cat, true)
 }
 
-func (r *Resolver) listCapabilities(catalog *Catalog, withLimitations bool) []CapabilitySummary {
-	verbs := catalog.Verbs()
+func (r *Resolver) listCapabilities(cat *Catalog, withLimitations bool) []CapabilitySummary {
+	verbs := cat.Verbs()
 	p := healthProbe{r: r, seen: map[string]HealthStatus{}}
 	out := make([]CapabilitySummary, 0, len(verbs))
 	for _, verb := range verbs {
-		d, _ := catalog.Descriptor(verb)
+		d, _ := cat.Descriptor(verb)
 		bindings := sortedByPriority(r.bindings[verb])
 		status, first := p.verbStatus(bindings)
 		s := CapabilitySummary{Descriptor: d, Status: status, Bindings: len(bindings)}
@@ -139,9 +142,9 @@ func (p healthProbe) limitations(bindings []Binding, first int) []Limitation {
 
 // AvailableVerbs returns just the verbs the agent should advertise (§6.3): those
 // whose status is available.
-func (r *Resolver) AvailableVerbs(catalog *Catalog) []string {
+func (r *Resolver) AvailableVerbs(cat *Catalog) []string {
 	var out []string
-	for _, s := range r.listCapabilities(catalog, false) {
+	for _, s := range r.listCapabilities(cat, false) {
 		if s.Status == StatusAvailable {
 			out = append(out, s.Descriptor.Verb)
 		}

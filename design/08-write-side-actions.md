@@ -93,11 +93,13 @@ through one tool per verb (`03 §6.3`). The model never writes `request_action` 
   the tool, puts every key that is not a shared field into `parameters`, drops a `null` value for a
   declared optional input, and sends `request_action`. The engine validates it against `§3` as for
   any caller, so an undeclared key is refused by name.
-- **The description comes from the descriptor.** It holds the descriptor's `Intent`, tier and
-  reversibility, "degraded" when that is the type's status, and the guidance every request shares:
-  the request goes through authorization, the agent proposes and never approves, and it must cite
-  evidence. An unavailable type's description says it cannot be carried out in this install and
-  leaves the guidance out.
+- **The description comes from the descriptor.** It starts with the action type the tool requests
+  (`Action type: ticket.create.`), so the model can match the type id it reads in the state rows,
+  `list_actions` and the engine's refusals to the tool that names it (adr/0386). Then it holds the
+  descriptor's `Intent`, tier and reversibility, "degraded" when that is the type's status, and
+  the guidance every request shares: the request goes through authorization, the agent proposes and
+  never approves, and it must cite evidence. An unavailable type's description says it cannot be
+  carried out in this install and leaves the guidance out.
 - **No catalog, no action tools.** With the action layer off, the catalog and `POST /api/actions`
   both answer 503, so the session offers no action tools. The loop tries the fetch up to three
   times before it reads a 503 that way. Any other error that survives the retries fails the session

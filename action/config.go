@@ -112,7 +112,10 @@ func BuildActionResolverWithAdapters(cfg TenantActionConfig, fixtureRoot string,
 		}
 		bindings[at] = scoped
 	}
-	catalog := DefaultActionCatalog()
+	catalog, err := DefaultActionCatalog()
+	if err != nil {
+		return nil, nil, err
+	}
 	// A binding that references an undeclared input is silently never-applicable
 	// (it falls through to a lower-priority binding at dispatch); surface it
 	// loudly here rather than letting the wrong tool act. Non-fatal: the binding
