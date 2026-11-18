@@ -97,3 +97,25 @@ func TestBuildRequestCommand_TargetTypes(t *testing.T) {
 		t.Error("a reversal with a wrong-type target should be refused")
 	}
 }
+
+// TestRegister_RefusesAnUnknownTargetType (adr/0354): a target type that is
+// not an entity type reckon mints could never be carried by a target, so the
+// descriptor is refused and not registered. Every type in the default catalog
+// is accepted.
+func TestRegister_RefusesAnUnknownTargetType(t *testing.T) {
+	for _, tt := range []string{"host", "ip-addr", "observed-data", "artifact", ""} {
+		c := NewActionCatalog()
+		err := c.Register(ActionDescriptor{ActionType: "x.act", TargetTypes: []string{tt}})
+		if err == nil || !strings.Contains(err.Error(), "not an entity type") {
+			t.Errorf("target type %q: Register = %v; want a refusal naming it", tt, err)
+		}
+		if _, ok := c.Descriptor("x.act"); ok {
+			t.Errorf("target type %q: descriptor was registered", tt)
+		}
+	}
+	c := NewActionCatalog()
+	if err := c.Register(ActionDescriptor{ActionType: "x.act", TargetTypes: []string{"reckon-host", "ipv4-addr"}}); err != nil {
+		t.Errorf("entity target types refused: %v", err)
+	}
+	defaultActionCatalog(t) // fails the test if any default descriptor is refused
+}

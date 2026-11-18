@@ -65,6 +65,13 @@ func (c *ActionCatalog) Register(d ActionDescriptor) error {
 	if err := catalog.ValidateActionDescriptor(d.ActionType, inputs); err != nil {
 		return fmt.Errorf("register action descriptor: %w", err)
 	}
+	// A target type must be an entity type reckon mints, or no target could
+	// ever carry it (adr/0354).
+	for _, tt := range d.TargetTypes {
+		if !identity.IsEntityType(tt) {
+			return fmt.Errorf("register action descriptor: action type %q: target type %q is not an entity type", d.ActionType, tt)
+		}
+	}
 	name := catalog.ActionToolName(d.ActionType)
 	for t := range c.byType {
 		if t != d.ActionType && catalog.ActionToolName(t) == name {
