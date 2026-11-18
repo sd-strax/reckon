@@ -230,8 +230,8 @@ func (f *fakeEvidence) Object(_ context.Context, ref string) (evidence.Object, e
 func (f *fakeEvidence) Event(context.Context, uuid.UUID) (evidence.Event, error) {
 	return evidence.Event{}, evidence.ErrNotFound
 }
-func (f *fakeEvidence) EventEntities(context.Context, uuid.UUID) ([]evidence.Object, error) {
-	return nil, f.err
+func (f *fakeEvidence) EventDerived(context.Context, uuid.UUID) (evidence.Derived, error) {
+	return evidence.Derived{}, f.err
 }
 func (f *fakeEvidence) IndicatorNeighbourhood(context.Context, evidence.Object) (evidence.Neighbourhood, error) {
 	return evidence.Neighbourhood{}, f.err

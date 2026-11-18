@@ -37,8 +37,12 @@ var (
 	// (adr/0324, adr/0357). Readers that ask which records are about an
 	// entity read it beside object_refs.
 	ObservationPersonRef = prop(ExtObservation, "person_ref")
-	AssertionAssertedBy  = prop(ExtAssertion, "asserted_by")
-	AssertionWithdrawnAt = prop(ExtAssertion, "withdrawn_at")
+	// ObservationUserAccounts maps each user object's place in the record to
+	// the strong accounts the normalizer minted for it (adr/0398). Readers that link
+	// a user object to its account read it.
+	ObservationUserAccounts = prop(ExtObservation, "user_accounts")
+	AssertionAssertedBy     = prop(ExtAssertion, "asserted_by")
+	AssertionWithdrawnAt    = prop(ExtAssertion, "withdrawn_at")
 )
 
 // Extension is the name of the property-extension the property is in.
@@ -52,6 +56,12 @@ func (p Prop) Name() string { return p.name }
 // object has no such property.
 func (p Prop) SQL(column string) string {
 	return ExtensionSQL(column, p.ext) + "->>'" + p.name + "'"
+}
+
+// JSONSQL is SQL with the property's value as jsonb, not as text. It is
+// NULL when the object has no such property.
+func (p Prop) JSONSQL(column string) string {
+	return ExtensionSQL(column, p.ext) + "->'" + p.name + "'"
 }
 
 // From reads the property from a decoded STIX object. It is nil when the

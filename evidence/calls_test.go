@@ -3,6 +3,7 @@ package evidence
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -212,8 +213,8 @@ func TestInvestigationEvents(t *testing.T) {
 	if len(all.Rows[1].Entities) != 1 || all.Rows[1].Entities[0].Ref != string(host1) {
 		t.Errorf("second row entities = %+v; want the host alone", all.Rows[1].Entities)
 	}
-	if ents, err := s.EventEntities(ctx, first.ID); err != nil || len(ents) != 2 {
-		t.Errorf("EventEntities = %d, %v; want 2", len(ents), err)
+	if d, err := s.EventDerived(ctx, first.ID); err != nil || len(d.Entities) != 2 {
+		t.Errorf("EventDerived = %d, %v; want 2", len(d.Entities), err)
 	}
 
 	bySvc, err := s.InvestigationEvents(ctx, inv, EventFilter{Entity: string(svc)})
@@ -342,5 +343,23 @@ func TestRecordArtifactIsNotAnEntity(t *testing.T) {
 	}
 	if len(around.Rows) != 0 {
 		t.Errorf("around = %d rows; want none, since the record names no entity", len(around.Rows))
+	}
+}
+
+// TestAddUserAccounts_Conflict: two observations of one event that list
+// different accounts at one place leave that place unlinked, whatever a
+// third says. A place whose lists agree stays linked.
+func TestAddUserAccounts_Conflict(t *testing.T) {
+	rows := []EventRow{{}}
+	conflicts := map[rowPlace]bool{}
+	for _, raw := range []string{
+		`{"user":["user-account--a"],"actor.user":["user-account--c","user-account--d"]}`,
+		`{"user":["user-account--b"],"actor.user":["user-account--c","user-account--d"]}`,
+		`{"user":["user-account--a"]}`,
+	} {
+		addUserAccounts(rows, 0, []byte(raw), conflicts)
+	}
+	if got := rows[0].UserAccounts; len(got) != 1 || !slices.Equal(got["actor.user"], []string{"user-account--c", "user-account--d"}) {
+		t.Errorf("user_accounts = %v; want only actor.user linked", got)
 	}
 }

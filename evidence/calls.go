@@ -92,6 +92,10 @@ type EventRow struct {
 	// Entities are the objects EntityRefs name, as the record holds them, so a
 	// reading surface can render the event with its entities (adr/0090).
 	Entities []Object
+	// UserAccounts maps each user object's place in the event to the strong
+	// accounts the normalizer minted for it, the one shown first, from the
+	// observations' user_accounts (adr/0398).
+	UserAccounts map[string][]string
 }
 
 // EventFilter narrows an investigation's events. Entity keeps events whose
@@ -435,7 +439,8 @@ func (s *Store) attachDerivedRefs(ctx context.Context, rows []EventRow) error {
 	}
 	// #nosec G202 -- the joined fragments are fixed JSON paths from the stix package, never input.
 	res, err := s.db.QueryContext(ctx, `
-		SELECT ode.ocsf_event_id, ode.observed_data_id, o.payload->'object_refs', COALESCE(`+stix.ObservationPersonRef.SQL("o.payload")+`, '')
+		SELECT ode.ocsf_event_id, ode.observed_data_id, o.payload->'object_refs', COALESCE(`+stix.ObservationPersonRef.SQL("o.payload")+`, ''),
+			`+stix.ObservationUserAccounts.JSONSQL("o.payload")+`
 		FROM observed_data_events ode JOIN stix_objects o ON o.id = ode.observed_data_id
 		WHERE ode.ocsf_event_id = ANY($1)
 		ORDER BY ode.ocsf_event_id, ode.observed_data_id
@@ -444,11 +449,12 @@ func (s *Store) attachDerivedRefs(ctx context.Context, rows []EventRow) error {
 		return fmt.Errorf("query derived objects: %w", err)
 	}
 	defer res.Close()
+	conflicts := map[rowPlace]bool{}
 	for res.Next() {
 		var eventID, odID uuid.UUID
-		var refsJSON []byte
+		var refsJSON, accountsJSON []byte
 		var personRef string
-		if err := res.Scan(&eventID, &odID, &refsJSON, &personRef); err != nil {
+		if err := res.Scan(&eventID, &odID, &refsJSON, &personRef, &accountsJSON); err != nil {
 			return fmt.Errorf("scan derived object: %w", err)
 		}
 		i, ok := index[eventID]
@@ -456,6 +462,7 @@ func (s *Store) attachDerivedRefs(ctx context.Context, rows []EventRow) error {
 			continue
 		}
 		rows[i].ObservedDataRefs = append(rows[i].ObservedDataRefs, "observed-data--"+odID.String())
+		addUserAccounts(rows, i, accountsJSON, conflicts)
 		var refs []string
 		_ = json.Unmarshal(refsJSON, &refs)
 		// A directory record names its person in person_ref, which
@@ -474,6 +481,37 @@ func (s *Store) attachDerivedRefs(ctx context.Context, rows []EventRow) error {
 		}
 	}
 	return res.Err()
+}
+
+// rowPlace is one user object's place in one row's event.
+type rowPlace struct {
+	row   int
+	place string
+}
+
+// addUserAccounts adds one observation's user_accounts to row i. Two
+// observations of one event that name different accounts at one place leave
+// that place unlinked, since a missed link is better than a wrong one.
+func addUserAccounts(rows []EventRow, i int, raw []byte, conflicts map[rowPlace]bool) {
+	var m map[string][]string
+	if len(raw) == 0 || json.Unmarshal(raw, &m) != nil {
+		return
+	}
+	for place, accts := range m {
+		k := rowPlace{i, place}
+		if conflicts[k] {
+			continue
+		}
+		if rows[i].UserAccounts == nil {
+			rows[i].UserAccounts = map[string][]string{}
+		}
+		if got, ok := rows[i].UserAccounts[place]; ok && !slices.Equal(got, accts) {
+			delete(rows[i].UserAccounts, place)
+			conflicts[k] = true
+			continue
+		}
+		rows[i].UserAccounts[place] = accts
+	}
 }
 
 // attachEntities reads the objects the rows' entity refs name, once per
@@ -523,14 +561,21 @@ func (s *Store) attachEntities(ctx context.Context, rows []EventRow) error {
 	return nil
 }
 
-// EventEntities returns the objects one event's observed-data name, as the
-// record holds them.
-func (s *Store) EventEntities(ctx context.Context, eventID uuid.UUID) ([]Object, error) {
+// Derived is what the record derived from one event: the objects its
+// observed-data name, as the record holds them, and the account minted for
+// each user object (EventRow.UserAccounts).
+type Derived struct {
+	Entities     []Object
+	UserAccounts map[string][]string
+}
+
+// EventDerived returns what the record derived from one event.
+func (s *Store) EventDerived(ctx context.Context, eventID uuid.UUID) (Derived, error) {
 	rows := []EventRow{{Event: Event{ID: eventID}}}
 	if err := s.attachDerived(ctx, rows); err != nil {
-		return nil, err
+		return Derived{}, err
 	}
-	return rows[0].Entities, nil
+	return Derived{Entities: rows[0].Entities, UserAccounts: rows[0].UserAccounts}, nil
 }
 
 // eventEntityRefs returns the entity refs one event's observed-data name.

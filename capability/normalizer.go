@@ -2,6 +2,8 @@ package capability
 
 import (
 	"errors"
+	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -180,6 +182,11 @@ type resultBuilder struct {
 	rels   []Relationship
 	edges  []Edge
 	refs   []identity.STIXID
+
+	// accounts maps each user object's place in the event to the strong
+	// accounts minted for it, the one the view shows first (recordAccount,
+	// adr/0398).
+	accounts map[string][]string
 }
 
 func newBuilder(r *identity.Resolver, evt OcsfEvent, normalizer string, version int) *resultBuilder {
@@ -268,9 +275,23 @@ func (b *resultBuilder) addRefRel(relType string, src, tgt identity.STIXID) {
 	}
 }
 
+// recordAccount records that the user object at place in the event minted
+// the strong account id, the one in object_refs (adr/0398). It is appended
+// to the place's list once; the first recorded is the one the view shows.
+func (b *resultBuilder) recordAccount(place string, id identity.STIXID) {
+	if place == "" || id == "" || slices.Contains(b.accounts[place], string(id)) {
+		return
+	}
+	if b.accounts == nil {
+		b.accounts = map[string][]string{}
+	}
+	b.accounts[place] = append(b.accounts[place], string(id))
+}
+
 // finish mints the ObservedData over the collected refs, adds its derived-from
 // edge, and returns the assembled result. extensions carries custom fields
-// (e.g. logon_type/status).
+// (e.g. logon_type/status). The accounts minted for user objects are added
+// to them as user_accounts (adr/0398).
 //
 // STIX requires an observation to list at least one object. When the record
 // gave no entity, finish lists an artifact that stands for the stored record
@@ -279,6 +300,13 @@ func (b *resultBuilder) addRefRel(relType string, src, tgt identity.STIXID) {
 func (b *resultBuilder) finish(extensions map[string]any) NormalizationResult {
 	if len(b.refs) == 0 {
 		b.recordArtifact()
+	}
+	if len(b.accounts) > 0 {
+		extensions = maps.Clone(extensions)
+		if extensions == nil {
+			extensions = map[string]any{}
+		}
+		extensions[stix.ObservationUserAccounts.Name()] = b.accounts
 	}
 	odID := b.r.ObservedData(b.evt.ClassUID, b.evt.Time, b.evt.SourceTool, b.prov.NormalizerVersion, b.evt.Payload)
 	b.edges = append(b.edges, Edge{Type: EdgeDerivedFrom, SourceRef: odID, OcsfEventID: b.evt.ID.String()})
@@ -396,7 +424,13 @@ func (b *resultBuilder) recordArtifact() {
 type at struct {
 	obj  map[string]any
 	path string
+	// in is the place of obj in the event (ocsf.PlaceIn): "" for the event
+	// itself, "evidences[0]" for an entry of evidences[].
+	in string
 }
+
+// place is the object's place in the event (adr/0398).
+func (a at) place() string { return ocsf.PlaceIn(a.in, a.path) }
 
 // top names an object at the top of the event.
 func (b *resultBuilder) top(path string) at { return at{obj: b.evt.Payload, path: path} }
@@ -740,15 +774,33 @@ func objectAt(m map[string]any, path string) map[string]any {
 
 // objectsAt reads the list at path of m as its object entries.
 func objectsAt(m map[string]any, path string) []map[string]any {
+	var out []map[string]any
+	for _, e := range objectEntries(m, path) {
+		out = append(out, e.obj)
+	}
+	return out
+}
+
+// entry is one object entry of a list in the event, with its place there.
+type entry struct {
+	obj   map[string]any
+	place string
+}
+
+// objectEntries reads the list at path of the event m as its object
+// entries. Each entry's place carries its index in the list as the payload
+// holds it, entries that are not objects counted, so a reader of the
+// payload finds it there (adr/0398).
+func objectEntries(m map[string]any, path string) []entry {
 	v, ok := lookupPath(m, path)
 	if !ok {
 		return nil
 	}
 	list, _ := v.([]any)
-	var out []map[string]any
-	for _, item := range list {
+	var out []entry
+	for i, item := range list {
 		if obj, ok := item.(map[string]any); ok {
-			out = append(out, obj)
+			out = append(out, entry{obj: obj, place: ocsf.PlaceAt(path, i)})
 		}
 	}
 	return out

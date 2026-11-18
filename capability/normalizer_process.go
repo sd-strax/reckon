@@ -20,7 +20,9 @@ func (*processNormalizer) ClassUID() int { return 1007 }
 // read as one, adr/0366
 // 8: the account type read by the one rule, a caption for every type and
 // the id over it, adr/0367
-func (*processNormalizer) Version() int { return 8 }
+// 9: the account minted for each user object recorded in user_accounts,
+// adr/0398
+func (*processNormalizer) Version() int { return 9 }
 
 func (n *processNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	b := newBuilder(n.r, evt, "process_activity", n.Version())

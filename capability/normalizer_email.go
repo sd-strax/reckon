@@ -211,7 +211,9 @@ func (*emailURLNormalizer) ClassUID() int { return 4012 }
 // read as one, adr/0366
 // 8: the account type read by the one rule, a caption for every type and
 // the id over it, adr/0367
-func (*emailURLNormalizer) Version() int { return 8 }
+// 9: the account minted for each user object recorded in user_accounts,
+// adr/0398
+func (*emailURLNormalizer) Version() int { return 9 }
 
 func (n *emailURLNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
@@ -249,7 +251,9 @@ func (*emailFileNormalizer) ClassUID() int { return 4011 }
 // read as one, adr/0366
 // 8: the account type read by the one rule, a caption for every type and
 // the id over it, adr/0367
-func (*emailFileNormalizer) Version() int { return 8 }
+// 9: the account minted for each user object recorded in user_accounts,
+// adr/0398
+func (*emailFileNormalizer) Version() int { return 9 }
 
 func (n *emailFileNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
