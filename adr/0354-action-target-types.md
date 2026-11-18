@@ -56,6 +56,10 @@ these requests carry no meaningful `entity_ref`.
 - **An undo type requested on its own is an ordinary action.**
   `account.enable` with no `reversal_of_ref` is checked like any other
   request. The engine does not tie it to an earlier `account.disable`.
+- **A descriptor's target types are checked when it is registered.**
+  `ActionCatalog.Register` refuses a descriptor whose `target_types` names a
+  type that isn't an entity type reckon mints, the same check adr/0382 makes
+  of the rest of the descriptor. No target could ever carry such a type.
 - **`list_action_types` carries the target types** as part of each
   descriptor, so a surface can offer only the targets an action takes.
 

@@ -22,6 +22,7 @@
 package identity
 
 import (
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -68,6 +69,21 @@ const (
 	TypeNullObservation = "reckon-null-observation"
 	TypeIdentity        = "identity"
 )
+
+// entityTypes are the types an entity reckon mints can have: what an action
+// acts on, or an observation names. The stored-record artifact, the
+// observation, the absence record and the vendor identity are not entities.
+var entityTypes = []string{
+	TypeIPv4Addr, TypeIPv6Addr, TypeDomainName, TypeURL, TypeFile,
+	TypeEmailAddr, TypeUserAccount, TypeProcess, TypeDirectory,
+	TypeNetworkTraffic, TypeEmailMessage, TypeWindowsRegistryKey, TypeHost,
+	TypeScheduledTask, TypeGroup, TypeCloudAccount, TypeCloudResource,
+}
+
+// IsEntityType reports whether t is the type of an entity reckon mints.
+func IsEntityType(t string) bool {
+	return slices.Contains(entityTypes, t)
+}
 
 // The reasoning and action types. Their ids are not minted by this resolver,
 // but every reckon custom type is named here, so the stix package can check
