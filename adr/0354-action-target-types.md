@@ -89,10 +89,11 @@ these requests carry no meaningful `entity_ref`.
 - A re-request copies the stored targets, so a re-request of an action with
   a wrong-type or missing `entity_ref` is refused. A new request is needed.
 - The check is on the type only. It does not check that the entity is in
-  this investigation, or that `resolved_identifier` names that entity.
-  Resolving a target from a weak reference, such as an address to its hosts,
-  with the analyst picking among several, is a larger mechanism and is not
-  decided here.
+  this investigation. `resolved_identifier`, the string the tool receives,
+  is still written by the requester. Deriving it from the target entity,
+  by a rule the binding declares, is #406, which builds on this check.
+  Resolving a target from a weak reference, such as an address to its
+  hosts, with the analyst picking among several, is not decided here.
 - `design/04 §3.1` and `§8.1`, and the descriptor in `design/08 §3`, gain
   the target types. The worked example in `04` that isolates a host by its
   IP address now targets the host.
