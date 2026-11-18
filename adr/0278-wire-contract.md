@@ -1,6 +1,6 @@
 # 0278 — The Go type is the one definition of every wire shape; TypeScript is generated from it and `make ci` checks both halves
 
-Issue: #278 · PRs: #416 (step 1), #417 (step 2) · Status: accepted
+Issue: #278 · PRs: #416 (step 1), #417 (step 2), #418 (step 3) · Status: accepted
 
 ## Context
 
