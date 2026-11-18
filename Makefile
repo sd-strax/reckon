@@ -1,4 +1,4 @@
-.PHONY: help build test test-all conformance test-race run vet tidy hooks clean ci ci-full bundle lint eval eval-accept eval-regrade workbench-ci workbench-package wire-fixtures demo-reseed
+.PHONY: help build test test-all conformance test-race run vet tidy hooks clean ci ci-full bundle lint eval eval-accept eval-regrade workbench-ci node-check workbench-package wire-fixtures demo-reseed
 .DEFAULT_GOAL := help
 
 help: ## List available targets
@@ -57,7 +57,10 @@ hooks: ## Install the OSS-leak prevention pre-commit hook
 clean: ## Remove built binaries
 	rm -rf bin/
 
-ci: lint test-all build ## Pre-PR check, the same gate CI runs: lint + full test suite + build
+node-check: # fail make ci at once, not after the Go suite, when Node is missing (adr/0278)
+	@command -v npm >/dev/null || (echo "npm not found: make ci runs the workbench build and needs Node (CI uses Node 22)" && exit 1)
+
+ci: node-check lint test-all build workbench-ci ## Pre-PR check: lint + full test suite + build + the workbench build (needs Node, adr/0278)
 
 ci-full: ci ## Alias for `ci` (the full suite is the PR gate now)
 
@@ -76,7 +79,7 @@ eval-accept: ## Accept the latest eval run as the committed per-model baseline (
 eval-regrade: ## Re-grade the latest run's committed trials with the current grader catalogue (token-free); rewrites its report.json. Refuses if the driver script changed since the run. SCENARIO=<driver> as for eval.
 	RECKON_EVAL_REGRADE=1 RECKON_EVAL_SCENARIO=$(SCENARIO) go test -count=1 -run '^TestRegradeRun$$' -v ./eval/
 
-workbench-ci: ## Install + compile the VS Code extension (workbench/). Requires Node; never part of `ci` — engine work stays Go-only.
+workbench-ci: ## Install, compile, lint and test the VS Code extension (workbench/). Requires Node; part of `ci` (adr/0278)
 	cd workbench && npm ci && npm run compile && npm run lint && npm test
 
 wire-fixtures: ## Rewrite the golden wire samples the workbench's decoders are tested against (adr/0244)

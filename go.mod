@@ -2,6 +2,10 @@ module github.com/sd-strax/reckon
 
 go 1.25.0
 
+// npm installs packages that ship Go sources under workbench/node_modules;
+// make ci runs the workbench build, so keep them out of ./... (adr/0278).
+ignore ./workbench/node_modules
+
 require (
 	github.com/aws/aws-sdk-go-v2 v1.48.0
 	github.com/aws/aws-sdk-go-v2/credentials v1.21.0

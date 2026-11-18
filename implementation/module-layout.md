@@ -243,8 +243,10 @@ VS Code extension developed in the engine's tree and shipped as its own artifact
 
 **Residence.** In-tree because the extension's contract is the backend HTTP API, and that contract
 churns with every step of the v0 slice (`design/13 §7`): one repo keeps `server/` and the surface
-in atomic commits and one review scope, with the specs that bind both. Toolchains stay isolated —
-`make ci` remains pure Go and never requires Node; `make workbench-ci` runs the Node side. The
+in atomic commits and one review scope, with the specs that bind both. `make ci` runs the workbench
+build too (`make workbench-ci`), so it needs Node: the workbench decodes the Go wire shapes and its
+tests run against samples Go writes, so a Go change can break it (adr/0278). The root `go.mod`
+ignores `workbench/node_modules`, so the Go tools skip the Go sources npm installs there. The
 split-out trigger mirrors the fork criteria in `design/13 §2`: a stable API contract plus genuinely
 divergent release cadences. Extraction later is cheap; cross-repo coordination through the churn
 phase is the expensive direction.
