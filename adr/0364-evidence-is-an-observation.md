@@ -1,6 +1,6 @@
 # 0364 — A citation names an observation, and a raw event is reached through the observation made from it
 
-Issue: #364 · PR: pending · Status: accepted
+Issue: #364 · PR: #415 · Status: accepted
 
 ## Context
 
