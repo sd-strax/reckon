@@ -44,9 +44,13 @@ var (
 
 // Check compares T's two samples with those under dir. tune adjusts the filled
 // sample, for a field whose shape the type does not state (a map[string]any).
+// The zero sample is T's zero value, except that a required field of a Words
+// type holds its first word: Go never sends "" there, and the decoder refuses
+// it (adr/0278).
 func Check[T any](t *testing.T, dir, name string, tune ...func(*T)) {
 	t.Helper()
 	var zero T
+	zeroWords(t, reflect.ValueOf(&zero).Elem())
 	CheckValue(t, dir, name+".zero", zero)
 	var filled T
 	fill(t, reflect.ValueOf(&filled).Elem(), map[reflect.Type]int{})
@@ -77,6 +81,58 @@ func CheckValue(t *testing.T, dir, name string, v any) {
 	}
 	if !bytes.Equal(got, want) {
 		t.Errorf("%s changed on the wire: run make wire-fixtures, and update the workbench's decoder\n got: %s\nwant: %s", name, got, want)
+	}
+}
+
+// CheckFile compares a generated file with the one at path, or rewrites it
+// when updateEnv is set. A stale file fails naming the path and the command
+// that rewrites it.
+func CheckFile(t *testing.T, path string, got []byte) {
+	t.Helper()
+	if os.Getenv(updateEnv) != "" {
+		if err := os.WriteFile(path, got, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("%s: %v (make wire-fixtures writes it)", path, err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Errorf("%s differs from what the Go wire types generate: run make wire-fixtures to write it again, and do not edit it by hand", path)
+	}
+}
+
+// zeroWords sets each required field of a Words type in the struct v, and in
+// the structs v holds by value, to the type's first word. A required field
+// is one encoding/json always sends, so not a pointer, and without omitempty
+// or omitzero.
+func zeroWords(t *testing.T, v reflect.Value) {
+	t.Helper()
+	if v.Kind() != reflect.Struct || v.Type() == timeType {
+		return
+	}
+	for i := range v.NumField() {
+		sf := v.Type().Field(i)
+		fv := v.Field(i)
+		tag := sf.Tag.Get("json")
+		_, opts, _ := strings.Cut(tag, ",")
+		options := strings.Split(opts, ",")
+		// omitempty never leaves out a struct; omitzero leaves out a zero one.
+		omitted := slices.Contains(options, "omitzero") ||
+			slices.Contains(options, "omitempty") && fv.Kind() != reflect.Struct
+		if tag == "-" || !fv.CanSet() || omitted {
+			continue
+		}
+		switch fv.Kind() {
+		case reflect.String:
+			if fv.Type().Implements(wordsType) {
+				fv.SetString(firstWord(t, fv.Type()))
+			}
+		case reflect.Struct:
+			zeroWords(t, fv)
+		}
 	}
 }
 

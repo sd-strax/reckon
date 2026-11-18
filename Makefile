@@ -82,7 +82,7 @@ eval-regrade: ## Re-grade the latest run's committed trials with the current gra
 workbench-ci: ## Install, compile, lint and test the VS Code extension (workbench/). Requires Node; part of `ci` (adr/0278)
 	cd workbench && npm ci && npm run compile && npm run lint && npm test
 
-wire-fixtures: ## Rewrite the golden wire samples the workbench's decoders are tested against (adr/0244)
+wire-fixtures: ## Rewrite the golden wire samples and the generated TypeScript shapes the workbench decodes with (adr/0244, adr/0278)
 	RECKON_UPDATE_WIRE=1 go test -short ./server ./internal/sidecar -run '^TestWireFixtures$$' -count=1
 
 workbench-package: ## Build the installable .vsix from a CLEAN compile (stale out/*.js never ships). Install with: code --install-extension workbench/reckon-workbench-*.vsix --force

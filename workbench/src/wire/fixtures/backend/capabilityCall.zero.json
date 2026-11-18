@@ -2,7 +2,7 @@
   "call_id": "",
   "verb": "",
   "priority": 0,
-  "coverage": "",
+  "coverage": "COMPLETE",
   "bindings_answered": 0,
   "bindings_total": 0,
   "degradation_notes": null,
