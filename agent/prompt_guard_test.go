@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/sd-strax/reckon/internal/agentapi"
 )
 
 // fixtureRoot is the bundled scenario data, read from the repo checkout: the
@@ -58,8 +60,8 @@ func TestPrompt_NoScenarioVocabulary(t *testing.T) {
 	t.Logf("guarding against %d fixture identifiers, e.g. %s", len(idents), strings.Join(idents[:min(8, len(idents))], ", "))
 
 	texts := map[string]string{
-		"prompt/" + framingLeadingNull: systemPrompt(Investigation{HypothesisFraming: framingLeadingNull}, nil),
-		"prompt/" + framingLeadingOnly: systemPrompt(Investigation{HypothesisFraming: framingLeadingOnly}, nil),
+		"prompt/" + framingLeadingNull: systemPrompt(agentapi.InvestigationView{HypothesisFraming: framingLeadingNull}, nil),
+		"prompt/" + framingLeadingOnly: systemPrompt(agentapi.InvestigationView{HypothesisFraming: framingLeadingOnly}, nil),
 	}
 	for _, tl := range intrinsicTools() {
 		texts["tool/"+tl.def.Name] = toolText(tl.def)

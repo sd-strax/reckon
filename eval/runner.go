@@ -19,6 +19,7 @@ import (
 
 	"github.com/sd-strax/reckon/agent"
 	"github.com/sd-strax/reckon/config"
+	"github.com/sd-strax/reckon/internal/agentapi"
 	"github.com/sd-strax/reckon/internal/branding"
 )
 
@@ -398,7 +399,7 @@ func runTrial(ctx context.Context, client *agent.Client, backendURL string, huma
 // stamped source_tool "fixture:<scenario>" (03 §9.2). A mismatch names the
 // swap command rather than letting the run grade the wrong world.
 func checkWiredScenario(ctx context.Context, client *agent.Client, want string) error {
-	raw, err := client.InvokeCapability(ctx, "search_alerts", agent.InvokeInput{Extra: map[string]any{"filter": "*"}})
+	raw, err := client.InvokeCapability(ctx, "search_alerts", agentapi.CapabilityInvokeBody{Extra: map[string]any{"filter": "*"}})
 	if err != nil {
 		return fmt.Errorf("eval: probe the wired scenario (search_alerts): %w\n  is the stack up with a demo scenario wired? (`%s demo seed --scenario %s`)", err, branding.CLI, want)
 	}
@@ -697,7 +698,7 @@ func trialEndActions(ctx context.Context, client *agent.Client, invID string) ([
 		rows = append(rows, ActionRow{
 			ActionID:     a.ActionID,
 			ActionType:   a.ActionType,
-			Status:       a.Status,
+			Status:       string(a.Status),
 			IsReversal:   a.IsReversal,
 			EvidenceRefs: a.EvidenceRefs,
 		})

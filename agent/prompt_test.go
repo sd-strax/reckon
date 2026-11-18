@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/sd-strax/reckon/internal/agentapi"
 )
 
 // TestSystemPrompt_ActionHonesty guards the load-bearing anti-fabrication rules:
@@ -50,7 +52,7 @@ func TestPromptVersion(t *testing.T) {
 // evidence is never presented as live. Without the rule the behaviour is a
 // model disposition, not a contract (Sonnet 4.6 lost it under v0.9, #13).
 func TestSystemPrompt_TimeframeHonesty(t *testing.T) {
-	p := systemPrompt(Investigation{Title: "t"}, nil)
+	p := systemPrompt(agentapi.InvestigationView{Title: "t"}, nil)
 	for _, want := range []string{
 		"You have no live feed",
 		"[clock] block",
@@ -69,7 +71,7 @@ func TestSystemPrompt_TimeframeHonesty(t *testing.T) {
 // the prompt no longer promises a [knowledge] block the loop stopped sending
 // (adr/0129).
 func TestSystemPrompt_AnswerShape(t *testing.T) {
-	p := systemPrompt(Investigation{Title: "t"}, nil)
+	p := systemPrompt(agentapi.InvestigationView{Title: "t"}, nil)
 	for _, want := range []string{
 		"a one-sentence headline that states the answer",
 		"Findings",
@@ -90,7 +92,7 @@ func TestSystemPrompt_AnswerShape(t *testing.T) {
 }
 
 func TestSystemPrompt_ActionHonesty(t *testing.T) {
-	p := systemPrompt(Investigation{Title: "t"}, nil)
+	p := systemPrompt(agentapi.InvestigationView{Title: "t"}, nil)
 	for _, want := range []string{
 		"only when an action tool (request_<type>) returned its action_id on this turn",
 		"Do not narrate a ticket",

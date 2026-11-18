@@ -3,6 +3,7 @@ package action
 import (
 	"sort"
 
+	"github.com/sd-strax/reckon/internal/agentapi"
 	"github.com/sd-strax/reckon/internal/catalog"
 )
 
@@ -18,11 +19,8 @@ const (
 )
 
 // ActionSummary pairs an action descriptor with its current availability.
-type ActionSummary struct {
-	Descriptor ActionDescriptor   `json:"descriptor"`
-	Status     ActionAvailability `json:"status"`
-	Bindings   int                `json:"bindings"`
-}
+// It is defined in internal/agentapi, which the agent shares (adr/0278).
+type ActionSummary = agentapi.ActionSummary
 
 // ListActionTypes implements the list_action_types verb (08 §3): for every
 // cataloged action it reports whether the tenant can currently dispatch it, so

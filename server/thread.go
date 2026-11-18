@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"net/http"
-	"time"
 
 	"github.com/google/uuid"
 
@@ -17,64 +16,6 @@ import (
 // transaction (01, 02 §3), so nothing that changed the investigation is
 // missing, and nothing is duplicated. Ordered by sequence_no — the aggregate's
 // authoritative order — never occurred_at (caller-supplied wall clock).
-
-// ThreadActorView is who authored one reasoning act — the accountability
-// surface of "AI is a delegate, never a principal": Principal is always the
-// human, Kind says whether the AI (or the system) acted on their behalf.
-type ThreadActorView struct {
-	Principal string `json:"principal"`
-	// PrincipalName is the display name the identity provider presented at the
-	// time of the act (adr/0077); empty on events recorded before it existed.
-	PrincipalName string `json:"principal_name,omitempty"`
-	// Roles is what the identity provider asserted in the token at the time of
-	// the act; RequiredRoles the role set reckon required of it (adr/0105).
-	// Both empty on events recorded before they existed and on SYSTEM acts.
-	Roles         []string `json:"roles,omitempty"`
-	RequiredRoles []string `json:"required_roles,omitempty"`
-	Kind          string   `json:"kind"` // HUMAN | AI_DELEGATED | SYSTEM
-	// Model names the LLM for AI-delegated acts (actor.delegate).
-	Model string `json:"model,omitempty"`
-}
-
-// ThreadEntryView is one reasoning act in the thread.
-type ThreadEntryView struct {
-	SequenceNo         int64                `json:"sequence_no"`
-	OccurredAt         time.Time            `json:"occurred_at"`
-	Actor              ThreadActorView      `json:"actor"`
-	InterpretationID   string               `json:"interpretation_id"`
-	InterpretationType string               `json:"interpretation_type"`
-	Summary            string               `json:"summary"`
-	Confidence         aggregate.Confidence `json:"confidence,omitempty"`
-	InputRefs          []string             `json:"input_refs,omitempty"`
-	OutputRefs         []string             `json:"output_refs,omitempty"`
-	// ToolCalls counts the act's recorded tool dispatches; HasTranscript
-	// reports a committed transcript in the side store. Presence indicators —
-	// the bodies stay in their stores (GET .../transcript serves the body).
-	ToolCalls     int  `json:"tool_calls,omitempty"`
-	HasTranscript bool `json:"has_transcript,omitempty"`
-
-	// Superseded reports that a later interpretation.superseded retracted this
-	// act (e.g. a revised verdict, or an un-pinned finding). The act stays in the
-	// thread — no deletion — but a surface renders it struck, not current.
-	Superseded bool `json:"superseded,omitempty"`
-
-	// Disposition is a verdict act's disposition (BENIGN | SUSPICIOUS |
-	// MALICIOUS), so the thread can say what a verdict was, and what a
-	// revision changed, without the rationale standing in for it.
-	Disposition aggregate.VerdictDisposition `json:"disposition,omitempty"`
-
-	// ConsultedSOPs is the act's knowledge-retrieval provenance
-	// (design/ui 02 §2.11 renders the chips).
-	ConsultedSOPs []aggregate.ConsultedSOP `json:"consulted_sops,omitempty"`
-
-	// ConsultedSimilar is the act's similar-investigation provenance (06 §6).
-	ConsultedSimilar []aggregate.ConsultedSimilarInvestigation `json:"consulted_similar_investigations,omitempty"`
-}
-
-// ThreadResponse is GET /api/investigations/{id}/thread.
-type ThreadResponse struct {
-	Thread []ThreadEntryView `json:"thread"`
-}
 
 // listInvestigationThread serves the thread. Any authenticated reader
 // (viewer/analyst/auditor — enforced by the caller).

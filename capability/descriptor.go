@@ -4,27 +4,17 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/sd-strax/reckon/internal/agentapi"
 	"github.com/sd-strax/reckon/internal/catalog"
 )
 
-// CapabilityDescriptor is the LLM-facing declaration of a verb (§5.3): its name,
-// an intent description the agent renders into a tool definition, its typed
-// inputs, and its output type. Descriptors are data, not code — a new verb is a
-// catalog entry plus a binding, never a change to dispatch (§5.1).
-type CapabilityDescriptor struct {
-	Verb   string       `json:"verb"`
-	Intent string       `json:"intent"` // one-line, LLM-facing
-	Inputs []InputParam `json:"inputs"`
-	Output string       `json:"output"` // output type description
-}
+// CapabilityDescriptor is the LLM-facing declaration of a verb (§5.3). The
+// agent reads it from GET /api/capabilities, so it is defined in
+// internal/agentapi (adr/0278).
+type CapabilityDescriptor = agentapi.CapabilityDescriptor
 
 // InputParam is one typed verb input.
-type InputParam struct {
-	Name     string `json:"name"`
-	Type     string `json:"type"` // "entity", "time_window", "string", "int", "enum", …
-	Required bool   `json:"required"`
-	Desc     string `json:"desc,omitempty"`
-}
+type InputParam = agentapi.InputParam
 
 // Catalog holds the registered verb descriptors, keyed by verb name.
 type Catalog struct {

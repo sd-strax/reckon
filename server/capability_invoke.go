@@ -11,29 +11,6 @@ import (
 	"github.com/sd-strax/reckon/evidence"
 )
 
-// CapabilityInvokeBody is a verb call's input (03 §2): the entity the binding
-// templates resolve against, an optional time window, and extra template roots.
-type CapabilityInvokeBody struct {
-	Entity map[string]any `json:"entity,omitempty"`
-	Window *WindowInput   `json:"window,omitempty"`
-	Extra  map[string]any `json:"extra,omitempty"`
-	// SourceScope routes the call to the matching organization's adapter instance
-	// and scopes identity (03 §3.5). The agent loop supplies the investigation's
-	// Seed.SourceScope; empty in single-organization tenants reaches every
-	// unscoped instance as before.
-	SourceScope string `json:"source_scope,omitempty"`
-	// InvestigationRef names the investigation the call is made for, so the
-	// events it returns are members of it (adr/0092). Empty for a call made
-	// outside any investigation: it is recorded, but listed under none.
-	InvestigationRef string `json:"investigation_ref,omitempty"`
-}
-
-// WindowInput is the JSON shape of a verb call's time bound.
-type WindowInput struct {
-	From time.Time `json:"from"`
-	To   time.Time `json:"to"`
-}
-
 // OcsfEventView is the wire shape of one telemetry record returned by an
 // invocation. The payload rides the response as well as the evidence store, so
 // the caller has it without a second read.

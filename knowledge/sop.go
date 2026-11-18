@@ -23,6 +23,7 @@ import (
 
 	"github.com/sd-strax/reckon/internal/sopdoc"
 	"github.com/sd-strax/reckon/knowledge/substrate"
+	"github.com/sd-strax/reckon/internal/agentapi"
 )
 
 // CorpusProcedures is the substrate corpus SOPs live in (CURATED, lightweight
@@ -43,21 +44,18 @@ const lineageTagPrefix = "__sop_lineage:"
 // SOP statuses (design/06 §2.1). Stored lowercase in the SOP shape; mapped to
 // the substrate's uppercase entry status. Lightweight governance goes straight
 // to published; gated governance (paid) walks draft → in_review → published.
+//
+// The words are defined once in internal/agentapi (adr/0278).
 const (
-	StatusDraft     = "draft"
-	StatusInReview  = "in_review"
-	StatusPublished = "published"
-	StatusRetired   = "retired"
+	StatusDraft     = agentapi.SOPDraft
+	StatusInReview  = agentapi.SOPInReview
+	StatusPublished = agentapi.SOPPublished
+	StatusRetired   = agentapi.SOPRetired
 )
 
 // SOPStatus is a SOP's status as a served shape carries it. The words are the
 // untyped constants above.
-type SOPStatus string
-
-// WireValues lists every SOP status, in the order declared above.
-func (SOPStatus) WireValues() []string {
-	return []string{StatusDraft, StatusInReview, StatusPublished, StatusRetired}
-}
+type SOPStatus = agentapi.SOPStatus
 
 // SOPSource points at the system of origin for imported institutional
 // knowledge (a Confluence page, a wiki doc, a file). URL is the lineage key

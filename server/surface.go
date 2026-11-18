@@ -9,13 +9,6 @@ import (
 	"github.com/sd-strax/reckon/capability"
 )
 
-// CapabilitiesResponse is GET /api/capabilities. CaseQueue is the tenant's
-// case queue, sent only when one is configured.
-type CapabilitiesResponse struct {
-	Capabilities []capability.CapabilitySummary `json:"capabilities"`
-	CaseQueue    string                         `json:"case_queue,omitempty"`
-}
-
 // listCapabilities serves GET /api/capabilities. Returns 503 when the capability
 // layer is not configured (no tenant capability YAML); otherwise the verb
 // summaries with their availability. Read requires viewer/analyst/auditor.

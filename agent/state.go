@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/sd-strax/reckon/internal/agentapi"
 )
 
 // Per-turn engine state blocks.
@@ -32,41 +34,11 @@ func clockBlock(now time.Time) string {
 	return fmt.Sprintf(textClock.Text, now.UTC().Format(time.RFC3339))
 }
 
-// hypothesisRow mirrors the fields of the server's HypothesisView the block
-// renders. Decoded locally so the agent package keeps no dependency on server.
-type hypothesisRow struct {
-	ID          string          `json:"id"`
-	Statement   string          `json:"statement"`
-	Handle      string          `json:"handle"`
-	Status      string          `json:"status"`
-	Labels      []string        `json:"labels"`
-	Predictions []predictionRow `json:"predictions"`
-}
-
-type predictionRow struct {
-	ID            string   `json:"id"`
-	Statement     string   `json:"statement"`
-	Status        string   `json:"status"`
-	Ordinal       int      `json:"ordinal"`
-	Discriminates []string `json:"discriminates"`
-	TestKind      string   `json:"test_kind"` // "manual" when a person tests it (adr/0054)
-	// TestResultRefs and Attestation are the outcome's evidence (adr/0054):
-	// the narrative draft carries them, since the block above tallies
-	// outcomes only.
-	TestResultRefs []string        `json:"test_result_refs"`
-	Attestation    *attestationRow `json:"attestation"`
-}
-
-// attestationRow is the human observation a manual outcome cites.
-type attestationRow struct {
-	Content string `json:"content"`
-}
-
 // predictionLabel is how the block names a prediction: its ordinal (P3) when
 // the view supplied one — the same short name the tracker shows the analyst,
 // so "test P3" means the same thing on both sides — followed by the id the
 // tools take. Without an ordinal, the id alone.
-func predictionLabel(p predictionRow) string {
+func predictionLabel(p agentapi.PredictionView) string {
 	if p.Ordinal > 0 {
 		return fmt.Sprintf(textPredictionName.Text, p.Ordinal, p.ID)
 	}
@@ -89,17 +61,7 @@ func hypothesisStateBlock(raw json.RawMessage, aiReasoning bool) string {
 	if len(raw) == 0 || string(raw) == "null" {
 		return ""
 	}
-	// GET /api/investigations/{id}/hypotheses wraps the list; accept a bare
-	// array too so the block is robust to either.
-	var wrapped struct {
-		Hypotheses []hypothesisRow `json:"hypotheses"`
-	}
-	rows := wrapped.Hypotheses
-	if err := json.Unmarshal(raw, &wrapped); err == nil {
-		rows = wrapped.Hypotheses
-	} else if err := json.Unmarshal(raw, &rows); err != nil {
-		return ""
-	}
+	rows := hypothesisRows(raw)
 	if len(rows) == 0 {
 		return ""
 	}
@@ -116,7 +78,7 @@ func hypothesisStateBlock(raw json.RawMessage, aiReasoning bool) string {
 	var open []outstanding
 	for _, h := range rows {
 		fmt.Fprintf(&b, textHypothesisLine.Text, nameOf[h.ID], h.ID, h.Status)
-		if h.Status == "PROPOSED" && !aiReasoning {
+		if h.Status == agentapi.HypothesisProposed && !aiReasoning {
 			b.WriteString(textAwaitingAck.Text)
 		}
 		if len(h.Labels) > 0 {
@@ -129,11 +91,11 @@ func hypothesisStateBlock(raw json.RawMessage, aiReasoning bool) string {
 		}
 		tally := map[string]int{}
 		for _, p := range h.Predictions {
-			tally[p.Status]++
+			tally[string(p.Status)]++
 		}
 		fmt.Fprintf(&b, textPredictionTally.Text, tallyString(tally))
 		for _, p := range h.Predictions {
-			if p.Status != "UNTESTED" {
+			if p.Status != agentapi.PredictionUntested {
 				continue
 			}
 			rivals := make([]string, 0, len(p.Discriminates))
@@ -151,7 +113,7 @@ func hypothesisStateBlock(raw json.RawMessage, aiReasoning bool) string {
 			if len(rivals) > 0 {
 				fmt.Fprintf(&b, textDiscriminatesVs.Text, strings.Join(rivals, textListSeparator.Text))
 			}
-			if p.TestKind == "manual" {
+			if p.TestKind == agentapi.TestKindManual {
 				// A person tests it (adr/0054): the model cannot run it and the
 				// engine refuses its result from the delegate — say so where the
 				// model reads the test, not only in the standing rules.
@@ -177,7 +139,7 @@ func hypothesisStateBlock(raw json.RawMessage, aiReasoning bool) string {
 
 // hypothesisLabel is the short name the block uses for a hypothesis: its handle
 // when it has one, else a positional H<n> so rivals can still be referred to.
-func hypothesisLabel(h hypothesisRow, i int) string {
+func hypothesisLabel(h agentapi.HypothesisView, i int) string {
 	if strings.TrimSpace(h.Handle) != "" {
 		return strings.TrimSpace(h.Handle)
 	}
@@ -186,8 +148,8 @@ func hypothesisLabel(h hypothesisRow, i int) string {
 
 // isLiveHypothesis reports whether a hypothesis is still undecided — the only
 // state in which an untested discriminator constrains a decision.
-func isLiveHypothesis(status string) bool {
-	return status == "PROPOSED" || status == "OPEN"
+func isLiveHypothesis(status agentapi.HypothesisStatus) bool {
+	return status == agentapi.HypothesisProposed || status == agentapi.HypothesisOpen
 }
 
 // tallyString renders a prediction status tally in a fixed order so the block

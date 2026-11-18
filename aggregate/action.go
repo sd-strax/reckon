@@ -1,5 +1,7 @@
 package aggregate
 
+import "github.com/sd-strax/reckon/internal/agentapi"
+
 // The eight reckon-action lifecycle event types (04 §3.1, 02 §3) — plus the separate
 // policy_evaluated audit event at the end of this block, which is NOT a
 // lifecycle transition (it never moves status). The reckon-action is a
@@ -44,59 +46,45 @@ const (
 	InterpretationActionReversal  = "action-reversal"
 )
 
-// reckon-action status values (04 §3.1). The status field is a projection; this is
-// the state machine the events drive.
+// reckon-action status values (04 §3.1). The status field is a projection;
+// this is the state machine the events drive. The words are defined once in
+// internal/agentapi, which the agent shares (adr/0278).
 const (
-	ActionStatusRequested        = "REQUESTED"
-	ActionStatusPendingSecondary = "PENDING_SECONDARY"
-	ActionStatusApproved         = "APPROVED"
-	ActionStatusRejected         = "REJECTED"
-	ActionStatusExpired          = "EXPIRED"
-	ActionStatusExecuting        = "EXECUTING"
-	ActionStatusSucceeded        = "SUCCEEDED"
-	ActionStatusFailed           = "FAILED"
-	ActionStatusReversed         = "REVERSED"
+	ActionStatusRequested        = agentapi.ActionStatusRequested
+	ActionStatusPendingSecondary = agentapi.ActionStatusPendingSecondary
+	ActionStatusApproved         = agentapi.ActionStatusApproved
+	ActionStatusRejected         = agentapi.ActionStatusRejected
+	ActionStatusExpired          = agentapi.ActionStatusExpired
+	ActionStatusExecuting        = agentapi.ActionStatusExecuting
+	ActionStatusSucceeded        = agentapi.ActionStatusSucceeded
+	ActionStatusFailed           = agentapi.ActionStatusFailed
+	ActionStatusReversed         = agentapi.ActionStatusReversed
 	// ActionStatusOutcomeUnknown: dispatched, but the run that made the call
 	// stopped before recording a result; it waits for a person (adr/0216).
-	ActionStatusOutcomeUnknown = "OUTCOME_UNKNOWN"
+	ActionStatusOutcomeUnknown = agentapi.ActionStatusOutcomeUnknown
 )
 
 // ActionStatus is a reckon-action's lifecycle status as a served view carries
 // it. The words are the untyped constants above.
-type ActionStatus string
-
-// WireValues lists every action status, in the order declared above.
-func (ActionStatus) WireValues() []string {
-	return []string{
-		ActionStatusRequested, ActionStatusPendingSecondary, ActionStatusApproved,
-		ActionStatusRejected, ActionStatusExpired, ActionStatusExecuting,
-		ActionStatusSucceeded, ActionStatusFailed, ActionStatusReversed,
-		ActionStatusOutcomeUnknown,
-	}
-}
+type ActionStatus = agentapi.ActionStatus
 
 // Trust tiers (04 §1). T0/T1 don't produce reckon-actions (they stay in the
 // interpretation layer); write actions are T2 or T3.
 const (
-	TierT1 = "T1"
-	TierT2 = "T2"
-	TierT3 = "T3"
+	TierT1 = agentapi.TierT1
+	TierT2 = agentapi.TierT2
+	TierT3 = agentapi.TierT3
 )
 
 // Tier is an action's trust tier as a served view carries it.
-type Tier string
-
-// WireValues lists every trust tier, in the order declared above.
-func (Tier) WireValues() []string {
-	return []string{TierT1, TierT2, TierT3}
-}
+type Tier = agentapi.Tier
 
 // Authorization modes (04 §3.3).
 const (
-	AuthModeManual            = "MANUAL"
-	AuthModeAutoPolicy        = "AUTO_POLICY"
-	AuthModeTwoParty          = "TWO_PARTY"
-	AuthModeExternalDelegated = "EXTERNAL_DELEGATED"
+	AuthModeManual            = agentapi.AuthModeManual
+	AuthModeAutoPolicy        = agentapi.AuthModeAutoPolicy
+	AuthModeTwoParty          = agentapi.AuthModeTwoParty
+	AuthModeExternalDelegated = agentapi.AuthModeExternalDelegated
 )
 
 // Authorization stages (04 §3.3).
@@ -108,12 +96,7 @@ const (
 
 // AuthMode is how an action is, or must be, authorized, as a served view
 // carries it.
-type AuthMode string
-
-// WireValues lists every authorization mode, in the order declared above.
-func (AuthMode) WireValues() []string {
-	return []string{AuthModeManual, AuthModeAutoPolicy, AuthModeTwoParty, AuthModeExternalDelegated}
-}
+type AuthMode = agentapi.AuthMode
 
 // AuthStage is which approval an authorization records, as a served view
 // carries it.

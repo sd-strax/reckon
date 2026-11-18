@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/sd-strax/reckon/internal/agentapi"
 	"github.com/sd-strax/reckon/internal/catalog"
 )
 
@@ -43,7 +44,7 @@ const (
 // name would leave the model's list ambiguous, so a verb or an action tool
 // that takes another tool's name fails here. The backend refuses such a name
 // when it is registered (adr/0382), so this is a last guard.
-func buildTools(caps []Capability, actionTypes []ActionType) ([]ToolDef, map[string]tool, error) {
+func buildTools(caps []agentapi.CapabilitySummary, actionTypes []agentapi.ActionSummary) ([]ToolDef, map[string]tool, error) {
 	var tools []tool
 	for _, c := range caps {
 		if c.Status != catalog.StatusAvailable {
@@ -75,7 +76,7 @@ func buildTools(caps []Capability, actionTypes []ActionType) ([]ToolDef, map[str
 }
 
 // verbTool is the tool for one available capability verb.
-func verbTool(c Capability) tool {
+func verbTool(c agentapi.CapabilitySummary) tool {
 	verb := c.Descriptor.Verb
 	return tool{
 		def:  verbToolDef(c),
@@ -94,7 +95,7 @@ func verbTool(c Capability) tool {
 // shares the CallInput shape: an `entity` object the tenant's binding templates
 // resolve against, an optional `window`, and the descriptor's scalar inputs as
 // extra template roots.
-func verbToolDef(c Capability) ToolDef {
+func verbToolDef(c agentapi.CapabilitySummary) ToolDef {
 	props := map[string]any{}
 	var required []string
 	for _, in := range c.Descriptor.Inputs {
@@ -140,8 +141,8 @@ func verbToolDef(c Capability) ToolDef {
 // knowledge on the turn's provenance; a tool mutates nothing there (adr/0233).
 type toolResult struct {
 	Content   []byte
-	Consulted []ConsultedSOP
-	Similar   []ConsultedSimilarInvestigation
+	Consulted []agentapi.ConsultedSOP
+	Similar   []agentapi.ConsultedSimilarInvestigation
 	// CallID is the engine-minted capability call behind a verb's envelope
 	// (adr/0092); only a verb tool sets it, and only when it is an id.
 	CallID string
@@ -276,9 +277,9 @@ type recordPredictionOutcomeInput struct {
 	TestResultRefs []string `json:"test_result_refs" desc:"STIX refs of the observed evidence (observed_data_refs, entity_refs)"`
 }
 
-// targetInput is what the model may say about a target. ActionTarget has more
-// (asset_criticality reaches Gate 2 policy), and none of it is the model's to
-// declare, so the decoder never reads it.
+// targetInput is what the model may say about a target. agentapi.TargetSpec
+// has more (asset_criticality reaches Gate 2 policy), and none of it is the
+// model's to declare, so the decoder never reads it.
 type targetInput struct {
 	EntityRef          string `json:"entity_ref" required:"true" desc:"STIX id of the target entity"`
 	ResolvedIdentifier string `json:"resolved_identifier" required:"true" desc:"the concrete identifier the tool acts on (hostname, account id)"`
@@ -576,12 +577,12 @@ func (s *Session) priorInvestigations(ctx context.Context, in priorInvestigation
 }
 
 func (s *Session) proposeHypothesis(ctx context.Context, in proposeHypothesisInput) (toolResult, error) {
-	resp, err := s.backend.RecordInterpretation(ctx, InterpretationRequest{
+	resp, err := s.backend.RecordInterpretation(ctx, agentapi.RecordInterpretationBody{
 		InvestigationRef:   s.investigationID,
 		InterpretationType: "hypothesis",
 		Rationale:          clipRunes(in.Rationale, maxRationaleRunes),
 		Confidence:         in.Confidence,
-		Hypothesis: &Hypothesis{
+		Hypothesis: &agentapi.HypothesisBody{
 			Statement:   in.Statement,
 			Handle:      clipRunes(in.Handle, 40),
 			ParentRef:   in.ParentRef,
@@ -592,15 +593,15 @@ func (s *Session) proposeHypothesis(ctx context.Context, in proposeHypothesisInp
 	if err != nil {
 		return toolResult{}, err
 	}
-	return contentOf(json.Marshal(map[string]any{"hypothesis_ref": resp.NodeID, "status": "PROPOSED"}))
+	return contentOf(json.Marshal(map[string]any{"hypothesis_ref": resp.NodeID, "status": agentapi.HypothesisProposed}))
 }
 
 func (s *Session) recordPrediction(ctx context.Context, in recordPredictionInput) (toolResult, error) {
-	pred := &Prediction{HypothesisRef: in.HypothesisRef, Statement: in.Statement, Title: in.Title, Discriminates: in.Discriminates, TestKind: in.TestKind}
+	pred := &agentapi.PredictionBody{HypothesisRef: in.HypothesisRef, Statement: in.Statement, Title: in.Title, Discriminates: in.Discriminates, TestKind: in.TestKind}
 	if in.TestTool != "" || in.TestQuery != "" {
-		pred.TestQuery = &QuerySpec{Tool: in.TestTool, QueryText: in.TestQuery}
+		pred.TestQuery = &agentapi.QuerySpec{Tool: in.TestTool, QueryText: in.TestQuery}
 	}
-	resp, err := s.backend.RecordInterpretation(ctx, InterpretationRequest{
+	resp, err := s.backend.RecordInterpretation(ctx, agentapi.RecordInterpretationBody{
 		InvestigationRef:   s.investigationID,
 		InterpretationType: "prediction",
 		Rationale:          clipRunes(in.Rationale, maxRationaleRunes),
@@ -609,7 +610,7 @@ func (s *Session) recordPrediction(ctx context.Context, in recordPredictionInput
 	if err != nil {
 		return toolResult{}, err
 	}
-	return contentOf(json.Marshal(map[string]any{"prediction_ref": resp.NodeID, "status": "UNTESTED"}))
+	return contentOf(json.Marshal(map[string]any{"prediction_ref": resp.NodeID, "status": agentapi.PredictionUntested}))
 }
 
 func (s *Session) evaluateHypothesis(ctx context.Context, in evaluateHypothesisInput) (toolResult, error) {
@@ -621,7 +622,7 @@ func (s *Session) evaluateHypothesis(ctx context.Context, in evaluateHypothesisI
 	default:
 		return toolResult{}, fmt.Errorf("evaluate_hypothesis: disposition must be support, refutation or inconclusive, not %q", in.Disposition)
 	}
-	resp, err := s.backend.RecordInterpretation(ctx, InterpretationRequest{
+	resp, err := s.backend.RecordInterpretation(ctx, agentapi.RecordInterpretationBody{
 		InvestigationRef:   s.investigationID,
 		InterpretationType: in.Disposition,
 		Rationale:          clipRunes(in.Rationale, maxRationaleRunes),
@@ -637,7 +638,7 @@ func (s *Session) evaluateHypothesis(ctx context.Context, in evaluateHypothesisI
 }
 
 func (s *Session) recordPredictionOutcome(ctx context.Context, in recordPredictionOutcomeInput) (toolResult, error) {
-	resp, err := s.backend.RecordInterpretation(ctx, InterpretationRequest{
+	resp, err := s.backend.RecordInterpretation(ctx, agentapi.RecordInterpretationBody{
 		InvestigationRef:   s.investigationID,
 		InterpretationType: "prediction",
 		Rationale:          clipRunes(in.Rationale, maxRationaleRunes),
@@ -649,6 +650,22 @@ func (s *Session) recordPredictionOutcome(ctx context.Context, in recordPredicti
 		return toolResult{}, err
 	}
 	return contentOf(json.Marshal(map[string]any{"interpretation_id": resp.InterpretationID}))
+}
+
+// actionRow is one action as the list_actions result shows it to the model.
+// It names its fields, so a field the backend's action view gains reaches the
+// model only when it is added here.
+type actionRow struct {
+	ActionID     string                `json:"action_id"`
+	ActionType   string                `json:"action_type"`
+	Tier         agentapi.Tier         `json:"tier"`
+	Status       agentapi.ActionStatus `json:"status"`
+	RequiredMode agentapi.AuthMode     `json:"required_mode,omitempty"`
+	IsReversal   bool                  `json:"is_reversal,omitempty"`
+	Targets      []agentapi.TargetSpec `json:"targets,omitempty"`
+	ExpiresAt    *time.Time            `json:"expires_at,omitempty"`
+	EvidenceRefs []string              `json:"evidence_refs,omitempty"`
+	Expired      bool                  `json:"expired"`
 }
 
 func (s *Session) listActions(ctx context.Context, _ struct{}) (toolResult, error) {
@@ -664,13 +681,13 @@ func (s *Session) listActions(ctx context.Context, _ struct{}) (toolResult, erro
 	// action is never flagged, and the engine-state block marks the same set
 	// (adr/0339).
 	now := s.now().UTC()
-	type actionView struct {
-		ActionStatus
-		Expired bool `json:"expired"`
-	}
-	views := make([]actionView, 0, len(acts))
+	views := make([]actionRow, 0, len(acts))
 	for _, a := range acts {
-		views = append(views, actionView{ActionStatus: a, Expired: a.ApprovalLapsed(now)})
+		views = append(views, actionRow{
+			ActionID: a.ActionID, ActionType: a.ActionType, Tier: a.Tier, Status: a.Status,
+			RequiredMode: a.RequiredMode, IsReversal: a.IsReversal, Targets: a.Targets,
+			ExpiresAt: a.ExpiresAt, EvidenceRefs: a.EvidenceRefs, Expired: a.ApprovalLapsed(now),
+		})
 	}
 	return contentOf(json.Marshal(map[string]any{
 		"now":     now.Format(time.RFC3339),
@@ -704,12 +721,12 @@ func (s *Session) invokeVerb(ctx context.Context, name string, input json.RawMes
 			extra[k] = val
 		}
 	}
-	call := InvokeInput{Entity: in.Entity, InvestigationRef: s.investigationID}
+	call := agentapi.CapabilityInvokeBody{Entity: in.Entity, InvestigationRef: s.investigationID}
 	if len(extra) > 0 {
 		call.Extra = extra
 	}
 	if in.Window != nil {
-		w := &Window{}
+		w := &agentapi.WindowInput{}
 		if t, err := time.Parse(time.RFC3339, in.Window.From); err == nil {
 			w.From = t
 		}

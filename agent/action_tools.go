@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/sd-strax/reckon/internal/agentapi"
 	"github.com/sd-strax/reckon/internal/catalog"
 )
 
@@ -35,7 +36,7 @@ type actionShared struct {
 
 // unavailable reports whether an action type has nothing to dispatch to: it
 // cannot be carried out in this install. The engine refuses its requests.
-func unavailable(a ActionType) bool {
+func unavailable(a agentapi.ActionSummary) bool {
 	return a.Status == catalog.ActionUnavailable
 }
 
@@ -45,9 +46,9 @@ func unavailable(a ActionType) bool {
 // requests. The backend refused any descriptor the agent could not offer when
 // it was registered (adr/0382); two tools of one name still fail in
 // buildTools, as a last guard.
-func actionTools(actionTypes []ActionType) []tool {
+func actionTools(actionTypes []agentapi.ActionSummary) []tool {
 	types := slices.Clone(actionTypes)
-	slices.SortStableFunc(types, func(a, b ActionType) int {
+	slices.SortStableFunc(types, func(a, b agentapi.ActionSummary) int {
 		return strings.Compare(a.Descriptor.ActionType, b.Descriptor.ActionType)
 	})
 	tools := make([]tool, 0, len(types))
@@ -68,8 +69,8 @@ func actionTools(actionTypes []ActionType) []tool {
 
 // ParameterInputs is an action type's non-entity inputs: the keys of its
 // request's parameters (08 §3). Entity inputs ride targets.
-func ParameterInputs(a ActionType) []ActionInput {
-	var out []ActionInput
+func ParameterInputs(a agentapi.ActionSummary) []agentapi.InputParam {
+	var out []agentapi.InputParam
 	for _, in := range a.Descriptor.Inputs {
 		if in.Type != "entity" {
 			out = append(out, in)
@@ -81,7 +82,7 @@ func ParameterInputs(a ActionType) []ActionInput {
 // actionToolDef renders one action type as a tool: the shared fields, then
 // the type's inputs as top-level properties, required as the descriptor
 // requires them.
-func actionToolDef(a ActionType) ToolDef {
+func actionToolDef(a agentapi.ActionSummary) ToolDef {
 	schema := inputSchema[actionShared](nil)
 	props := schema["properties"].(map[string]any)
 	required, _ := schema["required"].([]string)
@@ -108,7 +109,7 @@ func actionToolDef(a ActionType) ToolDef {
 // reversibility, then for a type that can be carried out whether it is
 // degraded and the guidance every request shares, and for an unavailable type
 // that it cannot be carried out.
-func actionToolDescription(a ActionType) string {
+func actionToolDescription(a agentapi.ActionSummary) string {
 	d := a.Descriptor
 	var b strings.Builder
 	fmt.Fprintf(&b, textActionToolType.Text, d.ActionType)
@@ -133,7 +134,7 @@ func actionToolDescription(a ActionType) string {
 // rather than the loop dropping it unseen. A call to an unavailable type goes
 // to the engine like any other, which refuses it before recording anything;
 // the refusal reaches the model as the tool's error (adr/0380).
-func (s *Session) requestAction(ctx context.Context, a ActionType, input json.RawMessage) (toolResult, error) {
+func (s *Session) requestAction(ctx context.Context, a agentapi.ActionSummary, input json.RawMessage) (toolResult, error) {
 	name := actionToolName(a.Descriptor.ActionType)
 	var all map[string]json.RawMessage
 	if err := json.Unmarshal(input, &all); err != nil {
@@ -144,11 +145,11 @@ func (s *Session) requestAction(ctx context.Context, a ActionType, input json.Ra
 		return toolResult{}, fmt.Errorf("bad %s input: %w", name, err)
 	}
 	parameters := actionParameters(a, all)
-	targets := make([]ActionTarget, 0, len(shared.Targets))
+	targets := make([]agentapi.TargetSpec, 0, len(shared.Targets))
 	for _, t := range shared.Targets {
-		targets = append(targets, ActionTarget{EntityRef: t.EntityRef, ResolvedIdentifier: t.ResolvedIdentifier})
+		targets = append(targets, agentapi.TargetSpec{EntityRef: t.EntityRef, ResolvedIdentifier: t.ResolvedIdentifier})
 	}
-	resp, err := s.backend.RequestAction(ctx, ActionRequest{
+	resp, err := s.backend.RequestAction(ctx, agentapi.RequestActionBody{
 		ActionType:       a.Descriptor.ActionType,
 		Targets:          targets,
 		Parameters:       parameters,
@@ -161,7 +162,20 @@ func (s *Session) requestAction(ctx context.Context, a ActionType, input json.Ra
 		return toolResult{}, err
 	}
 	s.pendingActions = append(s.pendingActions, resp)
-	return contentOf(json.Marshal(resp))
+	return contentOf(json.Marshal(actionResult{
+		ActionID: resp.ActionID, Tier: resp.Tier, Status: resp.Status, Mode: resp.Mode, WorkflowID: resp.WorkflowID,
+	}))
+}
+
+// actionResult is the request_action result the model reads. It names its
+// fields, so a field the backend's answer gains reaches the model only when
+// it is added here.
+type actionResult struct {
+	ActionID   string                       `json:"action_id"`
+	Tier       agentapi.Tier                `json:"tier"`
+	Status     agentapi.ActionRequestStatus `json:"status"`
+	Mode       agentapi.AuthMode            `json:"mode"`
+	WorkflowID string                       `json:"workflow_id,omitempty"`
 }
 
 // actionParameters gathers a call's parameters: every key that is not a
@@ -169,7 +183,7 @@ func (s *Session) requestAction(ctx context.Context, a ActionType, input json.Ra
 // value, so the key is left out. A null for any other key stays, so the
 // engine refuses a required input as missing and an undeclared key as
 // unknown. With no keys, parameters is left out of the request.
-func actionParameters(a ActionType, all map[string]json.RawMessage) json.RawMessage {
+func actionParameters(a agentapi.ActionSummary, all map[string]json.RawMessage) json.RawMessage {
 	optional := map[string]bool{}
 	for _, in := range ParameterInputs(a) {
 		if !in.Required {

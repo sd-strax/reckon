@@ -15,23 +15,21 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+
+	"github.com/sd-strax/reckon/internal/agentapi"
 )
 
 // Verdict dispositions (01). No PENDING value — an investigation with no
 // verdict act has no verdict.
+// The words are defined once in internal/agentapi (adr/0278).
 const (
-	VerdictBenign     = "BENIGN"
-	VerdictSuspicious = "SUSPICIOUS"
-	VerdictMalicious  = "MALICIOUS"
+	VerdictBenign     = agentapi.VerdictBenign
+	VerdictSuspicious = agentapi.VerdictSuspicious
+	VerdictMalicious  = agentapi.VerdictMalicious
 )
 
 // VerdictDisposition is a verdict's disposition as a served view carries it.
-type VerdictDisposition string
-
-// WireValues lists every disposition, in the order declared above.
-func (VerdictDisposition) WireValues() []string {
-	return []string{VerdictBenign, VerdictSuspicious, VerdictMalicious}
-}
+type VerdictDisposition = agentapi.VerdictDisposition
 
 // VerdictNode is the verdict payload carried on a RecordInterpretation of
 // type "verdict". The rationale/evidence travel on the interpretation itself

@@ -6,57 +6,32 @@ import (
 
 	"github.com/sd-strax/reckon/aggregate"
 	"github.com/sd-strax/reckon/capability"
+	"github.com/sd-strax/reckon/internal/agentapi"
 	"github.com/sd-strax/reckon/internal/catalog"
 )
 
 // Reversibility classifications (04 §7). The ordered scale is
 // IRREVERSIBLE < BEST_EFFORT < REVERSIBLE; per-binding overrides (deferred)
-// may move along it under the §7.3 rules.
+// may move along it under the §7.3 rules. The words are defined once in
+// internal/agentapi (adr/0278).
 const (
 	// ReversibilityReversible: RELIABLE — the tool cleanly undoes the effect;
 	// a successful reversal marks the original REVERSED.
-	ReversibilityReversible = "reversible"
+	ReversibilityReversible = agentapi.ReversibilityReversible
 	// ReversibilityBestEffort: an inverse action exists but its effect is
 	// tooling-dependent; the affordance + forward linkage stay live but the
 	// original is never marked REVERSED (04 §7.1 Position C).
-	ReversibilityBestEffort = "best_effort"
+	ReversibilityBestEffort = agentapi.ReversibilityBestEffort
 	// ReversibilityIrreversible: no inverse exists; reversal is structurally
 	// impossible.
-	ReversibilityIrreversible = "irreversible"
+	ReversibilityIrreversible = agentapi.ReversibilityIrreversible
 )
 
 // ActionDescriptor is the write analog of capability.CapabilityDescriptor
 // (08 §3): the action surface the LLM sees plus the auth/taxonomy fields it
-// declares for discoverability. DefaultTier/Reversibility/D3FEND are surfaced
-// here but OWNED by 04 §2 — this must not diverge from that categorization.
-type ActionDescriptor struct {
-	ActionType  string                  `json:"action_type"`  // e.g. "host.isolate"
-	Intent      string                  `json:"intent"`       // LLM-facing: effect + when to use
-	Inputs      []capability.InputParam `json:"inputs"`       // schema for request_action.parameters
-	DefaultTier aggregate.Tier          `json:"default_tier"` // T2 | T3 (04 §2)
-	// Reversibility is the baseline classification (04 §7): "reversible"
-	// (RELIABLE — the tool cleanly undoes the effect), "best_effort" (an inverse
-	// action exists but its effect is tooling-dependent — e.g. ioc.block against a
-	// propagating denylist), or "irreversible" (no inverse). It gates the REVERSED
-	// status claim: only a "reversible" original flips to REVERSED on a successful
-	// reversal (Position C); "best_effort" keeps the affordance + forward linkage
-	// but the original stays SUCCEEDED. A per-binding override may upgrade
-	// best_effort→reversible when the wired tool is trusted (04 §7; deferred).
-	Reversibility string `json:"reversibility"`
-	// ReversibleBy is the inverse action type (04 §7); empty when irreversible.
-	// A reversal request creates a reckon-action of this type against the original's
-	// targets, at the SAME tier (reversing is never lower-tier than the original).
-	ReversibleBy string `json:"reversible_by,omitempty"`
-	D3FEND       string `json:"d3fend,omitempty"`
-	// Name is the short human name a surface titles the action by ("Isolate
-	// host"); the action_type stays the machine id (#123).
-	Name string `json:"name"`
-	// Category is what the action does to the incident, so a surface groups it
-	// without guessing from the id: containment | eradication | recovery |
-	// notification | case_record (a write to the system of record, never
-	// containment) (#123).
-	Category string `json:"category"`
-}
+// declares for discoverability. The agent reads it from GET /api/action-types,
+// so it is defined in internal/agentapi (adr/0278), with ReliablyReversible.
+type ActionDescriptor = agentapi.ActionDescriptor
 
 // The action categories (#123).
 const (
@@ -66,14 +41,6 @@ const (
 	CategoryNotification = "notification"
 	CategoryCaseRecord   = "case_record"
 )
-
-// ReliablyReversible reports whether a fully-successful dispatch of this
-// action's inverse may mark it REVERSED (04 §7.1 Position C). Only the
-// RELIABLE classification qualifies; a best_effort original keeps the reversal
-// affordance and forward linkage but honestly stays SUCCEEDED.
-func (d ActionDescriptor) ReliablyReversible() bool {
-	return d.Reversibility == ReversibilityReversible
-}
 
 // ActionCatalog holds the registered action descriptors, keyed by action_type.
 type ActionCatalog struct {

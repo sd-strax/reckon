@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/sd-strax/reckon/internal/agentapi"
 )
 
 // fakeIDP is a minimal Keycloak token endpoint. It counts password vs. refresh
@@ -177,7 +179,7 @@ func TestClient_RetriesOn401(t *testing.T) {
 			return
 		}
 		got200++
-		_ = json.NewEncoder(w).Encode(Investigation{AggregateID: "inv-1", Title: "T", Status: "active"})
+		_ = json.NewEncoder(w).Encode(agentapi.InvestigationView{AggregateID: "inv-1", Title: "T", Status: "active"})
 	}))
 	t.Cleanup(srv.Close)
 

@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/sd-strax/reckon/internal/agentapi"
 	"github.com/sd-strax/reckon/stix"
 )
 
@@ -154,19 +155,15 @@ func validateCitations(field string, refs []string) error {
 }
 
 // Confidence values (01-domain-model.md §Interpretation schema). Optional.
+// The words are defined once in internal/agentapi (adr/0278).
 const (
-	ConfidenceHigh   = "HIGH"
-	ConfidenceMedium = "MEDIUM"
-	ConfidenceLow    = "LOW"
+	ConfidenceHigh   = agentapi.ConfidenceHigh
+	ConfidenceMedium = agentapi.ConfidenceMedium
+	ConfidenceLow    = agentapi.ConfidenceLow
 )
 
 // Confidence is an act's confidence as a served view carries it.
-type Confidence string
-
-// WireValues lists every confidence, in the order declared above.
-func (Confidence) WireValues() []string {
-	return []string{ConfidenceHigh, ConfidenceMedium, ConfidenceLow}
-}
+type Confidence = agentapi.Confidence
 
 // Derivation mode (01-domain-model.md §Interpretation schema): DIRECT = produced
 // by a tool through the capability layer; INFERRED = derived/reasoned by the
@@ -178,25 +175,9 @@ const (
 )
 
 // ConsultedSOP records one SOP surfaced by knowledge-service retrieval during
-// a reasoning act (01 INTERPRETATION schema; 06 §6): retrieval provenance.
-// Cited distinguishes an SOP the act named by ref from one merely retrieved
-// (adr/0236). It records that the actor cited it, not that it applied it.
-type ConsultedSOP struct {
-	SOPID          string  `json:"sop_id"`
-	Title          string  `json:"title,omitempty"`
-	RetrievalScore float64 `json:"retrieval_score,omitempty"`
-	// Revision and Cut are the SOP revision and section cut the sections
-	// belong to, as recall returned them: section indexes are stable only
-	// within one revision and one cut, so the record names both. One act
-	// records a procedure once per revision and cut shown.
-	Revision int    `json:"revision,omitempty"`
-	Cut      string `json:"cut,omitempty"`
-	// Sections are the 1-based indexes of the procedure's sections the act
-	// had in front of it: what was read, which the inspector shows as
-	// "excerpt k of n" (adr/0303). Cited requires at least one.
-	Sections []int `json:"sections,omitempty"`
-	Cited    bool  `json:"cited"`
-}
+// a reasoning act (01 INTERPRETATION schema; 06 §6). The thread serves it as
+// recorded, so it is defined in internal/agentapi (adr/0278).
+type ConsultedSOP = agentapi.ConsultedSOP
 
 // MaxSectionsPerToolResult is the most sections of one procedure one tool
 // result can show the actor: the recall limit the agent asks for. With
@@ -220,18 +201,10 @@ type consultedSOPKey struct {
 }
 
 // ConsultedSimilarInvestigation records one concluded-investigation summary
-// surfaced by similarity retrieval during a reasoning act (06 §3, §6): the
-// case-knowledge counterpart of ConsultedSOP. InvestigationRef is the source
-// investigation's grouping ref (from the summary's provenance), Band the
-// substrate similarity band. Cited is as ConsultedSOP.Cited: the act named
-// the case by ref.
-type ConsultedSimilarInvestigation struct {
-	InvestigationRef string  `json:"investigation_ref"`
-	Title            string  `json:"title,omitempty"`
-	RetrievalScore   float64 `json:"retrieval_score,omitempty"`
-	Band             string  `json:"band,omitempty"`
-	Cited            bool    `json:"cited"`
-}
+// surfaced by similarity retrieval during a reasoning act (06 §3, §6). The
+// thread serves it as recorded, so it is defined in internal/agentapi
+// (adr/0278).
+type ConsultedSimilarInvestigation = agentapi.ConsultedSimilarInvestigation
 
 // maxConsultedPerInterpretation bounds the consulted lists (refs are ids +
 // scores, not bulk; a runaway retrieval must not bloat the event).
