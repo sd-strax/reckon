@@ -34,7 +34,7 @@ func TestRequestAction_WrongTargetTypeRefused(t *testing.T) {
 			ActionType:       "host.isolate",
 			Targets:          []aggregate.TargetSpec{target},
 			Rationale:        "contain",
-			EvidenceRefs:     []string{"observed-data--od1"},
+			EvidenceRefs:     []string{"observed-data--18ef927c-93bc-5470-b729-1b40841d3947"},
 			InvestigationRef: invID.String(),
 		})
 		if resp.StatusCode != http.StatusBadRequest {
@@ -105,7 +105,7 @@ func TestRerequestAction_UntypedTargetRefused(t *testing.T) {
 	if _, err := testHandler.Handle(ctx, env(""), aggregate.RequestAction{
 		ActionID: origID, ActionType: "host.isolate", Tier: aggregate.TierT2,
 		Targets:      []aggregate.TargetSpec{{ResolvedIdentifier: "WIN-A"}},
-		EvidenceRefs: []string{"observed-data--od1"},
+		EvidenceRefs: []string{"observed-data--18ef927c-93bc-5470-b729-1b40841d3947"},
 		ExpiresAt:    time.Now().Add(time.Hour), Rationale: "contain",
 	}); err != nil {
 		t.Fatal(err)
