@@ -10,12 +10,15 @@ import (
 	"net/url"
 	"strconv"
 	"time"
+
+	"github.com/sd-strax/reckon/internal/catalog"
 )
 
-// The wire types below mirror the backend's JSON contract (the seam is the
-// HTTP API, exactly as the future extension consumes it — not Go types shared
-// with the server package, which the v2 server-side loop must be able to
-// import without a cycle). Only the fields the loop reads are mirrored.
+// The wire types below mirror the backend's JSON contract: the seam is the
+// HTTP API, as the extension consumes it. The agent's production code may use
+// shared packages such as internal/catalog, but never an engine package
+// (aggregate, server, action, capability, temporal, knowledge; adr/0385), so
+// these are its own types. Only the fields the loop reads are mirrored.
 
 // Capability is one /api/capabilities entry.
 type Capability struct {
@@ -30,7 +33,7 @@ type Capability struct {
 		} `json:"inputs"`
 		Output string `json:"output"`
 	} `json:"descriptor"`
-	Status string `json:"status"`
+	Status catalog.CapabilityStatus `json:"status"`
 }
 
 // ActionType is one /api/action-types entry — a frozen catalog descriptor plus
@@ -50,7 +53,7 @@ type ActionType struct {
 		ReversibleBy  string        `json:"reversible_by,omitempty"`
 		D3FEND        string        `json:"d3fend,omitempty"`
 	} `json:"descriptor"`
-	Status string `json:"status"` // available | degraded | unavailable
+	Status catalog.ActionAvailability `json:"status"`
 }
 
 // ActionInput is one declared input of an action type (08 §3).

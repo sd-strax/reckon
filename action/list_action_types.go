@@ -1,15 +1,20 @@
 package action
 
-import "sort"
+import (
+	"sort"
+
+	"github.com/sd-strax/reckon/internal/catalog"
+)
 
 // ActionAvailability is an action type's current dispatchability in the tenant,
-// analogous to capability.CapabilityStatus (08 §3, mirroring 03 §6.3).
-type ActionAvailability string
+// analogous to capability.CapabilityStatus (08 §3, mirroring 03 §6.3). It is
+// defined once in internal/catalog, which the agent shares (adr/0385).
+type ActionAvailability = catalog.ActionAvailability
 
 const (
-	ActionAvailable   ActionAvailability = "available"   // ≥1 healthy binding
-	ActionDegraded    ActionAvailability = "degraded"    // usable bindings exist, all unhealthy
-	ActionUnavailable ActionAvailability = "unavailable" // no binding with a configured, enabled adapter
+	ActionAvailable   = catalog.ActionAvailable   // ≥1 healthy binding
+	ActionDegraded    = catalog.ActionDegraded    // usable bindings exist, all unhealthy
+	ActionUnavailable = catalog.ActionUnavailable // no binding with a configured, enabled adapter
 )
 
 // ActionSummary pairs an action descriptor with its current availability.
@@ -23,11 +28,11 @@ type ActionSummary struct {
 // cataloged action it reports whether the tenant can currently dispatch it, so
 // the agent loop advertises only usable actions. An action appears once its
 // descriptor is registered and at least one binding exists.
-func (r *ActionResolver) ListActionTypes(catalog *ActionCatalog) []ActionSummary {
-	types := catalog.ActionTypes()
+func (r *ActionResolver) ListActionTypes(cat *ActionCatalog) []ActionSummary {
+	types := cat.ActionTypes()
 	out := make([]ActionSummary, 0, len(types))
 	for _, at := range types {
-		d, _ := catalog.Descriptor(at)
+		d, _ := cat.Descriptor(at)
 		bindings := r.bindings[at]
 		out = append(out, ActionSummary{
 			Descriptor: d,

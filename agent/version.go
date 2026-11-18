@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+
+	"github.com/sd-strax/reckon/internal/catalog"
 )
 
 // PromptVersion identifies the text the agent's turn loop puts in front of
@@ -105,19 +107,19 @@ func exampleActionTools() []tool {
 // component, though no model is ever shown them.
 func exampleCatalog() []ActionType {
 	var isolate, ticket, block ActionType
-	isolate.Status = "available"
+	isolate.Status = catalog.ActionAvailable
 	isolate.Descriptor.ActionType = "host.isolate"
 	isolate.Descriptor.Intent = "Isolate a host."
 	isolate.Descriptor.DefaultTier = "T2"
 	isolate.Descriptor.Reversibility = "REVERSIBLE"
 	isolate.Descriptor.Inputs = []ActionInput{{Name: "target", Type: "entity", Required: true}, {Name: "reason", Type: "string", Required: true, Desc: "why"}}
-	ticket.Status = "degraded"
+	ticket.Status = catalog.ActionDegraded
 	ticket.Descriptor.ActionType = "ticket.create"
 	ticket.Descriptor.Intent = "Open a ticket."
 	ticket.Descriptor.DefaultTier = "T1"
 	ticket.Descriptor.Reversibility = "IRREVERSIBLE"
 	ticket.Descriptor.Inputs = []ActionInput{{Name: "summary", Type: "string", Required: true, Desc: "headline"}, {Name: "reason", Type: "string"}, {Name: "priority", Type: "integer"}}
-	block.Status = "unavailable"
+	block.Status = catalog.ActionUnavailable
 	block.Descriptor.ActionType = "ioc.block"
 	block.Descriptor.Intent = "Block an indicator."
 	block.Descriptor.DefaultTier = "T2"
@@ -132,7 +134,7 @@ func exampleCatalog() []ActionType {
 // strings are part of the version too, through tools/<verb>.
 func exampleVerb() Capability {
 	var c Capability
-	c.Status = "available"
+	c.Status = catalog.StatusAvailable
 	c.Descriptor.Verb = "verb"
 	c.Descriptor.Intent = "Intent."
 	c.Descriptor.Output = "output"
