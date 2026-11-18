@@ -46,6 +46,10 @@ type RequestAction struct {
 	// built before the endpoint wires it in).
 	PolicyEvaluations []PolicyEvaluationRecord `json:"policy_evaluations,omitempty"`
 	MatchedPolicyRef  string                   `json:"matched_policy_ref,omitempty"`
+
+	// Binding is the write binding the engine chose at request time
+	// (adr/0406), frozen onto ActionRequested.
+	Binding FrozenBinding `json:"binding"`
 }
 
 // Kind returns "RequestAction".

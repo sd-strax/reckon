@@ -153,30 +153,24 @@ func (a *Activities) EmitOutcomeUnknown(ctx context.Context, in EmitOutcomeUnkno
 }
 
 // EmitDispatchedInput carries what EmitDispatched needs to record the ledger
-// entry. ApproverID is the human principal the workflow carries (05 §6.2). The
-// resolution fields (ActionType/Targets/Parameters/SourceScope) let EmitDispatched
-// compute WHICH adapter will handle this action, so the dispatched event — and
-// thus the ledger's "via <adapter>" and the chronicle's "dispatched via …" —
-// records the real tool instead of an empty string (the binding is only
-// resolved inside DoDispatch, which runs AFTER this).
+// entry. ApproverID is the human principal the workflow carries (05 §6.2).
+// Binding is the binding frozen at request time (adr/0406): the dispatched
+// event names its adapter, so the ledger's "via <adapter>" and the
+// chronicle's "dispatched via …" record the tool DoDispatch will call.
 type EmitDispatchedInput struct {
 	ActionID         string
 	AggregateID      string
 	TenantID         string
 	ApproverID       string
-	ActionType       string
-	Targets          []aggregate.TargetSpec
-	Parameters       map[string]any
-	SourceScope      string
+	Binding          aggregate.FrozenBinding
 	AdapterRequestID string
 }
 
 // EmitDispatched records ActionDispatched (the ledger entry, 08 §6b) BEFORE the
-// outbound call, so a crash-and-retrigger sees it via CheckDispatched. It stamps
-// the resolved adapter (via PlannedBinding — the same selection DoDispatch will
-// make) so the write-side provenance is captured at dispatch time. An empty
-// adapter (no applicable binding) is not fatal here: DoDispatch surfaces the
-// no-binding error authoritatively.
+// outbound call, so a crash-and-retrigger sees it via CheckDispatched. It
+// stamps the frozen binding's adapter (adr/0406), the one DoDispatch uses, so
+// the write-side provenance is captured at dispatch time. Whether that binding
+// is still usable is DoDispatch's to find: it fails with nothing sent.
 func (a *Activities) EmitDispatched(ctx context.Context, in EmitDispatchedInput) error {
 	env, err := systemEnvelope(ctx, in.AggregateID, in.TenantID, in.ApproverID)
 	if err != nil {
@@ -186,35 +180,23 @@ func (a *Activities) EmitDispatched(ctx context.Context, in EmitDispatchedInput)
 	if err != nil {
 		return badInput(err)
 	}
-	adapter := ""
-	if a.resolver != nil {
-		if r := a.resolver.Load(); r != nil {
-			if b, ok := r.PlannedBinding(action.DispatchRequest{
-				ActionID:    id,
-				ActionType:  in.ActionType,
-				Targets:     in.Targets,
-				Parameters:  in.Parameters,
-				SourceScope: in.SourceScope,
-			}); ok {
-				adapter = b.Adapter
-			}
-		}
-	}
 	_, err = a.handler.Handle(ctx, env, aggregate.DispatchAction{
 		ActionID:         id,
-		Adapter:          adapter,
+		Adapter:          in.Binding.Adapter,
 		AdapterRequestID: in.AdapterRequestID,
 	})
 	return emitErr(err)
 }
 
-// DispatchInput is the frozen action content the resolver dispatches.
+// DispatchInput is the frozen action content the resolver dispatches,
+// through the binding frozen at request time (adr/0406).
 type DispatchInput struct {
 	ActionID    string
 	ActionType  string
 	Targets     []aggregate.TargetSpec
 	Parameters  map[string]any
 	SourceScope string
+	Binding     aggregate.FrozenBinding
 }
 
 // DispatchOutput is the classified outcome the workflow records. Attempts is
@@ -260,6 +242,7 @@ func (a *Activities) DoDispatch(ctx context.Context, in DispatchInput) (Dispatch
 		Targets:     in.Targets,
 		Parameters:  in.Parameters,
 		SourceScope: in.SourceScope,
+		Binding:     in.Binding,
 	})
 	if err != nil {
 		var we *action.WriteError
@@ -306,11 +289,11 @@ type EmitResultedInput struct {
 	Attempts         int
 	ErrorDetail      string
 	RawResponseRef   string
-	// Adapter is the tool the dispatch ACTUALLY used (from the resolver's chosen
-	// binding). The dispatched event recorded the PLANNED adapter before the
-	// outbound call; this corrects the record if the live selection differed
-	// (e.g. a hot reload between the two activities). Empty when the dispatch
-	// never chose a binding (resolve failure) — the planned value then stands.
+	// Adapter is the adapter of the binding the dispatch called. Dispatch uses
+	// only the binding frozen at request time (adr/0406), so it is the adapter
+	// the dispatched event already recorded. Empty when the dispatch failed
+	// before it reached the binding (the frozen binding no longer usable); the
+	// dispatched record's adapter then stands.
 	Adapter string
 }
 

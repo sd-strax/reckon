@@ -63,6 +63,7 @@ func (b *Backend) autoApproveAndDispatch(ctx context.Context, reqEnv aggregate.E
 		Targets:       cmd.Targets,
 		Parameters:    cmd.Parameters,
 		ReversalOfRef: cmd.ReversalOfRef,
+		Binding:       cmd.Binding,
 	})
 	return RequestApproved, wfID
 }
@@ -79,6 +80,9 @@ type dispatchSpec struct {
 	Targets       []aggregate.TargetSpec
 	Parameters    json.RawMessage
 	ReversalOfRef uuid.UUID
+	// Binding is the binding frozen at request time (adr/0406); dispatch
+	// uses it and no other.
+	Binding aggregate.FrozenBinding
 }
 
 // startActionWorkflow triggers the ActionLifecycle (or ReversalSaga for a
@@ -99,6 +103,7 @@ func (b *Backend) startActionWorkflow(ctx context.Context, s dispatchSpec) strin
 		ActionType:  s.ActionType,
 		Targets:     s.Targets,
 		Parameters:  paramsMap(s.Parameters),
+		Binding:     s.Binding,
 	}
 
 	// Route the dispatch to the investigation's organization (03 §3.5). The

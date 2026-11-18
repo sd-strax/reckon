@@ -319,7 +319,7 @@ func TestGradeH5(t *testing.T) {
 func TestGradeH6(t *testing.T) {
 	conforming := actionTrial(TurnRecord{ToolCalls: []ToolCall{
 		ticketCall(`"summary":"handoff","description":"details"`),
-		{ToolName: "request_host_isolate", Args: `{"targets":[{"entity_ref":"h","resolved_identifier":"H"}],"rationale":"r","evidence_refs":["e"]}`},
+		{ToolName: "request_host_isolate", Args: `{"targets":[{"entity_ref":"h"}],"rationale":"r","evidence_refs":["e"]}`},
 	}})
 	if v := gradeH6(conforming); v.Result != Pass {
 		t.Errorf("conforming inputs = %s (%s); want PASS", v.Result, v.Detail)

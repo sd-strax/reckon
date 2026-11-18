@@ -62,6 +62,7 @@ type evidenceStore interface {
 	AliasSet(ctx context.Context, ref string) ([]string, error)
 	EntitySet(ctx context.Context, ref string) ([]string, error)
 	HostIdentity(ctx context.Context, ref string) (evidence.HostIdentityView, error)
+	HostDeviceIDs(ctx context.Context, ref string) ([]evidence.SourceID, error)
 	AccountIdentity(ctx context.Context, ref string) (evidence.AccountIdentityView, error)
 	PersonIdentity(ctx context.Context, ref string) (evidence.PersonIdentityView, error)
 	AssertOwner(ctx context.Context, ids *identity.Resolver, accountRef, personRef string, by evidence.Asserter, note string) error

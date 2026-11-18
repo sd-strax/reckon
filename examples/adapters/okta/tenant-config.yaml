@@ -59,6 +59,8 @@ action_bindings:
       adapter: okta
       operation: deactivate_user
       priority: 100
+      identifier:
+        user-account: "${target.entity.account_login}"
       params:
         user_id: "${target.resolved_identifier}"
   # No account.enable binding: okta-mcp-server exposes no reactivate tool, so the

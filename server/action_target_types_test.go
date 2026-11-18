@@ -51,8 +51,8 @@ func TestRequestAction_WrongTargetTypeRefused(t *testing.T) {
 }
 
 // TestRequestAction_ReversalTakesOriginalTargets: a reversal acts on the
-// original action's targets as recorded. Body targets that carry names only,
-// as the workbench's Reverse sends them, are not used (adr/0354).
+// original action's target entities as recorded. Body targets that carry
+// names only, as the workbench's Reverse sends them, are not used (adr/0354).
 func TestRequestAction_ReversalTakesOriginalTargets(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test skipped in short mode")
@@ -76,9 +76,11 @@ func TestRequestAction_ReversalTakesOriginalTargets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := aggregate.TargetSpec{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-A"}
+	// The original's entity, with its identifier derived afresh from the
+	// stored entity (adr/0406), not the original's recorded WIN-A.
+	want := aggregate.TargetSpec{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-FILE01"}
 	if len(rev.Targets) != 1 || rev.Targets[0] != want {
-		t.Errorf("reversal targets = %+v; want the original's [%+v]", rev.Targets, want)
+		t.Errorf("reversal targets = %+v; want the original's entity [%+v]", rev.Targets, want)
 	}
 }
 

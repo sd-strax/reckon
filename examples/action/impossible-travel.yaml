@@ -10,12 +10,17 @@ action_adapters:
     enabled: true
     scenario: impossible-travel-signin
 
+# Each typed binding declares how a target's identifier is derived from the
+# stored entity (adr/0406). A domain account's stored login is already
+# domain-qualified (CONTOSO\m.reyes).
 action_bindings:
   account.disable:
     - action_type: account.disable
       adapter: fixture_write
       operation: dispatch
       priority: 100
+      identifier:
+        user-account: "${target.entity.account_login}"
       params:
         account: "${target.resolved_identifier}"
 
@@ -24,6 +29,8 @@ action_bindings:
       adapter: fixture_write
       operation: dispatch
       priority: 100
+      identifier:
+        user-account: "${target.entity.account_login}"
       params:
         account: "${target.resolved_identifier}"
 
@@ -32,6 +39,12 @@ action_bindings:
       adapter: fixture_write
       operation: dispatch
       priority: 100
+      identifier:
+        ipv4-addr: "${target.entity.value}"
+        ipv6-addr: "${target.entity.value}"
+        domain-name: "${target.entity.value}"
+        url: "${target.entity.value}"
+        file: "${target.entity.hashes.SHA-256}"
       params:
         indicator: "${target.resolved_identifier}"
 
@@ -40,6 +53,12 @@ action_bindings:
       adapter: fixture_write
       operation: dispatch
       priority: 100
+      identifier:
+        ipv4-addr: "${target.entity.value}"
+        ipv6-addr: "${target.entity.value}"
+        domain-name: "${target.entity.value}"
+        url: "${target.entity.value}"
+        file: "${target.entity.hashes.SHA-256}"
       params:
         indicator: "${target.resolved_identifier}"
 

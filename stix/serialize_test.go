@@ -398,3 +398,32 @@ func TestMarshal_RefusesARefThatIsNotAnIdentifier(t *testing.T) {
 		t.Error("an object_refs value that is not an identifier was accepted")
 	}
 }
+
+// TestPropertiesFrom: PropertiesFrom strips exactly the properties the
+// serializer sets, keeps every other top-level one, and lifts the type's
+// property-extension beside them, so it is Build's inverse.
+func TestPropertiesFrom(t *testing.T) {
+	obj := map[string]any{"custom_a": "a", "value": "10.0.0.1", "defanged": false}
+	for _, k := range serializerSet {
+		obj[k] = "set by the serializer"
+	}
+	got := PropertiesFrom(obj, "x-no-such-type")
+	want := []string{"custom_a", "defanged", "value"}
+	keys := slices.Sorted(maps.Keys(got))
+	if !slices.Equal(keys, want) {
+		t.Errorf("PropertiesFrom kept %v; want %v (every key but the serializer's)", keys, want)
+	}
+
+	props := map[string]any{
+		"account_login": `CONTOSO\jdoe`, "account_type": "windows-domain",
+		"domain": "CONTOSO", "source_ids": map[string]any{"edr": "1"},
+	}
+	built := build(t, Object{Type: identity.TypeUserAccount, ID: "user-account--00000000-0000-4000-8000-000000000001", Properties: props})
+	back := PropertiesFrom(built, identity.TypeUserAccount)
+	if !slices.Equal(slices.Sorted(maps.Keys(back)), slices.Sorted(maps.Keys(props))) {
+		t.Errorf("PropertiesFrom(Build) = %v; want the properties built from %v", back, props)
+	}
+	if back["domain"] != "CONTOSO" || back["account_login"] != `CONTOSO\jdoe` {
+		t.Errorf("PropertiesFrom(Build) = %v", back)
+	}
+}

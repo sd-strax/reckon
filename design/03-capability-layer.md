@@ -1910,6 +1910,26 @@ The OCSF-shaping responsibility lives in the adapter regardless of class. That's
 the invariant that makes the layer transport-neutral: by the time data crosses
 the adapter boundary, it's OCSF, full stop.
 
+### 5.5 Source labels
+
+Every event an adapter returns carries a source label, its `source_tool`. The
+label keys what a source said about an entity: an entity's `source_ids`, and
+the agent and device ids a host's identity view collects by source.
+
+A source label is `<vendor>:<tool>`, or a bare `<vendor>` for a source with one
+tool (adr/0406). The in-tree adapters follow it: `falcon:<tool>`,
+`okta:<tool>`, `greynoise:<tool>`, `servicenow`, and `fixture:<scenario>` for
+the fixture layer. The vendor is the label up to the first `:`.
+
+The vendor part is load-bearing on the write side. A write binding that needs a
+vendor's own id, such as a Falcon device id, names it by vendor
+(`target.entity.vendor_ids.falcon`, `08 §4`), and the engine finds it under
+every label of that vendor. So every adapter of one vendor uses the same
+prefix, whichever tool it reads. A new read adapter must label its sources this
+way, or a write binding cannot name its ids. The AWS adapters label their
+sources `aws-security-lake` and `aws-config`, which read as two vendors under
+this contract; they are left as they are.
+
 ---
 
 ## 6. Edge Cases and Graceful Degradation

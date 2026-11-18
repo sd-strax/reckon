@@ -31,6 +31,10 @@ type ActionLifecycleInput struct {
 	// from the investigation's immutable Seed when the workflow is started;
 	// empty in single-organization tenants.
 	SourceScope string `json:"source_scope,omitempty"`
+	// Binding is the write binding frozen at request time (adr/0406). The
+	// dispatched record names its adapter, and dispatch uses it and no
+	// other.
+	Binding aggregate.FrozenBinding `json:"binding"`
 }
 
 // ActionLifecycle is the durable dispatch of an APPROVED action (05 §6.2,
@@ -51,9 +55,10 @@ type ActionLifecycleInput struct {
 //     (08 §6c): FAILED with per-target UNKNOWN — never a success inference.
 //
 // v0 scope: the workflow is started for an already-APPROVED action. The
-// approval-wait (signal-on-approve / expiry-timer, 05 §6.2 step 1) and the
-// adapter name on the ledger entry (needs binding selection split from dispatch)
-// are v1 refinements; the idempotency core is complete.
+// approval-wait (signal-on-approve / expiry-timer, 05 §6.2 step 1) is a v1
+// refinement; the idempotency core is complete. The binding is the one frozen
+// at request time (adr/0406): the ledger entry names its adapter, and
+// dispatch uses it and no other.
 func ActionLifecycle(ctx workflow.Context, in ActionLifecycleInput) (string, error) {
 	log := workflow.GetLogger(ctx)
 	// Ledger/emit activities: bounded retries (a DB restart survives; a
@@ -112,10 +117,7 @@ func ActionLifecycle(ctx workflow.Context, in ActionLifecycleInput) (string, err
 		AggregateID:      in.AggregateID,
 		TenantID:         in.TenantID,
 		ApproverID:       in.ApproverID,
-		ActionType:       in.ActionType,
-		Targets:          in.Targets,
-		Parameters:       in.Parameters,
-		SourceScope:      in.SourceScope,
+		Binding:          in.Binding,
 		AdapterRequestID: requestID,
 	}).Get(ctx, nil); err != nil {
 		return "", err
@@ -139,6 +141,7 @@ func ActionLifecycle(ctx workflow.Context, in ActionLifecycleInput) (string, err
 		Targets:     in.Targets,
 		Parameters:  in.Parameters,
 		SourceScope: in.SourceScope,
+		Binding:     in.Binding,
 	}).Get(dispatchCtx, &out)
 
 	// 4. Record the outcome.

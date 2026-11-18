@@ -97,7 +97,9 @@ func exampleActionTools() []tool {
 }
 
 // exampleCatalog exercises the action-tool text a catalog brings: a type of
-// each availability, entity and scalar inputs, and an input two types share.
+// each availability, entity and scalar inputs, an input two types share, and
+// both target shapes, an entity for a type with target types and a
+// destination for one with none (adr/0406).
 // It stands in for an install's catalog so the hash covers the code's words
 // around the catalog, never the catalog's own. Its literal strings are part of
 // the version all the same: editing one moves a tools/<action tool>+catalog
@@ -110,6 +112,7 @@ func exampleCatalog() []agentapi.ActionSummary {
 	isolate.Descriptor.DefaultTier = "T2"
 	isolate.Descriptor.Reversibility = "REVERSIBLE"
 	isolate.Descriptor.Inputs = []agentapi.InputParam{{Name: "target", Type: "entity", Required: true}, {Name: "reason", Type: "string", Required: true, Desc: "why"}}
+	isolate.Descriptor.TargetTypes = []string{"reckon-host"}
 	ticket.Status = catalog.ActionDegraded
 	ticket.Descriptor.ActionType = "ticket.create"
 	ticket.Descriptor.Intent = "Open a ticket."
@@ -121,6 +124,7 @@ func exampleCatalog() []agentapi.ActionSummary {
 	block.Descriptor.Intent = "Block an indicator."
 	block.Descriptor.DefaultTier = "T2"
 	block.Descriptor.Reversibility = "BEST_EFFORT"
+	block.Descriptor.TargetTypes = []string{"ipv4-addr", "domain-name"}
 	return []agentapi.ActionSummary{isolate, ticket, block}
 }
 

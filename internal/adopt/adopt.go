@@ -81,6 +81,16 @@ func PlanFrom(d *adapterplugin.DescribeResult, instance, install, class string, 
 		actions = appendUnique(actions, wb.Operation)
 		st := bindingStanza(instance, wb.Operation, wb.Priority, wb.Params)
 		st["action_type"] = wb.ActionType
+		// The identifier rule says how the target's identifier is derived
+		// from the stored entity (adr/0406); config load requires it for a
+		// typed action.
+		if len(wb.Identifier) > 0 {
+			ident := make(map[string]any, len(wb.Identifier))
+			for k, v := range wb.Identifier {
+				ident[k] = v
+			}
+			st["identifier"] = ident
+		}
 		p.WriteBindings[wb.ActionType] = append(p.WriteBindings[wb.ActionType], st)
 		ats[wb.ActionType] = true
 	}

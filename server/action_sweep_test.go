@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	sdktemporal "go.temporal.io/sdk/temporal"
 
+	"github.com/sd-strax/reckon/action"
 	"github.com/sd-strax/reckon/aggregate"
 	"github.com/sd-strax/reckon/module"
 	"github.com/sd-strax/reckon/temporal"
@@ -21,12 +22,23 @@ type fakeActionStarter struct {
 	mu        sync.Mutex
 	lifecycle []string // action ids
 	sagas     []string // reversing action ids
+	// bindings is the frozen binding each started workflow carried, by
+	// action id (adr/0406).
+	bindings map[string]aggregate.FrozenBinding
+}
+
+func (f *fakeActionStarter) carried(actionID string, b aggregate.FrozenBinding) {
+	if f.bindings == nil {
+		f.bindings = map[string]aggregate.FrozenBinding{}
+	}
+	f.bindings[actionID] = b
 }
 
 func (f *fakeActionStarter) StartActionLifecycle(_ context.Context, in temporal.ActionLifecycleInput) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.lifecycle = append(f.lifecycle, in.ActionID)
+	f.carried(in.ActionID, in.Binding)
 	return "action-lifecycle-" + in.ActionID, nil
 }
 
@@ -34,8 +46,13 @@ func (f *fakeActionStarter) StartReversalSaga(_ context.Context, in temporal.Rev
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.sagas = append(f.sagas, in.Reversing.ActionID)
+	f.carried(in.Reversing.ActionID, in.Reversing.Binding)
 	return "reversal-saga-" + in.Reversing.ActionID, nil
 }
+
+// testFrozenBinding is the binding approvedAction freezes, and the one
+// testActionResolver's bindings are identified by.
+var testFrozenBinding = aggregate.FrozenBinding{Adapter: "test_write", Operation: "op"}
 
 // systemHandle runs a SYSTEM command, as the workflows do.
 func systemHandle(t *testing.T, aggID uuid.UUID, cmd aggregate.Command) {
@@ -69,6 +86,9 @@ func approvedAction(t *testing.T, aggID uuid.UUID, req aggregate.RequestAction) 
 	req.Targets = []aggregate.TargetSpec{{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-A"}}
 	req.ExpiresAt = time.Now().Add(time.Hour)
 	req.Rationale = "contain"
+	if req.Binding == (aggregate.FrozenBinding{}) {
+		req.Binding = testFrozenBinding
+	}
 	humanHandle(t, aggID, req)
 	humanHandle(t, aggID, aggregate.ApproveAction{ActionID: req.ActionID, Authorization: aggregate.Authorization{
 		Mode: aggregate.AuthModeManual, Stage: aggregate.AuthStageSolo,
@@ -112,6 +132,57 @@ func TestSweepStrandedActions(t *testing.T) {
 	}
 	if !got[waiting.String()] || !got[executing.String()] || got[unknown.String()] || len(fake.lifecycle) != 2 {
 		t.Errorf("started %v; want the APPROVED and the EXECUTING action", fake.lifecycle)
+	}
+	// The sweep reads the projection, and the workflow it starts carries the
+	// binding frozen at request (adr/0406).
+	for _, id := range []uuid.UUID{waiting, executing} {
+		if fake.bindings[id.String()] != testFrozenBinding {
+			t.Errorf("sweep started %s with binding %+v; want the frozen %+v", id, fake.bindings[id.String()], testFrozenBinding)
+		}
+	}
+}
+
+// TestApprovalPathsCarryTheFrozenBinding (adr/0406): every path that starts
+// a workflow from an approved action, auto-approval and a person's approval,
+// hands the workflow the binding frozen at request.
+func TestApprovalPathsCarryTheFrozenBinding(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	resetInvestigations(t)
+	invID := activeInvestigation(t)
+	request := func(b *Backend) string {
+		t.Helper()
+		resp, out := postAction(t, b, mintToken(t, nil), RequestActionBody{
+			ActionType: "host.isolate", Targets: []aggregate.TargetSpec{{EntityRef: "reckon-host--1"}}, Rationale: "contain",
+			EvidenceRefs: []string{"observed-data--18ef927c-93bc-5470-b729-1b40841d3947"}, InvestigationRef: invID.String(),
+		})
+		if resp.StatusCode != http.StatusCreated {
+			t.Fatalf("request: status %d", resp.StatusCode)
+		}
+		return out.ActionID
+	}
+
+	auto := actionBackend(t, action.Policy{
+		ID: "policy/auto-isolate/1.0.0", ActionMatch: []string{"host.isolate"},
+		Effect: action.EffectAutoApprove, Predicate: "true", SignedOffBy: []string{"secops-lead"},
+	})
+	autoFake := &fakeActionStarter{}
+	auto.actionStarterOverride = autoFake
+	autoID := request(auto)
+	if got := autoFake.bindings[autoID]; got != testFrozenBinding {
+		t.Errorf("auto-approval started the workflow with binding %+v; want %+v", got, testFrozenBinding)
+	}
+
+	manual := actionBackend(t)
+	manualFake := &fakeActionStarter{}
+	manual.actionStarterOverride = manualFake
+	manualID := request(manual)
+	if resp, _ := postActionDecision(t, manual, mintToken(t, nil), manualID, "approve", nil); resp.StatusCode != http.StatusOK {
+		t.Fatalf("approve: status %d", resp.StatusCode)
+	}
+	if got := manualFake.bindings[manualID]; got != testFrozenBinding {
+		t.Errorf("manual approval started the workflow with binding %+v; want %+v", got, testFrozenBinding)
 	}
 }
 
@@ -190,5 +261,31 @@ func TestEmitExpired_UnknownActionIsBadInput(t *testing.T) {
 	var appErr *sdktemporal.ApplicationError
 	if !errors.As(err, &appErr) || !appErr.NonRetryable() {
 		t.Errorf("err = %v; want a non-retryable ApplicationError", err)
+	}
+}
+
+// TestEmitDispatched_RecordsTheFrozenAdapter (adr/0406): the dispatched
+// record names the adapter of the binding the workflow carries, the one
+// frozen at request.
+func TestEmitDispatched_RecordsTheFrozenAdapter(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	resetInvestigations(t)
+	invID := activeInvestigation(t)
+	id := approvedAction(t, invID, aggregate.RequestAction{})
+	acts := temporal.NewActivities(testHandler, nil, nil, nil)
+	if err := acts.EmitDispatched(context.Background(), temporal.EmitDispatchedInput{
+		ActionID: id.String(), AggregateID: invID.String(), TenantID: module.SingleTenantUUID.String(),
+		ApproverID: "test-subject", Binding: testFrozenBinding, AdapterRequestID: "action-lifecycle-" + id.String(),
+	}); err != nil {
+		t.Fatalf("EmitDispatched: %v", err)
+	}
+	ac, err := testHandler.Reads().LoadActionCurrent(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ac.Status != aggregate.ActionStatusExecuting || ac.Adapter != testFrozenBinding.Adapter || ac.Binding != testFrozenBinding {
+		t.Errorf("after dispatch: status %s adapter %q binding %+v; want EXECUTING via %+v", ac.Status, ac.Adapter, ac.Binding, testFrozenBinding)
 	}
 }

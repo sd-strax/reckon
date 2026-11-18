@@ -19,20 +19,28 @@ func lifecycleInput() ActionLifecycleInput {
 		ApproverID:  "alice",
 		ActionType:  "host.isolate",
 		Targets:     []aggregate.TargetSpec{{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-A"}},
+		Binding:     aggregate.FrozenBinding{Adapter: "edr", Operation: "contain"},
 	}
 }
 
 // TestActionLifecycle_HappyPath: guard clear → dispatched → SUCCEEDED result.
+// The workflow hands the binding frozen at request to both the dispatched
+// record and the dispatch (adr/0406).
 func TestActionLifecycle_HappyPath(t *testing.T) {
 	ts := &testsuite.WorkflowTestSuite{}
 	env := ts.NewTestWorkflowEnvironment()
 	var a *Activities
+	frozen := lifecycleInput().Binding
 
 	env.OnActivity(a.ActionDispatchState, mock.Anything, mock.Anything).Return(DispatchState{Status: aggregate.ActionStatusApproved}, nil)
-	env.OnActivity(a.EmitDispatched, mock.Anything, mock.Anything).Return(nil)
+	env.OnActivity(a.EmitDispatched, mock.Anything, mock.MatchedBy(func(in EmitDispatchedInput) bool {
+		return in.Binding == frozen
+	})).Return(nil)
 	// The dispatch succeeded on its 2nd attempt: the audit record must carry the
 	// REAL attempt number, never a fabricated 1.
-	env.OnActivity(a.DoDispatch, mock.Anything, mock.Anything).Return(
+	env.OnActivity(a.DoDispatch, mock.Anything, mock.MatchedBy(func(in DispatchInput) bool {
+		return in.Binding == frozen
+	})).Return(
 		DispatchOutput{FinalOutcome: "SUCCEEDED", PerTargetResults: map[string]string{"0": "OK"}, Attempts: 2}, nil)
 	env.OnActivity(a.EmitResulted, mock.Anything, mock.MatchedBy(func(in EmitResultedInput) bool {
 		return in.FinalOutcome == "SUCCEEDED" && in.Attempts == 2

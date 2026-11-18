@@ -129,6 +129,7 @@ func specFromCurrent(ac aggregate.ActionCurrent) dispatchSpec {
 		Targets:       ac.Targets,
 		Parameters:    ac.Parameters,
 		ReversalOfRef: ac.ReversalOfRef,
+		Binding:       ac.Binding,
 	}
 }
 

@@ -163,3 +163,37 @@ func TestEditAction_EvaluatesAsRequested(t *testing.T) {
 		}
 	})
 }
+
+// TestEditAction_KeepsTheFrozenBinding (adr/0406): an edit keeps the binding
+// frozen at request, and is refused when the new parameters no longer render
+// its params: the edited action could not be carried out by it.
+func TestEditAction_KeepsTheFrozenBinding(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	resetInvestigations(t)
+	invID := activeInvestigation(t)
+	b := actionBackend(t)
+	b.cfg.ActionResolver = action.NewActionResolver(map[string][]action.ActionBinding{
+		"ticket.create": {{ActionType: "ticket.create", Adapter: "test_write", Operation: "op", Priority: 100,
+			Params: map[string]any{"queue": "${target.resolved_identifier}", "title": "${parameters.summary}", "body": "${parameters.description}"}}},
+	}, map[string]action.WriteAdapter{"test_write": testWriteAdapter{}})
+	human := mintToken(t, nil)
+
+	resp, out := postAction(t, b, human, RequestActionBody{
+		ActionType: "ticket.create", InvestigationRef: invID.String(), Rationale: "hand off",
+		Targets:      []aggregate.TargetSpec{{ResolvedIdentifier: "IT-OPS"}},
+		Parameters:   json.RawMessage(`{"summary":"Reimage","description":"after containment"}`),
+		EvidenceRefs: []string{"observed-data--18ef927c-93bc-5470-b729-1b40841d3947"},
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("request: %d", resp.StatusCode)
+	}
+	// description is optional for the type, but this binding needs it.
+	if r, _ := postActionDecision(t, b, human, out.ActionID, "edit", map[string]any{"parameters": map[string]any{"summary": "Reimage"}}); r.StatusCode != http.StatusUnprocessableEntity {
+		t.Errorf("edit that breaks the frozen binding's params: %d; want 422", r.StatusCode)
+	}
+	if r, _ := postActionDecision(t, b, human, out.ActionID, "edit", map[string]any{"parameters": map[string]any{"summary": "Reimage", "description": "now"}}); r.StatusCode != http.StatusOK {
+		t.Errorf("edit that still renders: %d; want 200", r.StatusCode)
+	}
+}
