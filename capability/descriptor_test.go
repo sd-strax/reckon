@@ -26,7 +26,7 @@ var verbInputTypes = map[string]bool{
 // known types, and the fleet-wide pair takes its entity optionally while the
 // rest require one (or, for query_logs, take none).
 func TestDefaultCatalog_HuntVerbs(t *testing.T) {
-	c := DefaultCatalog()
+	c := defaultCatalog(t)
 	for _, v := range huntVerbs {
 		d, ok := c.Descriptor(v)
 		if !ok {
@@ -74,7 +74,7 @@ var cloudVerbs = []string{"get_cloud_api_activity", "get_cloud_resource_context"
 // optionally (the across-accounts question), the per-resource pair requires
 // one. Their text is held to the vocabulary guard below with the rest.
 func TestDefaultCatalog_CloudVerbs(t *testing.T) {
-	c := DefaultCatalog()
+	c := defaultCatalog(t)
 	for _, v := range cloudVerbs {
 		d, ok := c.Descriptor(v)
 		if !ok {
@@ -150,7 +150,7 @@ func TestDefaultCatalog_NoScenarioVocabulary(t *testing.T) {
 	if len(idents) < 10 {
 		t.Fatalf("only %d identifiers collected; the guard is not seeing the fixtures", len(idents))
 	}
-	c := DefaultCatalog()
+	c := defaultCatalog(t)
 	found := map[string]bool{}
 	for _, v := range c.Verbs() {
 		d, _ := c.Descriptor(v)
@@ -189,6 +189,32 @@ func collectIdentifiers(v any, key string, set map[string]bool) {
 	case string:
 		if identifierKeys[key] && len(x) >= 4 {
 			set[strings.ToLower(x)] = true
+		}
+	}
+}
+
+// defaultCatalog is DefaultCatalog for a test: it fails the test when the
+// catalog is refused.
+func defaultCatalog(t testing.TB) *Catalog {
+	t.Helper()
+	c, err := DefaultCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+// TestRegister_RefusesAVerbTheAgentCannotOffer (adr/0382): a verb whose name
+// is not a valid tool name or is a built-in tool name is refused and not
+// registered.
+func TestRegister_RefusesAVerbTheAgentCannotOffer(t *testing.T) {
+	for _, verb := range []string{"get.host", "", "read_sop", "recall_sops"} {
+		c := NewCatalog()
+		if err := c.Register(CapabilityDescriptor{Verb: verb}); err == nil {
+			t.Errorf("Register(%q) accepted", verb)
+		}
+		if _, ok := c.Descriptor(verb); ok {
+			t.Errorf("refused verb %q was registered", verb)
 		}
 	}
 }

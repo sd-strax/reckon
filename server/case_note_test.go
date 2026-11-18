@@ -25,7 +25,7 @@ func TestBuildCaseNoteRequest(t *testing.T) {
 	ic := &aggregate.InvestigationCurrent{
 		AggregateID: id,
 		Title:       "Suspicious RDP logon",
-		Seed:        &aggregate.Seed{Type: aggregate.SeedCase, CaseID: "INC0010042", Source: "servicenow", CaseRef: "observed-data--abc"},
+		Seed:        &aggregate.Seed{Type: aggregate.SeedCase, CaseID: "INC0010042", Source: "servicenow", CaseRef: "observed-data--cbbaa618-5b6e-5120-b676-8eaa8a1b3fb7"},
 	}
 	body, err := buildCaseNoteRequest(ic, "opened in reckon")
 	if err != nil {
@@ -34,10 +34,10 @@ func TestBuildCaseNoteRequest(t *testing.T) {
 	if body.ActionType != "ticket.comment" || body.InvestigationRef != id.String() {
 		t.Errorf("request = %+v; want a ticket.comment inside %s", body, id)
 	}
-	if len(body.Targets) != 1 || body.Targets[0].ResolvedIdentifier != "INC0010042" || body.Targets[0].EntityRef != "observed-data--abc" {
+	if len(body.Targets) != 1 || body.Targets[0].ResolvedIdentifier != "INC0010042" || body.Targets[0].EntityRef != "observed-data--cbbaa618-5b6e-5120-b676-8eaa8a1b3fb7" {
 		t.Errorf("targets = %+v; want the case as the single target", body.Targets)
 	}
-	if len(body.EvidenceRefs) != 1 || body.EvidenceRefs[0] != "observed-data--abc" {
+	if len(body.EvidenceRefs) != 1 || body.EvidenceRefs[0] != "observed-data--cbbaa618-5b6e-5120-b676-8eaa8a1b3fb7" {
 		t.Errorf("evidence = %v; want the case_ref as grounding", body.EvidenceRefs)
 	}
 	var params map[string]string
@@ -59,7 +59,7 @@ func TestBuildCaseNoteRequest(t *testing.T) {
 // for any other seed. The default text names who, when, and the investigation.
 func TestCaseNoteOffer(t *testing.T) {
 	now := time.Date(2026, 10, 22, 18, 0, 0, 0, time.UTC)
-	seed := &aggregate.Seed{Type: aggregate.SeedCase, CaseID: "INC0010042", CaseRef: "observed-data--abc", Source: "servicenow"}
+	seed := &aggregate.Seed{Type: aggregate.SeedCase, CaseID: "INC0010042", CaseRef: "observed-data--cbbaa618-5b6e-5120-b676-8eaa8a1b3fb7", Source: "servicenow"}
 
 	b := &Backend{cfg: BackendConfig{CaseNoteOnSeed: config.CaseNoteConfirm, ActionResolver: ticketCommentResolver()}}
 	offer := b.caseNoteOffer(context.Background(), "inv-1", "Suspicious RDP logon", seed, "sdas", now)
@@ -70,7 +70,7 @@ func TestCaseNoteOffer(t *testing.T) {
 		t.Errorf("system name = %q; want ServiceNow from the seed source", offer.SystemName)
 	}
 	// An unknown source with no store to consult: no name, no guess.
-	if o := b.caseNoteOffer(context.Background(), "inv-1", "t", &aggregate.Seed{Type: aggregate.SeedCase, CaseID: "X", CaseRef: "observed-data--abc", Source: "fixture:s"}, "", now); o == nil || o.SystemName != "" {
+	if o := b.caseNoteOffer(context.Background(), "inv-1", "t", &aggregate.Seed{Type: aggregate.SeedCase, CaseID: "X", CaseRef: "observed-data--cbbaa618-5b6e-5120-b676-8eaa8a1b3fb7", Source: "fixture:s"}, "", now); o == nil || o.SystemName != "" {
 		t.Errorf("fixture source without a store: offer = %+v; want an offer with no system name", o)
 	}
 	for _, want := range []string{"sdas", "2026-10-22T18:00:00Z", "Suspicious RDP logon", "reckon://investigation/inv-1"} {

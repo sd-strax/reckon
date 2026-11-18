@@ -368,14 +368,14 @@ func TestRecordInterpretation_RejectedWhenConcluded(t *testing.T) {
 	// The conclude gate needs a verdict (which needs a pin).
 	if _, err := h.Handle(context.Background(), env(), RecordInterpretation{
 		InterpretationID: uuid.New(), InterpretationType: InterpretationEvidencePin,
-		InputRefs: []string{"observed-data--x"}, Rationale: "finding",
+		InputRefs: []string{"observed-data--0d000000-0000-4000-8000-000000000001"}, Rationale: "finding",
 	}); err != nil {
 		t.Fatalf("pin: %v", err)
 	}
 	if _, err := h.Handle(context.Background(), env(), RecordInterpretation{
 		InterpretationID: uuid.New(), InterpretationType: InterpretationVerdict,
 		Verdict:   &VerdictNode{Disposition: VerdictBenign},
-		InputRefs: []string{"observed-data--x"}, Rationale: "nothing further",
+		InputRefs: []string{"observed-data--0d000000-0000-4000-8000-000000000001"}, Rationale: "nothing further",
 	}); err != nil {
 		t.Fatalf("verdict: %v", err)
 	}

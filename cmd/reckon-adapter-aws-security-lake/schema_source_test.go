@@ -18,7 +18,7 @@ import (
 // calls covering every filter, independently of candidateFields — compared as
 // sets both ways.
 func TestSchemaSource_ProfileMatchesQueries(t *testing.T) {
-	src := describe().SchemaSource
+	src := mustDescribe(t).SchemaSource
 	if src == nil || src.Kind != adapterplugin.SchemaSourceQuery || len(src.Profiles) != 1 {
 		t.Fatalf("schema_source = %+v; want kind query with one profile", src)
 	}

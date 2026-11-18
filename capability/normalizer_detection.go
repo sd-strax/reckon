@@ -45,7 +45,11 @@ func (*detectionNormalizer) ClassUID() int { return 2004 }
 // and uid, the sighting id from its time and observations, adr/0357
 // 9: an account typed Windows only on a Windows signal, account type 19
 // read as one, adr/0366
-func (*detectionNormalizer) Version() int { return 9 }
+// 10: the account type read by the one rule, a caption for every type and
+// the id over it; a cloud account's type named by OCSF's caption, adr/0367
+// 11: the account minted for each user object recorded in user_accounts,
+// adr/0398
+func (*detectionNormalizer) Version() int { return 11 }
 
 func (n *detectionNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
@@ -82,7 +86,7 @@ func (n *detectionNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, err
 		account = b.cloudAccount(provider, at{})
 		b.cloudResourcesOf(provider, account)
 	}
-	for _, artifact := range objectsAt(p, "evidences") {
+	for _, artifact := range objectEntries(p, "evidences") {
 		b.evidence(artifact, provider, account)
 	}
 	result := b.finish(nil)
@@ -182,10 +186,11 @@ func (n *detectionNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, err
 // the provider's API calls do (adr/0356). Otherwise actor.user is a login on
 // the artifact's host, as on a finding with no provider. A login on a VM
 // only means something on that VM.
-func (b *resultBuilder) evidence(artifact map[string]any, provider string, account identity.STIXID) {
-	own := at{obj: artifact, path: "device"}
+func (b *resultBuilder) evidence(e entry, provider string, account identity.STIXID) {
+	artifact := e.obj
+	own := at{obj: artifact, path: "device", in: e.place}
 	device := own
-	b.devices = []at{own, {obj: artifact, path: "src_endpoint"}, {obj: artifact, path: "dst_endpoint"}}
+	b.devices = []at{own, {obj: artifact, path: "src_endpoint", in: e.place}, {obj: artifact, path: "dst_endpoint", in: e.place}}
 	var host identity.STIXID
 	if objectAt(artifact, "device") != nil {
 		host = b.hostAt(own, true)
@@ -205,12 +210,12 @@ func (b *resultBuilder) evidence(artifact map[string]any, provider string, accou
 	b.actorProcess(artifact, host)
 	b.fileAt(artifact, "file")
 	b.endpoints(artifact)
-	if actor := (at{obj: artifact, path: "actor"}); provider != "" && isCloudPrincipal(provider, pathScalar(b.evt.Payload, "cloud.account.uid"), actor) {
+	if actor := (at{obj: artifact, path: "actor", in: e.place}); provider != "" && isCloudPrincipal(provider, pathScalar(b.evt.Payload, "cloud.account.uid"), actor) {
 		b.cloudHome(provider, b.cloudPrincipal(provider, actor), account, actor)
 	} else {
-		b.userAccountAt(at{obj: artifact, path: "actor.user"}, device, host)
+		b.userAccountAt(at{obj: artifact, path: "actor.user", in: e.place}, device, host)
 	}
-	b.userAccountAt(at{obj: artifact, path: "user"}, device, host)
+	b.userAccountAt(at{obj: artifact, path: "user", in: e.place}, device, host)
 	b.addDomain(pathStr(artifact, "query.hostname"))
 	b.url(pathStr(artifact, "url.url_string"))
 }

@@ -47,6 +47,11 @@ describe("a pinned evidence card (adr/0352)", () => {
     expect(card.querySelectorAll(".pinevent").length).toBe(1);
   });
 
+  it("leads with the event a pinned observation was made from (adr/0364)", () => {
+    const card = mount([OD, HOST]);
+    expect(card.querySelectorAll(".pinevent").length).toBe(1);
+  });
+
   it("resolves a pinned record of a merged event to its event", () => {
     const card = mount([COPY]);
     expect(card.querySelectorAll(".pinevent").length).toBe(1);
@@ -83,7 +88,7 @@ describe("a pinned evidence card (adr/0352)", () => {
   });
 
   it("keeps the flat chips for a pin with no event the workbench holds", () => {
-    const refs = [OD, "8f0e0e0e-0000-4000-8000-000000000001", HOST];
+    const refs = ["observed-data--8f0e0e0e-0000-4000-8000-000000000002", "8f0e0e0e-0000-4000-8000-000000000001", HOST];
     const card = mount(refs);
     expect(card.querySelector(".pinevent")).toBeNull();
     expect(card.querySelector("details.pinmade")).toBeNull();

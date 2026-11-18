@@ -106,6 +106,17 @@ function DecodedCommand({ decoded }: { decoded: NonNullable<EventView["decoded"]
   );
 }
 
+/** The raw events an observation was made from (adr/0364): a citation names
+ * the observation, and each event opens from here. */
+function SourceEvents({ ids }: { ids: string[] | undefined }) {
+  return (
+    <Section title="Made from">
+      {ids?.length ? ids.map((id) => <RefChip key={id} refId={id} />)
+        : <div className="empty">The record holds no raw event for this observation.</div>}
+    </Section>
+  );
+}
+
 /** The call that retrieved this event, from the record the Story lens holds. */
 function retrievedBy(refId: string, events: EventRow[] | null | undefined, around: EventRow[] | undefined): EventRow | undefined {
   return (events ?? []).find((e) => e.id === refId) ?? (around ?? []).find((e) => e.id === refId);
@@ -137,6 +148,7 @@ export function EvidenceInspector({ target }: { target: { kind: "ref"; ref: stri
           <>
             {isOD && objectRefs.length ? <Section title="Objects it contains">{objectRefs.map((r) => <RefChip key={r} refId={r} />)}</Section> : null}
             {typeof personRef === "string" && personRef ? <Section title="Person it describes"><RefChip refId={personRef} /></Section> : null}
+            {isOD ? <SourceEvents ids={doc.sourceEventIds} /> : null}
             {doc.view?.fields.length ? <Summary fields={doc.view.fields} /> : null}
             {doc.view?.decoded ? <DecodedCommand decoded={doc.view.decoded} /> : null}
             <Section title={doc.kind === "ocsf" ? "Event fields" : "Properties"}><Fields obj={propsOf(doc)} /></Section>

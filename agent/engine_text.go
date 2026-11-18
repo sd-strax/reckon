@@ -123,10 +123,15 @@ var (
 	textToolCutOff = modelText{ID: "tool-cut-off", Origin: "1a7fecf",
 		Text: "this call's input was cut off at the output limit and was not run; issue it again with a shorter input"}
 
-	// The description of an action tool (adr/0380): the descriptor's intent,
-	// tier and reversibility, "degraded" when it is, and the guidance every
-	// request shares. An unavailable type's description says it cannot be
-	// carried out, and leaves the guidance out.
+	// The description of an action tool (adr/0380): the action type it
+	// requests (adr/0386), the descriptor's intent, tier and reversibility,
+	// "degraded" when it is, and the guidance every request shares. An
+	// unavailable type's description says it cannot be carried out, and leaves
+	// the guidance out. The type leads, so the model matches the id it reads
+	// in the state rows, list_actions and the engine's refusals to the tool
+	// that names it.
+	textActionToolType = modelText{ID: "action-tool-type", Origin: "#386",
+		Text: "Action type: %s. "}
 	textActionTool = modelText{ID: "action-tool", Origin: "#380",
 		Text: "%s Tier %s, %s."}
 	textActionToolDegraded = modelText{ID: "action-tool-degraded", Origin: "#380",
@@ -166,7 +171,7 @@ var engineTexts = []modelText{
 	textResultBoundedShape,
 	textToolCutOff,
 	textSeedLine, textCaseSeed, textDegraded,
-	textActionTool, textActionToolDegraded, textActionToolUnavailable, textActionToolGuidance,
+	textActionToolType, textActionTool, textActionToolDegraded, textActionToolUnavailable, textActionToolGuidance,
 	textListSeparator, textClipped,
 }
 

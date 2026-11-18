@@ -63,7 +63,7 @@ func TestVerdictFlow_EndToEnd(t *testing.T) {
 		"investigation_ref":   invID.String(),
 		"interpretation_type": "verdict",
 		"verdict":             map[string]any{"disposition": "MALICIOUS"},
-		"input_refs":          []string{"observed-data--od1"},
+		"input_refs":          []string{"observed-data--18ef927c-93bc-5470-b729-1b40841d3947"},
 		"rationale":           "premature",
 	})
 	if resp.StatusCode == http.StatusCreated {
@@ -77,7 +77,7 @@ func TestVerdictFlow_EndToEnd(t *testing.T) {
 	resp, out = post(aiToken, "/api/interpretations", map[string]any{
 		"investigation_ref":   invID.String(),
 		"interpretation_type": "evidence-pin",
-		"input_refs":          []string{"observed-data--od1"},
+		"input_refs":          []string{"observed-data--18ef927c-93bc-5470-b729-1b40841d3947"},
 		"rationale":           "first-seen ASN logon for this user",
 	})
 	if resp.StatusCode != http.StatusCreated {
@@ -90,7 +90,7 @@ func TestVerdictFlow_EndToEnd(t *testing.T) {
 		"investigation_ref":   invID.String(),
 		"interpretation_type": "verdict",
 		"verdict":             map[string]any{"disposition": "MALICIOUS"},
-		"input_refs":          []string{"observed-data--od1"},
+		"input_refs":          []string{"observed-data--18ef927c-93bc-5470-b729-1b40841d3947"},
 		"rationale":           "the delegate judges",
 	})
 	if resp.StatusCode != http.StatusForbidden {
@@ -105,7 +105,7 @@ func TestVerdictFlow_EndToEnd(t *testing.T) {
 		"investigation_ref":   invID.String(),
 		"interpretation_type": "verdict",
 		"verdict":             map[string]any{"disposition": "SUSPICIOUS"},
-		"input_refs":          []string{"observed-data--od1"},
+		"input_refs":          []string{"observed-data--18ef927c-93bc-5470-b729-1b40841d3947"},
 		"rationale":           "anomalous but not yet confirmed hostile",
 	})
 	if resp.StatusCode != http.StatusCreated {
@@ -122,7 +122,7 @@ func TestVerdictFlow_EndToEnd(t *testing.T) {
 		"investigation_ref":   invID.String(),
 		"interpretation_type": "verdict",
 		"verdict":             map[string]any{"disposition": "MALICIOUS"},
-		"input_refs":          []string{"observed-data--od1"},
+		"input_refs":          []string{"observed-data--18ef927c-93bc-5470-b729-1b40841d3947"},
 		"rationale":           "encoded execution confirms hostility",
 	}); resp.StatusCode != http.StatusCreated {
 		t.Fatalf("verdict revision: %d %v", resp.StatusCode, out)
@@ -205,14 +205,14 @@ func TestVerdictFlow_AIDialOn(t *testing.T) {
 
 	if resp, out := post(map[string]any{
 		"investigation_ref": invID.String(), "interpretation_type": "evidence-pin",
-		"input_refs": []string{"observed-data--od1"}, "rationale": "finding",
+		"input_refs": []string{"observed-data--18ef927c-93bc-5470-b729-1b40841d3947"}, "rationale": "finding",
 	}); resp.StatusCode != http.StatusCreated {
 		t.Fatalf("pin: %d %v", resp.StatusCode, out)
 	}
 	resp, out := post(map[string]any{
 		"investigation_ref": invID.String(), "interpretation_type": "verdict",
 		"verdict":    map[string]any{"disposition": "MALICIOUS"},
-		"input_refs": []string{"observed-data--od1"}, "rationale": "delegate-judged under the dial",
+		"input_refs": []string{"observed-data--18ef927c-93bc-5470-b729-1b40841d3947"}, "rationale": "delegate-judged under the dial",
 	})
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("AI verdict with dial on: %d %v", resp.StatusCode, out)

@@ -257,8 +257,12 @@ func validateDescribe(desc *adapterplugin.DescribeResult, rep *confReport) {
 	for _, b := range desc.DefaultWriteBindings {
 		byType[b.ActionType] = append(byType[b.ActionType], b)
 	}
-	for _, p := range action.ValidateBindingParams(byType, action.DefaultActionCatalog()) {
-		rep.fail("describe: " + p)
+	if actions, err := action.DefaultActionCatalog(); err != nil {
+		rep.fail("describe: action catalog: " + err.Error())
+	} else {
+		for _, p := range action.ValidateBindingParams(byType, actions) {
+			rep.fail("describe: " + p)
+		}
 	}
 	rep.pass(fmt.Sprintf("describe well-formed: %d verb(s), %d action type(s), %d operation(s)",
 		len(desc.Verbs), len(desc.ActionTypes), len(desc.Operations)))

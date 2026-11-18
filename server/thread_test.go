@@ -29,7 +29,7 @@ func TestInvestigationThread_ReassemblesReasoning(t *testing.T) {
 	if resp, _ := postInterpretation(t, b, aiToken, RecordInterpretationBody{
 		InvestigationRef:   invID.String(),
 		InterpretationType: "pivot",
-		InputRefs:          []string{"process--1"},
+		InputRefs:          []string{"process--639b30b9-f660-5ac3-b750-a82b236c3560"},
 		Rationale:          "beaconing consistent with C2",
 		Confidence:         "MEDIUM",
 		Transcript:         &TranscriptInput{TurnID: "t1", Body: "assistant: pivoting"},

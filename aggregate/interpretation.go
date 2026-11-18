@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -99,19 +100,55 @@ func validateRefList(field string, refs []string) error {
 	return nil
 }
 
-// validateCitations refuses a cited ref that is neither a STIX id
-// (<type>--<UUID>) nor a raw OCSF event id (a bare UUID), the two forms a
-// citation can take (adr/0357). The stored object keeps each form in its own
-// list.
-func validateCitations(field string, refs []string) error {
+// EventCitedError is the refusal of a new citation that names raw OCSF events
+// (bare event ids) instead of STIX objects (adr/0364). Field is the list the
+// entries were in, and Refs are every event id it held, in list order. An
+// event is cited through the observation made from it.
+type EventCitedError struct {
+	Field string
+	Refs  []string
+}
+
+func (e *EventCitedError) Error() string {
+	return fmt.Sprintf("%s cites raw event ids %s; cite the observation (observed-data) made from each event instead", e.Field, strings.Join(e.Refs, ", "))
+}
+
+// isEventID reports whether a ref is a bare UUID, the form a raw OCSF event's
+// id takes.
+func isEventID(ref string) bool {
+	_, err := uuid.Parse(ref)
+	return err == nil && len(ref) == 36
+}
+
+// CheckCitedRefs refuses any entry of a citation list that is not a STIX id
+// (<type>--<UUID>). An entry in neither form is refused with a plain error.
+// Otherwise every bare event id in the list is refused together, with an
+// *EventCitedError, so a caller can name the observations to cite instead
+// (adr/0364).
+func CheckCitedRefs(field string, refs []string) error {
+	var events []string
 	for _, r := range refs {
 		if stix.IsIdentifier(r) {
 			continue
 		}
-		if _, err := uuid.Parse(r); err == nil && len(r) == 36 {
+		if isEventID(r) {
+			events = append(events, r)
 			continue
 		}
-		return fmt.Errorf("RecordInterpretation: %s entry %q is neither a STIX id (<type>--<UUID>) nor an event id (a UUID); cite the observation or the event the tool result names", field, r)
+		return fmt.Errorf("%s entry %q is not a STIX id (<type>--<UUID>); cite the observation or the entity the tool result names", field, r)
+	}
+	if len(events) > 0 {
+		return &EventCitedError{Field: field, Refs: events}
+	}
+	return nil
+}
+
+// validateCitations refuses a cited ref that is not a STIX id. A raw event id
+// was accepted until adr/0364; the stored object still keeps the event ids an
+// older record cites in their own list (adr/0357).
+func validateCitations(field string, refs []string) error {
+	if err := CheckCitedRefs(field, refs); err != nil {
+		return fmt.Errorf("RecordInterpretation: %w", err)
 	}
 	return nil
 }

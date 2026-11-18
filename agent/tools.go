@@ -10,22 +10,25 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/sd-strax/reckon/internal/catalog"
 )
 
 // Intrinsic tool names — the reasoning/action surface that exists regardless of
 // tenant capability config. Capability verbs are appended per session from the
-// live catalog (05 §3.4 step 2).
+// live catalog (05 §3.4 step 2). The names are defined in internal/catalog, so
+// the backend refuses a verb that takes one (adr/0382).
 const (
-	ToolRecallSOPs              = "recall_sops"
-	ToolRecallSimilar           = "recall_similar_investigations"
-	ToolPriorInvestigations     = "prior_investigations"
-	ToolProposeHypothesis       = "propose_hypothesis"
-	ToolRecordPrediction        = "record_prediction"
-	ToolEvaluateHypothesis      = "evaluate_hypothesis"
-	ToolRecordPredictionOutcome = "record_prediction_outcome"
-	ToolListActions             = "list_actions"
-	ToolReadResult              = "read_result"
-	ToolReadSOP                 = "read_sop"
+	ToolRecallSOPs              = catalog.ToolRecallSOPs
+	ToolRecallSimilar           = catalog.ToolRecallSimilar
+	ToolPriorInvestigations     = catalog.ToolPriorInvestigations
+	ToolProposeHypothesis       = catalog.ToolProposeHypothesis
+	ToolRecordPrediction        = catalog.ToolRecordPrediction
+	ToolEvaluateHypothesis      = catalog.ToolEvaluateHypothesis
+	ToolRecordPredictionOutcome = catalog.ToolRecordPredictionOutcome
+	ToolListActions             = catalog.ToolListActions
+	ToolReadResult              = catalog.ToolReadResult
+	ToolReadSOP                 = catalog.ToolReadSOP
 )
 
 // buildTools assembles the session's tool definitions: one tool per AVAILABLE
@@ -38,11 +41,12 @@ const (
 // What the model is shown and what dispatch can run come from this one step: the
 // definitions are the list, and the map is the list by name. Two tools of one
 // name would leave the model's list ambiguous, so a verb or an action tool
-// that takes another tool's name fails here.
+// that takes another tool's name fails here. The backend refuses such a name
+// when it is registered (adr/0382), so this is a last guard.
 func buildTools(caps []Capability, actionTypes []ActionType) ([]ToolDef, map[string]tool, error) {
 	var tools []tool
 	for _, c := range caps {
-		if c.Status != "available" {
+		if c.Status != catalog.StatusAvailable {
 			continue
 		}
 		if c.Descriptor.Verb == "list_capabilities" {
@@ -56,11 +60,7 @@ func buildTools(caps []Capability, actionTypes []ActionType) ([]ToolDef, map[str
 	// action type.
 	slices.SortStableFunc(tools, func(a, b tool) int { return strings.Compare(a.def.Name, b.def.Name) })
 	tools = append(tools, intrinsicTools()...)
-	actions, err := actionTools(actionTypes)
-	if err != nil {
-		return nil, nil, err
-	}
-	tools = append(tools, actions...)
+	tools = append(tools, actionTools(actionTypes)...)
 
 	defs := make([]ToolDef, 0, len(tools))
 	byName := make(map[string]tool, len(tools))
@@ -264,7 +264,7 @@ type evaluateHypothesisInput struct {
 	HypothesisRef  string   `json:"hypothesis_ref" required:"true" desc:"the reckon-hypothesis id"`
 	Disposition    string   `json:"disposition" required:"true" desc:"support | refutation | inconclusive"`
 	Rationale      string   `json:"rationale" required:"true" desc:"the evidential reasoning"`
-	TestResultRefs []string `json:"test_result_refs" desc:"STIX/OCSF refs of the observed evidence; required for support and refutation"`
+	TestResultRefs []string `json:"test_result_refs" desc:"STIX refs of the observed evidence (observed_data_refs, entity_refs); required for support and refutation"`
 	Abandoned      bool     `json:"abandoned" desc:"on inconclusive: mark ABANDONED instead"`
 	Confidence     string   `json:"confidence" desc:"HIGH | MEDIUM | LOW"`
 }
@@ -273,7 +273,7 @@ type recordPredictionOutcomeInput struct {
 	PredictionRef  string   `json:"prediction_ref" required:"true" desc:"the reckon-prediction id"`
 	Status         string   `json:"status" required:"true" desc:"CONFIRMED | DISCONFIRMED | INCONCLUSIVE"`
 	Rationale      string   `json:"rationale" required:"true" desc:"what was observed"`
-	TestResultRefs []string `json:"test_result_refs" desc:"refs of the observed evidence"`
+	TestResultRefs []string `json:"test_result_refs" desc:"STIX refs of the observed evidence (observed_data_refs, entity_refs)"`
 }
 
 // targetInput is what the model may say about a target. ActionTarget has more
@@ -344,14 +344,14 @@ func intrinsicTools() []tool {
 		defineTool(toolSpec[evaluateHypothesisInput]{
 			Name:        ToolEvaluateHypothesis,
 			Origin:      "80420c3",
-			Revised:     []string{"#357"},
+			Revised:     []string{"#357", "#364"},
 			Description: "Record an evidential outcome for a hypothesis: support, refutation, or inconclusive. Decisive outcomes must cite the observed evidence refs.",
 			Run:         (*Session).evaluateHypothesis,
 		}),
 		defineTool(toolSpec[recordPredictionOutcomeInput]{
 			Name:        ToolRecordPredictionOutcome,
 			Origin:      "80420c3",
-			Revised:     []string{"cebed87", "#357"},
+			Revised:     []string{"cebed87", "#357", "#364"},
 			Description: "Record a prediction's test outcome. CONFIRMED and DISCONFIRMED must cite test_result_refs. A manual prediction (a person tests it) is not yours to record: the engine refuses it; ask the analyst for the result.",
 			Run:         (*Session).recordPredictionOutcome,
 		}),

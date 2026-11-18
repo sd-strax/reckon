@@ -100,7 +100,11 @@ func (b *bridge) handle(ctx context.Context, method string, params []byte) (any,
 	case "initialize":
 		return adapterplugin.InitializeResult{ProtocolVersion: adapterplugin.ProtocolVersion, AdapterVersion: version, Concurrency: 1}, nil
 	case "describe":
-		return describe(), nil
+		d, err := describe()
+		if err != nil {
+			return nil, &wireError{Code: -32603, Message: "describe: " + err.Error()}
+		}
+		return d, nil
 	case "configure":
 		return b.configure(params)
 	case "invoke":

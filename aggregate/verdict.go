@@ -205,6 +205,11 @@ func validateVerdictShape(c RecordInterpretation) error {
 		if len(c.InputRefs) == 0 {
 			return errors.New("RecordInterpretation: an evidence-pin must cite what it pins (input_refs is empty)")
 		}
+		// A pin names STIX objects; a raw event is pinned through the
+		// observation made from it (adr/0364).
+		if err := validateCitations("input_refs", c.InputRefs); err != nil {
+			return err
+		}
 		if c.Verdict != nil {
 			return errors.New("RecordInterpretation: type evidence-pin must not carry a verdict payload")
 		}

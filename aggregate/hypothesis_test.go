@@ -429,13 +429,25 @@ func TestReasoningNodes_ProjectionAndReplay(t *testing.T) {
 	mustHandle(env(ActorAIDelegated), RecordInterpretation{
 		InterpretationID: uuid.New(), InterpretationType: InterpretationPrediction,
 		Rationale: "query confirmed the spike", PredictionRef: pRef,
-		// A citation of an observation and of a raw event (adr/0348).
-		PredictionStatus: PredictionConfirmed, TestResultRefs: []string{"observed-data--b67d30ff-02ac-498a-92f9-32f845f448cf", rawEvent},
+		PredictionStatus: PredictionConfirmed, TestResultRefs: []string{"observed-data--b67d30ff-02ac-498a-92f9-32f845f448cf"},
 	})
 	mustHandle(env(ActorAIDelegated), RecordInterpretation{
 		InterpretationID: uuid.New(), InterpretationType: InterpretationSupport,
 		Rationale: "prediction confirmed", HypothesisRef: hRef,
 	})
+	// A record made before adr/0364 could cite a raw event beside the
+	// observation (adr/0348). The command refuses that now, so the older
+	// record is written into the event log directly, and the projection is
+	// rebuilt from it.
+	if _, err := testDB.Exec(`
+		UPDATE events SET payload = jsonb_set(payload, '{prediction_transition,test_result_refs}',
+			(payload->'prediction_transition'->'test_result_refs') || to_jsonb($1::text))
+		WHERE aggregate_id = $2 AND payload->'prediction_transition'->>'ref' = $3`, rawEvent, invID, pRef); err != nil {
+		t.Fatalf("write the older citation: %v", err)
+	}
+	if err := h.Replay(ctx); err != nil {
+		t.Fatalf("replay the older record: %v", err)
+	}
 
 	verify := func(phase string) {
 		t.Helper()
@@ -494,7 +506,7 @@ func TestReasoningNodes_ProjectionAndReplay(t *testing.T) {
 			t.Errorf("[%s] stored prediction is not valid STIX: %v", phase, p)
 		}
 	}
-	verify("live")
+	verify("older record")
 	payloads := func() map[uuid.UUID]string {
 		t.Helper()
 		out := map[uuid.UUID]string{}
