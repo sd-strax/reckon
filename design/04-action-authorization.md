@@ -219,11 +219,15 @@ The canonical `reckon-action` schema lives in **01-domain-model.md → CUSTOM ST
 
 ```text
 TargetSpec:
-  entity_ref             STIX SCO id (the thing being acted on)
+  entity_ref             STIX SCO id (the thing being acted on); required, and
+                         of a declared type, for an action type that declares
+                         target types (see below)
   resolved_identifier    string (e.g., hostname, mailbox, account UPN —
                          what the adapter actually sends to the downstream tool)
   asset_criticality      optional string (see §10)
 ```
+
+Each action type declares the STIX types it acts on (`target_types` on the descriptor, `08 §3`; adr/0354). Host actions act on `reckon-host`, account actions on `user-account`, email actions on `email-message`, and indicator actions on `ipv4-addr`, `ipv6-addr`, `domain-name`, `url` and `file`. An IP address is not a host. The ticket and notify actions declare none, because their target is a destination (a project, a ticket, a channel, an address), not an entity in the evidence. For a type that declares target types, every target must carry an `entity_ref` whose type (the part before `--`) is declared. Otherwise the request is refused and nothing is recorded. For a type that declares none, `entity_ref` is not read.
 
 Every `reckon-action` has a `produced-by` edge to an Interpretation of type `action-request` (a value in the canonical `interpretation_type` enum — this *is* a kind of reasoning, even though the action itself is not). This piggybacks on the existing produced-by mechanism in the domain model and keeps the reasoning thread intact.
 
@@ -643,6 +647,7 @@ This is why `ioc.block` ships **linked** to `ioc.unblock` (affordance + forward 
 
 Common to all reversible action types:
 
+- A reversal acts on the original action's targets, as recorded. Targets in the reversal request are not used. The reversal is checked against the target types like any other request (§3.1).
 - Reversal is itself an action and goes through the same authorization flow. Critically, **reversing an action is the same tier as the original, not lower.** Un-isolating a host is also T2; pushing a "retract" detection is also T3 (because retracting a rule has the same blast radius as deploying one — anything that detected on it stops firing).
 - A `PARTIAL`/`FAILED`/`TIMEOUT` reversing dispatch never marks the original `REVERSED`, regardless of reliability — you can't claim an undo that didn't fully take effect (§6.2, honest-state).
 
@@ -676,7 +681,7 @@ The `audit_depth` on the reversing action's `Execution` record is independent �
 
 ### 8.1 Target resolution
 
-Every `TargetSpec` has both an `entity_ref` (STIX id, stable across investigations) and a `resolved_identifier` (what the adapter actually sends to the downstream tool — hostname, UPN, mailbox SMTP, etc.). The resolution happens at request time and is *frozen* into the `reckon-action`. This matters because:
+Every `TargetSpec` has both an `entity_ref` (STIX id, stable across investigations) and a `resolved_identifier` (what the adapter actually sends to the downstream tool — hostname, UPN, mailbox SMTP, etc.). The resolution happens at request time and is *frozen* into the `reckon-action`. The `entity_ref` must be of a type the action declares (§3.1). This matters because:
 
 - The same STIX entity can resolve differently in different environments (a hostname can change FQDN).
 - An attacker watching telemetry shouldn't be able to manipulate resolution between request and execution.
@@ -767,7 +772,7 @@ To make the spec concrete, the path of one T2 action:
 
 1. AI agent, investigating an alert seeded from a Cobalt Strike beacon detection, runs queries (T0, no friction) and creates Sightings (T1, no friction) linking telemetry to a hypothesis `h-1: "host WIN-A14 is C2-active"` with `reckon-supports` weight STRONG from a Sighting whose evidence is two `OcsfEvent`s with `derivation_mode: DIRECT`.
 2. Hypothesis status moves from `OPEN` to `SUPPORTED` after the AI agent's reasoning (recorded as a normal `hypothesis` Interpretation).
-3. AI agent calls the `host.isolate` action tool, and the loop sends `request_action(action_type="host.isolate", targets=[{entity_ref: ipv4-addr--..., resolved_identifier: "WIN-A14"}], evidence_refs=[sighting-1, h-1], rationale="Hypothesis SUPPORTED with STRONG-weight direct evidence; isolation prevents lateral movement.", investigation_ref=grouping-1)`.
+3. AI agent calls the `host.isolate` action tool, and the loop sends `request_action(action_type="host.isolate", targets=[{entity_ref: reckon-host--..., resolved_identifier: "WIN-A14"}], evidence_refs=[sighting-1, h-1], rationale="Hypothesis SUPPORTED with STRONG-weight direct evidence; isolation prevents lateral movement.", investigation_ref=grouping-1)`.
 4. Backend creates `reckon-interpretation` of type `action-request` and `reckon-action` in `REQUESTED`. Both get `member-of` edges to the Grouping.
 5. Policy engine evaluates. The "auto-isolate on Cobalt Strike" policy from §4.3 fires: status moves to `APPROVED` with `Authorization.mode=AUTO_POLICY`, `policy_ref=policy/host-isolate-cobalt-strike/1.2.0`, `primary_approver_ref=<the analyst who signed off on this policy>`. An `action-approval` Interpretation is emitted.
 6. Dispatcher picks up `APPROVED`, calls the EDR via its capability adapter. Status `EXECUTING`, `action-dispatch` Interpretation emitted.

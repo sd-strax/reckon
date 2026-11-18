@@ -333,6 +333,10 @@ func (b *Backend) dispatchActionRequest(w http.ResponseWriter, r *http.Request, 
 			return
 		}
 		originalTier = orig.Tier
+		// A reversal acts on the original's targets, as recorded (adr/0354).
+		// The body's targets are not used: the workbench's Reverse sends the
+		// names only, and the original's targets are the only valid answer.
+		body.Targets = orig.Targets
 	}
 
 	// An action type with no usable binding for this investigation cannot be

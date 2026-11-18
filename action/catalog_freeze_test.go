@@ -1,6 +1,9 @@
 package action
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // TestDefaultActionCatalog_Frozen pins the v0 action catalog — the single
 // authoritative source of truth for the dispatchable action vocabulary. A change
@@ -67,6 +70,27 @@ func TestDefaultActionCatalog_Frozen(t *testing.T) {
 		"notify.email":      {"Send an email", "notification"},
 	}
 
+	// The entity types each action acts on (adr/0354). A destination action
+	// (ticket, notify) declares none. An IP is not a host.
+	indicator := "ipv4-addr,ipv6-addr,domain-name,url,file"
+	targetTypes := map[string]string{
+		"host.isolate":      "reckon-host",
+		"host.unisolate":    "reckon-host",
+		"account.disable":   "user-account",
+		"account.enable":    "user-account",
+		"email.quarantine":  "email-message",
+		"email.release":     "email-message",
+		"email.purge":       "email-message",
+		"ioc.block":         indicator,
+		"ioc.unblock":       indicator,
+		"ticket.create":     "",
+		"ticket.comment":    "",
+		"ticket.transition": "",
+		"ticket.close":      "",
+		"notify.slack":      "",
+		"notify.email":      "",
+	}
+
 	cat := DefaultActionCatalog()
 	got := cat.ActionTypes()
 	if len(got) != len(golden) {
@@ -96,6 +120,9 @@ func TestDefaultActionCatalog_Frozen(t *testing.T) {
 		}
 		if n := names[at]; d.Name != n[0] || d.Category != n[1] {
 			t.Errorf("%s: name/category = %q/%q; frozen %q/%q", at, d.Name, d.Category, n[0], n[1])
+		}
+		if got, want := strings.Join(d.TargetTypes, ","), targetTypes[at]; got != want {
+			t.Errorf("%s: target_types = %q; frozen %q", at, got, want)
 		}
 	}
 

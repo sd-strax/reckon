@@ -220,11 +220,11 @@ func TestShippedExposedBucketActionScenario(t *testing.T) {
 		}
 	}
 
-	dispatch := func(actionType, identifier string) (WriteResult, error) {
+	dispatch := func(actionType, ref, identifier string) (WriteResult, error) {
 		t.Helper()
 		cmd, err := BuildRequestCommand(catalog, ActionRequest{
 			ActionType:   actionType,
-			Targets:      []aggregate.TargetSpec{{EntityRef: "user-account--1", ResolvedIdentifier: identifier}},
+			Targets:      []aggregate.TargetSpec{{EntityRef: ref, ResolvedIdentifier: identifier}},
 			EvidenceRefs: []string{"observed-data--put-bucket-policy"},
 			Rationale:    "contain the principal behind the public bucket policy",
 		}, time.Now())
@@ -234,15 +234,15 @@ func TestShippedExposedBucketActionScenario(t *testing.T) {
 		res, _, err := resolver.Resolve(context.Background(), DispatchRequest{ActionID: cmd.ActionID, ActionType: cmd.ActionType, Targets: cmd.Targets})
 		return res, err
 	}
-	for _, c := range []struct{ actionType, identifier string }{
-		{"account.disable", "deploy-ci"}, {"account.enable", "deploy-ci"},
-		{"ioc.block", "203.0.113.77"}, {"ioc.unblock", "203.0.113.77"},
+	for _, c := range []struct{ actionType, ref, identifier string }{
+		{"account.disable", "user-account--1", "deploy-ci"}, {"account.enable", "user-account--1", "deploy-ci"},
+		{"ioc.block", "ipv4-addr--1", "203.0.113.77"}, {"ioc.unblock", "ipv4-addr--1", "203.0.113.77"},
 	} {
-		if res, err := dispatch(c.actionType, c.identifier); err != nil || res.FinalOutcome != OutcomeSucceeded {
+		if res, err := dispatch(c.actionType, c.ref, c.identifier); err != nil || res.FinalOutcome != OutcomeSucceeded {
 			t.Errorf("%s(%s): outcome=%q err=%v; want SUCCEEDED", c.actionType, c.identifier, res.FinalOutcome, err)
 		}
 	}
-	if _, err := dispatch("account.disable", "someone-else"); err == nil {
+	if _, err := dispatch("account.disable", "user-account--1", "someone-else"); err == nil {
 		t.Error("account.disable on a principal the scenario never mentions should fail, not succeed")
 	}
 }

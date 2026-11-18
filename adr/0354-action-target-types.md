@@ -1,6 +1,6 @@
 # 0354 — An action type declares the entity types it acts on, and the engine refuses a target of any other type
 
-Issue: #354 · PR: pending · Status: proposed
+Issue: #354 · PR: pending · Status: accepted
 
 ## Context
 
