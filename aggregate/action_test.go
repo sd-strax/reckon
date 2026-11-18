@@ -771,3 +771,29 @@ func TestActEvents_Sequence(t *testing.T) {
 	}
 	wantTypes(t, edited, EventTypeActionEdited, EventTypeInterpretationRecorded, EventTypeActionPolicyEvaluated)
 }
+
+// TestApproveAction_AutoPolicyNamesItsPolicy: an AUTO_POLICY approval must carry
+// both the policy that fired and its content hash (04 §3.3, adr/0378).
+func TestApproveAction_AutoPolicyNamesItsPolicy(t *testing.T) {
+	env := newTestEnvelope("secops-lead")
+	auth := func(ref, version string) ApproveAction {
+		return ApproveAction{ActionID: uuid.New(), Authorization: Authorization{
+			Mode: AuthModeAutoPolicy, Stage: AuthStageSolo,
+			PrimaryApproverRef: "secops-lead", PrimaryApprovedAt: time.Now(),
+			PolicyRef: ref, PolicyVersion: version,
+		}}
+	}
+	for _, tc := range []struct {
+		name, ref, version string
+		wantErr            bool
+	}{
+		{"no policy_ref", "", "sha256:abc", true},
+		{"no policy_version", "policy/auto-isolate/1.0.0", "", true},
+		{"both", "policy/auto-isolate/1.0.0", "sha256:abc", false},
+	} {
+		err := auth(tc.ref, tc.version).Validate(env)
+		if (err != nil) != tc.wantErr {
+			t.Errorf("%s: Validate = %v; want error %v", tc.name, err, tc.wantErr)
+		}
+	}
+}

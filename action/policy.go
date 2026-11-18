@@ -42,30 +42,79 @@ const (
 // the backend evaluates in priority order (DENY > REQUIRE_TWO_PARTY >
 // AUTO_APPROVE > fall through to manual).
 type Policy struct {
-	ID                    string       `yaml:"id" json:"id"`
-	ActionMatch           []string     `yaml:"action_match" json:"action_match"` // action_type globs
-	Predicate             string       `yaml:"predicate" json:"predicate"`       // CEL, returns bool
-	Effect                PolicyEffect `yaml:"effect" json:"effect"`
-	Shadow                bool         `yaml:"shadow" json:"shadow"`
-	SecondaryApproverPool []string     `yaml:"secondary_approver_pool" json:"secondary_approver_pool,omitempty"`
+	ID                    string       `yaml:"id"`
+	ActionMatch           []string     `yaml:"action_match"` // action_type globs
+	Predicate             string       `yaml:"predicate"`    // CEL, returns bool
+	Effect                PolicyEffect `yaml:"effect"`
+	Shadow                bool         `yaml:"shadow"`
+	SecondaryApproverPool []string     `yaml:"secondary_approver_pool"`
 	// Accountable is who an AUTO_APPROVE approval is credited to: "author"
 	// (default) or "requester". See PolicyAccountable.
-	Accountable    PolicyAccountable `yaml:"accountable" json:"accountable,omitempty"`
-	AuthoredBy     string            `yaml:"authored_by" json:"authored_by"`
-	SignedOffBy    []string          `yaml:"signed_off_by" json:"signed_off_by,omitempty"`
-	EffectiveFrom  time.Time         `yaml:"effective_from" json:"effective_from"`
-	EffectiveUntil *time.Time        `yaml:"effective_until" json:"effective_until,omitempty"`
+	Accountable    PolicyAccountable `yaml:"accountable"`
+	AuthoredBy     string            `yaml:"authored_by"`
+	SignedOffBy    []string          `yaml:"signed_off_by"`
+	EffectiveFrom  time.Time         `yaml:"effective_from"`
+	EffectiveUntil *time.Time        `yaml:"effective_until"`
 }
 
 // ContentHash is the sha256 of the policy's canonical form (04 §4.1), used as
-// policy_version in the audit trail so a decision pins the exact policy text
-// that drove it.
-func (p Policy) ContentHash() string {
-	// Marshal the value (not the pointer); struct field order is stable, so the
-	// JSON is canonical enough for a version fingerprint.
-	b, _ := json.Marshal(p)
+// policy_version in the audit trail so a decision pins the exact policy that
+// drove it. NewGate2 computes it once per policy and refuses a policy whose
+// canonical form cannot be encoded.
+func (p Policy) ContentHash() (string, error) {
+	b, err := json.Marshal(p.canonical())
+	if err != nil {
+		return "", fmt.Errorf("policy %s: canonical form: %w", p.ID, err)
+	}
 	sum := sha256.Sum256(b)
-	return hex.EncodeToString(sum[:])
+	return hex.EncodeToString(sum[:]), nil
+}
+
+// canonicalPolicy is the form ContentHash covers. It names every field
+// explicitly, so the hash follows the policy, not the Go struct: renaming a
+// struct field changes no hash. Every field is omitempty, so a field added
+// later leaves the hash of every policy that does not set it unchanged.
+// TestCanonicalPolicyCoversEveryField fails when a Policy field is not here.
+type canonicalPolicy struct {
+	ID                    string   `json:"id,omitempty"`
+	ActionMatch           []string `json:"action_match,omitempty"`
+	Predicate             string   `json:"predicate,omitempty"`
+	Effect                string   `json:"effect,omitempty"`
+	Shadow                bool     `json:"shadow,omitempty"`
+	SecondaryApproverPool []string `json:"secondary_approver_pool,omitempty"`
+	Accountable           string   `json:"accountable,omitempty"`
+	AuthoredBy            string   `json:"authored_by,omitempty"`
+	SignedOffBy           []string `json:"signed_off_by,omitempty"`
+	EffectiveFrom         string   `json:"effective_from,omitempty"`
+	EffectiveUntil        string   `json:"effective_until,omitempty"`
+}
+
+func (p Policy) canonical() canonicalPolicy {
+	c := canonicalPolicy{
+		ID:                    p.ID,
+		ActionMatch:           p.ActionMatch,
+		Predicate:             p.Predicate,
+		Effect:                string(p.Effect),
+		Shadow:                p.Shadow,
+		SecondaryApproverPool: p.SecondaryApproverPool,
+		Accountable:           string(p.Accountable),
+		AuthoredBy:            p.AuthoredBy,
+		SignedOffBy:           p.SignedOffBy,
+		EffectiveFrom:         canonicalTime(p.EffectiveFrom),
+	}
+	if p.EffectiveUntil != nil {
+		c.EffectiveUntil = canonicalTime(*p.EffectiveUntil)
+	}
+	return c
+}
+
+// canonicalTime is a time in UTC at nanosecond precision, or "" for the zero
+// time, so the same instant written in another zone hashes the same.
+func canonicalTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339Nano)
 }
 
 // matchesType reports whether any action_match glob matches actionType.

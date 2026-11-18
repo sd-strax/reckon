@@ -296,8 +296,10 @@ Authorization:
   secondary_approver_ref optional Analyst id (for TWO_PARTY, set when
                          stage advances to SECONDARY)
   secondary_approved_at  optional timestamp
-  policy_ref             optional string (policy id that auto-approved)
-  policy_version         optional string (content hash of policy at time of fire)
+  policy_ref             optional string (policy id that auto-approved);
+                         required when mode is AUTO_POLICY
+  policy_version         optional string (content hash of policy at time of
+                         fire); required when mode is AUTO_POLICY
   challenge_response     optional string (the typed confirmation string for T3)
 ```
 
@@ -782,7 +784,7 @@ To make the spec concrete, the path of one T2 action:
 2. Hypothesis status moves from `OPEN` to `SUPPORTED` after the AI agent's reasoning (recorded as a normal `hypothesis` Interpretation).
 3. AI agent calls the `host.isolate` action tool, and the loop sends `request_action(action_type="host.isolate", targets=[{entity_ref: reckon-host--..., resolved_identifier: "WIN-A14"}], evidence_refs=[sighting-1, h-1], rationale="Hypothesis SUPPORTED with STRONG-weight direct evidence; isolation prevents lateral movement.", investigation_ref=grouping-1)`.
 4. Backend creates `reckon-interpretation` of type `action-request` and `reckon-action` in `REQUESTED`. Both get `member-of` edges to the Grouping.
-5. Policy engine evaluates. The "auto-isolate on Cobalt Strike" policy from §4.3 fires: status moves to `APPROVED` with `Authorization.mode=AUTO_POLICY`, `policy_ref=policy/host-isolate-cobalt-strike/1.2.0`, `primary_approver_ref=<the analyst who signed off on this policy>`. An `action-approval` Interpretation is emitted.
+5. Policy engine evaluates. The "auto-isolate on Cobalt Strike" policy from §4.3 fires: status moves to `APPROVED` with `Authorization.mode=AUTO_POLICY`, `policy_ref=policy/host-isolate-cobalt-strike/1.2.0`, `policy_version=<that policy's content hash, as on its evaluation row>`, `primary_approver_ref=<the analyst who signed off on this policy>`. An `action-approval` Interpretation is emitted.
 6. Dispatcher picks up `APPROVED`, calls the EDR via its capability adapter. Status `EXECUTING`, `action-dispatch` Interpretation emitted.
 7. EDR returns success. Status `SUCCEEDED`, `action-result` Interpretation emitted with `confidence=HIGH` (tool confirmed).
 8. Three days later, after investigation conclusion, the analyst un-isolates the host: a new `reckon-action` of type `host.unisolate` with `reversal_of_ref` pointing at the original. Goes through normal T2 flow (one click confirm). On success, original `reckon-action.status` becomes `REVERSED`.
