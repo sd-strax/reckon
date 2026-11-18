@@ -3,6 +3,7 @@ package action
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -62,6 +63,9 @@ func BuildRequestCommand(catalog *ActionCatalog, req ActionRequest, now time.Tim
 			return aggregate.RequestAction{}, fmt.Errorf("action_type %q: target %d has no resolved_identifier", req.ActionType, i)
 		}
 	}
+	if err := validateTargetTypes(d, req.Targets); err != nil {
+		return aggregate.RequestAction{}, err
+	}
 	if err := validateParameters(d, req.Parameters); err != nil {
 		return aggregate.RequestAction{}, err
 	}
@@ -95,6 +99,29 @@ func BuildRequestCommand(catalog *ActionCatalog, req ActionRequest, now time.Tim
 		ReversalOfRef: req.ReversalOfRef,
 		RetryOf:       req.RetryOf,
 	}, nil
+}
+
+// validateTargetTypes refuses a target of the wrong kind (adr/0354). For an
+// action type that declares target types, every target must carry an
+// entity_ref whose STIX type, the part before "--", is one of them. A type
+// that declares none targets a destination, and its entity_ref is not read.
+// The error names the declared types so a model caller can self-correct.
+func validateTargetTypes(d ActionDescriptor, targets []aggregate.TargetSpec) error {
+	if len(d.TargetTypes) == 0 {
+		return nil
+	}
+	for i, t := range targets {
+		if t.EntityRef == "" {
+			return fmt.Errorf("action_type %q: target %d has no entity_ref (acts on: %s)",
+				d.ActionType, i, strings.Join(d.TargetTypes, ", "))
+		}
+		typ, _, ok := strings.Cut(t.EntityRef, "--")
+		if !ok || !slices.Contains(d.TargetTypes, typ) {
+			return fmt.Errorf("action_type %q: target %d entity_ref %q is not of a type this action acts on (acts on: %s)",
+				d.ActionType, i, t.EntityRef, strings.Join(d.TargetTypes, ", "))
+		}
+	}
+	return nil
 }
 
 // ValidateParameters is validateParameters for callers outside the request

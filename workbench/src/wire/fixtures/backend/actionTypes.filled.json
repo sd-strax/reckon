@@ -17,7 +17,10 @@
         "reversible_by": "x",
         "d3fend": "x",
         "name": "x",
-        "category": "x"
+        "category": "x",
+        "target_types": [
+          "x"
+        ]
       },
       "status": "x",
       "bindings": 1

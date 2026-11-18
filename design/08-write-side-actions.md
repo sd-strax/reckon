@@ -132,6 +132,8 @@ type ActionDescriptor interface {
     ActionType() string          // e.g. "host.isolate", "ticket.create"
     Inputs() InputSchema         // schema for request_action.parameters
     Intent() string              // LLM-facing description of effect + when to use
+    TargetTypes() []string       // STIX types the action acts on (04 §3.1); empty for a
+                                 // destination action (ticket, notify)
     // Auth/taxonomy fields below are DECLARED here but OWNED elsewhere:
     DefaultTier() Tier           // T2|T3 — authoritative in 04 §2; see tier/surface
                                  // mapping below (there is no T1 descriptor)

@@ -5,6 +5,7 @@ import (
 
 	"github.com/sd-strax/reckon/aggregate"
 	"github.com/sd-strax/reckon/capability"
+	"github.com/sd-strax/reckon/identity"
 )
 
 // Reversibility classifications (04 §7). The ordered scale is
@@ -54,6 +55,11 @@ type ActionDescriptor struct {
 	// notification | case_record (a write to the system of record, never
 	// containment) (#123).
 	Category string `json:"category"`
+	// TargetTypes are the STIX object types this action acts on (adr/0354).
+	// Every target of a request must carry an entity_ref of one of these
+	// types. Empty for an action whose target is a destination (a ticket, a
+	// channel, an address), whose entity_ref is not read.
+	TargetTypes []string `json:"target_types,omitempty"`
 }
 
 // The action categories (#123).
@@ -116,6 +122,15 @@ func (c *ActionCatalog) ActionTypes() []string {
 // D3FEND id only where the ontology's Restore tactic names the restoration as a
 // first-class technique (D3-RNA, D3-RE, D3-ULA); other reversals carry none.
 func DefaultActionCatalog() *ActionCatalog {
+	// The entity types each family acts on (adr/0354). An IP address is not a
+	// host: a host is isolated by the host the tool knows, and one address can
+	// belong to different machines over time. A file stands for its hash.
+	var (
+		hostTargets      = []string{identity.TypeHost}
+		accountTargets   = []string{identity.TypeUserAccount}
+		emailTargets     = []string{identity.TypeEmailMessage}
+		indicatorTargets = []string{identity.TypeIPv4Addr, identity.TypeIPv6Addr, identity.TypeDomainName, identity.TypeURL, identity.TypeFile}
+	)
 	c := NewActionCatalog()
 	for _, d := range []ActionDescriptor{
 		{
@@ -123,6 +138,7 @@ func DefaultActionCatalog() *ActionCatalog {
 			Name:          "Isolate host",
 			Category:      CategoryContainment,
 			Intent:        "Network-isolate a host, cutting it off from everything but reckon's control channel. Reversible.",
+			TargetTypes:   hostTargets,
 			Inputs:        []capability.InputParam{{Name: "host", Type: "entity", Required: true}},
 			DefaultTier:   aggregate.TierT2,
 			Reversibility: ReversibilityReversible,
@@ -134,6 +150,7 @@ func DefaultActionCatalog() *ActionCatalog {
 			Name:          "Restore host network access",
 			Category:      CategoryRecovery,
 			Intent:        "Restore a host's network connectivity — the inverse of host.isolate.",
+			TargetTypes:   hostTargets,
 			Inputs:        []capability.InputParam{{Name: "host", Type: "entity", Required: true}},
 			DefaultTier:   aggregate.TierT2, // reversing is the same tier as the original (04 §7)
 			Reversibility: ReversibilityReversible,
@@ -145,6 +162,7 @@ func DefaultActionCatalog() *ActionCatalog {
 			Name:          "Disable account",
 			Category:      CategoryContainment,
 			Intent:        "Disable a user account, blocking new sessions until re-enabled. Reversible (account.enable); already-established sessions need session revocation separately.",
+			TargetTypes:   accountTargets,
 			Inputs:        []capability.InputParam{{Name: "account", Type: "entity", Required: true}},
 			DefaultTier:   aggregate.TierT2,
 			Reversibility: ReversibilityReversible,
@@ -156,6 +174,7 @@ func DefaultActionCatalog() *ActionCatalog {
 			Name:          "Re-enable account",
 			Category:      CategoryRecovery,
 			Intent:        "Re-enable a disabled user account — the inverse of account.disable. Use to retract over-containment once the account is cleared.",
+			TargetTypes:   accountTargets,
 			Inputs:        []capability.InputParam{{Name: "account", Type: "entity", Required: true}},
 			DefaultTier:   aggregate.TierT2, // reversing is the same tier as the original (04 §7)
 			Reversibility: ReversibilityReversible,
@@ -167,6 +186,7 @@ func DefaultActionCatalog() *ActionCatalog {
 			Name:          "Quarantine email",
 			Category:      CategoryContainment,
 			Intent:        "Quarantine a single message from a mailbox. Reversible (release).",
+			TargetTypes:   emailTargets,
 			Inputs:        []capability.InputParam{{Name: "message", Type: "entity", Required: true}},
 			DefaultTier:   aggregate.TierT2,
 			Reversibility: ReversibilityReversible,
@@ -178,6 +198,7 @@ func DefaultActionCatalog() *ActionCatalog {
 			Name:          "Release email from quarantine",
 			Category:      CategoryRecovery,
 			Intent:        "Release a quarantined message back to its mailbox — the inverse of email.quarantine.",
+			TargetTypes:   emailTargets,
 			Inputs:        []capability.InputParam{{Name: "message", Type: "entity", Required: true}},
 			DefaultTier:   aggregate.TierT2,
 			Reversibility: ReversibilityReversible,
@@ -189,6 +210,7 @@ func DefaultActionCatalog() *ActionCatalog {
 			Name:          "Purge email from mailboxes",
 			Category:      CategoryEradication,
 			Intent:        "Permanently delete a message from mailboxes. IRREVERSIBLE.",
+			TargetTypes:   emailTargets,
 			Inputs:        []capability.InputParam{{Name: "message", Type: "entity", Required: true}},
 			DefaultTier:   aggregate.TierT3,
 			Reversibility: ReversibilityIrreversible,
@@ -199,6 +221,7 @@ func DefaultActionCatalog() *ActionCatalog {
 			Name:        "Block indicator",
 			Category:    CategoryContainment,
 			Intent:      "Block an IOC (hash/IP/domain) at the perimeter — firewall/proxy/DNS denylist. Use this to block a malicious IP, domain, or file hash. Reversible by ioc.unblock, but best-effort: whether removal fully undoes the block depends on the tenant's tooling (TTL lists, propagated RPZ, partner feeds).",
+			TargetTypes: indicatorTargets,
 			Inputs:      []capability.InputParam{{Name: "indicator", Type: "entity", Required: true}},
 			DefaultTier: aggregate.TierT2,
 			// best_effort + linked (04 §7 Position C): the reverse-this-action
@@ -215,6 +238,7 @@ func DefaultActionCatalog() *ActionCatalog {
 			Name:          "Unblock indicator",
 			Category:      CategoryRecovery,
 			Intent:        "Remove an IOC (hash/IP/domain) from the perimeter denylist — the inverse of ioc.block. Best-effort: whether removal fully undoes propagation depends on the tenant's tooling.",
+			TargetTypes:   indicatorTargets,
 			Inputs:        []capability.InputParam{{Name: "indicator", Type: "entity", Required: true}},
 			DefaultTier:   aggregate.TierT2, // reversing is the same tier as the original (04 §7)
 			Reversibility: ReversibilityBestEffort,
