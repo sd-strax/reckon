@@ -85,7 +85,7 @@ func TestFold_Scenario(t *testing.T) {
 	for _, p := range g.Key {
 		key = append(key, p.Slot+"="+p.Text+"@"+p.Ref)
 	}
-	want := []string{"user=svc_backup@user-account--svc", "logon_type=Network@", "src=10.0.9.10@ipv4-addr--bkp", "dst=WIN-FILE01@reckon-host--file01"}
+	want := []string{`user=CONTOSO\svc_backup@user-account--svc`, "logon_type=Network@", "src=10.0.9.10@ipv4-addr--bkp", "dst=WIN-FILE01@reckon-host--file01"}
 	if !slices.Equal(key, want) {
 		t.Errorf("key = %v; want %v", key, want)
 	}
@@ -290,5 +290,25 @@ func TestFold_PivotDropsTheAccountTarget(t *testing.T) {
 		if p := unpivoted[0].Key[0]; p.Slot != "target" || p.Ref != "user-account--jdoe" {
 			t.Errorf("%s: target key part = %+v; want it bound", class, p)
 		}
+	}
+}
+
+// TestFold_UnboundActorsByLogin (adr/0367): an unbound actor is shown and
+// keyed by its login, so the same sam in two domains is two groups.
+func TestFold_UnboundActorsByLogin(t *testing.T) {
+	at := time.Date(2026, 4, 20, 14, 0, 0, 0, time.UTC)
+	var items []GroupItem
+	for i, name := range []string{`CONTOSO\\admin`, `FABRIKAM\\admin`} {
+		v := Render(Event{ClassUID: 1007, Payload: payload(`{"activity_name":"Launch","actor":{"user":{"name":"` + name + `"}},"process":{"name":"cmd.exe"}}`)}, nil)
+		items = append(items, GroupItem{ID: fmt.Sprint(i), ClassUID: 1007, Time: at, Slots: v.Slots})
+	}
+	groups := Fold(items, Keys{1007: {"user"}}, "")
+	var shown []string
+	for _, g := range groups {
+		shown = append(shown, g.Key[0].Text)
+	}
+	slices.Sort(shown)
+	if want := []string{`CONTOSO\admin`, `FABRIKAM\admin`}; !slices.Equal(shown, want) {
+		t.Errorf("groups shown as %v; want %v", shown, want)
 	}
 }

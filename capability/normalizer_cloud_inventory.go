@@ -34,7 +34,9 @@ func (*cloudInventoryNormalizer) ClassUID() int { return 5023 }
 // naming nothing, and a broken record is a normalize error; resource_type,
 // configuration as any JSON, an out-of-range resource time left out,
 // is_service_account only when known, adr/0357
-func (*cloudInventoryNormalizer) Version() int { return 5 }
+// 6: a cloud account's type named by OCSF's caption, an unknown one
+// Other, adr/0367
+func (*cloudInventoryNormalizer) Version() int { return 6 }
 
 func (n *cloudInventoryNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload

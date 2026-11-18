@@ -149,7 +149,7 @@ func TestRender_AuthenticationInitiator(t *testing.T) {
 	p := payload(`{"class_uid":3002,"user":{"name":"jdoe","domain":"CONTOSO"},"actor":{"user":{"name":"SYSTEM","domain":"NT AUTHORITY"}},
 		"dst_endpoint":{"hostname":"WIN-FILE01"},"logon_type":"Interactive","status":"Success"}`)
 	v := Render(Event{ClassUID: 3002, Payload: p}, ents)
-	if got := sentenceText(v); got != "jdoe interactive logon to WIN-FILE01" {
+	if got := sentenceText(v); got != `CONTOSO\jdoe interactive logon to WIN-FILE01` {
 		t.Errorf("sentence = %q", got)
 	}
 	if f, _ := fieldValue(v, "User"); f.Value != `CONTOSO\jdoe` || f.Ref != "user-account--u1" {
@@ -198,11 +198,11 @@ func TestRender_Authentication(t *testing.T) {
 		ent("ipv4-addr--i1", map[string]any{"value": "10.0.4.20"}),
 	}
 	v := Render(Event{ClassUID: 3002, Payload: p}, ents)
-	if got := sentenceText(v); got != "svc_backup RDP logon to WIN-FILE01 from 10.0.4.20" {
+	if got := sentenceText(v); got != `CONTOSO\svc_backup RDP logon to WIN-FILE01 from 10.0.4.20` {
 		t.Errorf("sentence = %q", got)
 	}
 	want := []Token{
-		{T: "entity", Ref: "user-account--u1", Text: "svc_backup"},
+		{T: "entity", Ref: "user-account--u1", Text: `CONTOSO\svc_backup`},
 		{T: "text", Text: " RDP logon to "},
 		{T: "entity", Ref: "reckon-host--h1", Text: "WIN-FILE01"},
 		{T: "text", Text: " from "},
@@ -226,7 +226,7 @@ func TestRender_Authentication(t *testing.T) {
 
 	p["status"] = "FAILURE"
 	v = Render(Event{ClassUID: 3002, Payload: p}, nil)
-	if got := sentenceText(v); got != "svc_backup RDP logon to WIN-FILE01 from 10.0.4.20 failed" {
+	if got := sentenceText(v); got != `CONTOSO\svc_backup RDP logon to WIN-FILE01 from 10.0.4.20 failed` {
 		t.Errorf("failed sentence = %q", got)
 	}
 	// Without entities every slot is text: the sentence reads the same.
@@ -251,7 +251,7 @@ func TestRender_Sentences(t *testing.T) {
 	}{
 		{"process", 1007, `{"process":{"pid":6120,"name":"powershell.exe","cmd_line":"powershell.exe -enc ZQ==","parent_process":{"pid":5000,"name":"mstsc-hijack.exe"}},
 			"device":{"hostname":"WIN-FILE01"},"actor":{"user":{"name":"svc_backup","domain":"CONTOSO"}}}`,
-			"svc_backup ran powershell.exe on WIN-FILE01, child of mstsc-hijack.exe", CategoryProcess},
+			`CONTOSO\svc_backup ran powershell.exe on WIN-FILE01, child of mstsc-hijack.exe`, CategoryProcess},
 		{"process launched, no user", 1007, `{"activity_name":"Launch","process":{"pid":1,"name":"a.exe"},"device":{"hostname":"H"}}`,
 			"a.exe was launched on H", CategoryProcess},
 		{"network", 4001, `{"src_endpoint":{"ip":"10.0.4.20","port":49999},"dst_endpoint":{"ip":"185.220.101.5","port":443,"domain":"exfil.example.net"},
@@ -291,11 +291,11 @@ func TestRender_Sentences(t *testing.T) {
 		{"module", 1005, `{"module":{"file":{"name":"evil.dll","path":"C:\\Temp\\evil.dll"}},"actor":{"process":{"pid":7,"name":"svchost.exe"}},"device":{"hostname":"WS1"}}`,
 			"svchost.exe loaded evil.dll on WS1", CategoryProcess},
 		{"account change", 3001, `{"activity_name":"Password Reset","user":{"name":"jdoe","domain":"CONTOSO"},"actor":{"user":{"name":"admin","domain":"CONTOSO"}},"device":{"hostname":"DC1"}}`,
-			"admin reset the password of jdoe on DC1", CategoryAuth},
+			`CONTOSO\admin reset the password of CONTOSO\jdoe on DC1`, CategoryAuth},
 		{"account change without actor", 3001, `{"activity_name":"Create","user":{"name":"jdoe"}}`,
 			"Account jdoe was created", CategoryAuth},
 		{"user access", 3005, `{"activity_name":"Assign Privileges","user":{"name":"jdoe","domain":"CONTOSO"},"actor":{"user":{"name":"admin","domain":"CONTOSO"}},"privileges":["SeDebugPrivilege"],"device":{"hostname":"DC1"}}`,
-			"admin assigned privileges to jdoe on DC1", CategoryAuth},
+			`CONTOSO\admin assigned privileges to CONTOSO\jdoe on DC1`, CategoryAuth},
 		{"group management", 3006, `{"activity_name":"Add User","user":{"name":"jdoe"},"actor":{"user":{"name":"admin"}},"group":{"name":"Domain Admins"},"device":{"hostname":"DC1"}}`,
 			"admin added jdoe to Domain Admins on DC1", CategoryAuth},
 		{"group management users[]", 3006, `{"activity_name":"Add User","users":[{"name":"jdoe"},{"name":"asmith"}],"actor":{"user":{"name":"admin"}},"group":{"name":"Domain Admins"},"device":{"hostname":"DC1"}}`,
@@ -374,7 +374,7 @@ func TestRender_ProcessFields(t *testing.T) {
 	v := Render(Event{ClassUID: 1007, Payload: p}, ents)
 	// The user and host have no object in this record, so they read as text
 	// and merge with the words around them; the process is the one chip.
-	if got := sentenceText(v); got != "svc_backup ran powershell.exe on WIN-FILE01, child of mstsc-hijack.exe" {
+	if got := sentenceText(v); got != `CONTOSO\svc_backup ran powershell.exe on WIN-FILE01, child of mstsc-hijack.exe` {
 		t.Errorf("sentence = %q", got)
 	}
 	var refs []string
@@ -1312,9 +1312,9 @@ func TestRender_CloudDetection(t *testing.T) {
 // that goes back to a source's own word ("GROUP_ADD") fails here.
 func TestRender_FixtureActivities(t *testing.T) {
 	for file, want := range map[string]string{
-		"privilege-01.json":          "svc_backup added svc_backup to Administrators on WIN-FILE01",
+		"privilege-01.json":          `CONTOSO\svc_backup added CONTOSO\svc_backup to Administrators on WIN-FILE01`,
 		"persistence-runkey-01.json": `powershell.exe set value SyncHost of HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Run on WIN-FILE01`,
-		"logon-1.json":               "jdoe RDP logon to WIN-FILE01 from 10.0.4.55",
+		"logon-1.json":               `CONTOSO\jdoe RDP logon to WIN-FILE01 from 10.0.4.55`,
 	} {
 		raw, err := os.ReadFile(filepath.Join("../../fixtures/lateral-movement-via-rdp", file))
 		if err != nil {
@@ -2145,5 +2145,108 @@ func TestRender_RegistryTypedDataSlot(t *testing.T) {
 	b := data(`{"reg_value":{"path":"HKLM\\SOFTWARE\\Run","name":"Updater","reg_string_data":"C:\\b.exe"}}`)
 	if a == "" || a == b {
 		t.Errorf("data slots %q and %q; want two values", a, b)
+	}
+}
+
+// slotNamed is v's slot called name.
+func slotNamed(v View, name string) SlotValue {
+	for _, s := range v.Slots {
+		if s.Name == name {
+			return s
+		}
+	}
+	return SlotValue{}
+}
+
+// TestRender_ActorPlaceholderDomain (adr/0367): an actor's "-" domain is no
+// domain, so the actor shows and binds by its name, as a target does.
+func TestRender_ActorPlaceholderDomain(t *testing.T) {
+	acct := ent("user-account--a1", map[string]any{"account_login": "admin", "user_id": "", "account_type": "local"})
+	v := Render(Event{ClassUID: 1007, Payload: payload(`{"activity_name":"Launch","actor":{"user":{"name":"admin","domain":"-"}},"process":{"name":"cmd.exe"}}`)}, []Entity{acct})
+	if f, ok := fieldValue(v, "User"); !ok || f.Value != "admin" || f.Ref != "user-account--a1" {
+		t.Errorf("User = %+v (present %v); want admin linked to user-account--a1", f, ok)
+	}
+}
+
+// TestRender_ActorByID (adr/0367): an actor named only by its uid is shown
+// in a "By" row and keyed by the uid, as a target is. Two such actors stay
+// apart, an opaque id's case included.
+func TestRender_ActorByID(t *testing.T) {
+	render := func(uid string) View {
+		return Render(Event{ClassUID: 3001, Payload: payload(`{"activity_name":"Enable","actor":{"user":{"uid":"` + uid + `"}},"user":{"name":"jdoe"}}`)}, nil)
+	}
+	if f, ok := fieldValue(render("S-1-5-21-7-500"), "By"); !ok || f.Value != "S-1-5-21-7-500" {
+		t.Errorf("By = %+v (present %v); want the uid", f, ok)
+	}
+	for _, pair := range [][2]string{{"S-1-5-21-7-500", "S-1-5-21-7-501"}, {"OpaqueA", "OPAQUEA"}} {
+		a, b := slotNamed(render(pair[0]), "actor").Identity, slotNamed(render(pair[1]), "actor").Identity
+		if a == "" || a == b {
+			t.Errorf("actors %s and %s key %q and %q; want two keys", pair[0], pair[1], a, b)
+		}
+	}
+}
+
+// TestRender_AccountTargetSIDBeforeName (adr/0367): a target with a name and
+// a SID binds the account keyed on the SID, not another domain's account
+// that the bare name matches by its suffix.
+func TestRender_AccountTargetSIDBeforeName(t *testing.T) {
+	other := ent("user-account--f1", map[string]any{"account_login": `FABRIKAM\jdoe`, "user_id": "S-1-5-21-9-1101", "account_type": "windows-domain"})
+	bySID := ent("user-account--c1", map[string]any{"account_login": `CONTOSO\john.doe`, "user_id": "S-1-5-21-7-1101", "account_type": "windows-domain"})
+	if s := accountChangeTarget(`{"name":"jdoe","uid":"S-1-5-21-7-1101"}`, other, bySID); s.Ref != "user-account--c1" {
+		t.Errorf("target slot = %+v; want bound to user-account--c1", s)
+	}
+}
+
+// TestRender_PrincipalNameWithDomain (adr/0367): an "@" name beside a domain
+// is the login the normalizer stores, the name alone, so it binds that
+// account and shows that login.
+func TestRender_PrincipalNameWithDomain(t *testing.T) {
+	acct := ent("user-account--p1", map[string]any{"account_login": "jdoe@contoso.com", "user_id": "", "account_type": "login"})
+	v := Render(Event{ClassUID: 1007, Payload: payload(`{"activity_name":"Launch","actor":{"user":{"name":"jdoe@contoso.com","domain":"contoso.com"}},"process":{"name":"cmd.exe"}}`)}, []Entity{acct})
+	if f, ok := fieldValue(v, "User"); !ok || f.Value != "jdoe@contoso.com" || f.Ref != "user-account--p1" {
+		t.Errorf("User = %+v (present %v); want jdoe@contoso.com linked to user-account--p1", f, ok)
+	}
+}
+
+// TestRender_AuthenticationInitiatorSameByID (adr/0367): with no entities,
+// an initiator whose uid equals the user's is the same user, so no "Started
+// by" row. A different uid is someone else.
+func TestRender_AuthenticationInitiatorSameByID(t *testing.T) {
+	render := func(actorUID string) View {
+		return Render(Event{ClassUID: 3002, Payload: payload(`{"user":{"name":"jdoe","uid":"S-1-5-21-7-1101"},"actor":{"user":{"uid":"` + actorUID + `"}}}`)}, nil)
+	}
+	if f, ok := fieldValue(render("s-1-5-21-7-1101"), "Started by"); ok {
+		t.Errorf("Started by = %+v; want none for the same uid", f)
+	}
+	if f, ok := fieldValue(render("S-1-5-21-7-1102"), "Started by"); !ok || f.Value != "S-1-5-21-7-1102" {
+		t.Errorf("Started by = %+v (present %v); want the other uid", f, ok)
+	}
+}
+
+// TestRender_AccountTargetAmbiguousUIDBeforeName (adr/0367): a uid that
+// matches several accounts binds nothing, and the name is not tried, though
+// it alone would bind one account.
+func TestRender_AccountTargetAmbiguousUIDBeforeName(t *testing.T) {
+	w := ent("user-account--w1", map[string]any{"account_login": `CONTOSO\a`, "user_id": "S-1-5-21-7-1101", "account_type": "windows-domain"})
+	l := ent("user-account--l1", map[string]any{"account_login": "", "user_id": "S-1-5-21-7-1101", "account_type": "ldap"})
+	named := ent("user-account--n1", map[string]any{"account_login": `CONTOSO\jdoe`, "user_id": "", "account_type": "windows-domain"})
+	if s := accountChangeTarget(`{"name":"jdoe","domain":"CONTOSO","uid":"S-1-5-21-7-1101"}`, w, l, named); s.Ref != "" {
+		t.Errorf("target slot = %+v; want unbound", s)
+	}
+}
+
+// TestRender_AuthenticationInitiatorOtherUID (adr/0367): when both users
+// carry a uid, the uid alone decides. The same name under two SIDs is two
+// users, and two opaque ids that differ only in case are two users, as
+// TestRender_ActorByID keys them.
+func TestRender_AuthenticationInitiatorOtherUID(t *testing.T) {
+	for _, tc := range []struct{ user, actor, want string }{
+		{`{"name":"admin","uid":"S-1-5-21-1-500"}`, `{"name":"admin","uid":"S-1-5-21-2-500"}`, "admin"},
+		{`{"uid":"OpaqueA"}`, `{"uid":"OPAQUEA"}`, "OPAQUEA"},
+	} {
+		v := Render(Event{ClassUID: 3002, Payload: payload(`{"user":` + tc.user + `,"actor":{"user":` + tc.actor + `}}`)}, nil)
+		if f, ok := fieldValue(v, "Started by"); !ok || f.Value != tc.want {
+			t.Errorf("user %s, actor %s: Started by = %+v (present %v); want %s", tc.user, tc.actor, f, ok, tc.want)
+		}
 	}
 }

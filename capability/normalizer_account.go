@@ -33,7 +33,9 @@ func (n *accountNormalizer) ClassUID() int { return n.class }
 // naming nothing, and a broken record is a normalize error, adr/0357
 // 7: an account typed Windows only on a Windows signal, account type 19
 // read as one, adr/0366
-func (*accountNormalizer) Version() int { return 7 }
+// 8: the account type read by the one rule, a caption for every type and
+// the id over it, adr/0367
+func (*accountNormalizer) Version() int { return 8 }
 
 // name is the OCSF name of the class this instance is registered for.
 func (n *accountNormalizer) name() string {

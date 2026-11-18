@@ -25,7 +25,9 @@ func (*authNormalizer) ClassUID() int { return 3002 }
 // canonical text, adr/0357
 // 8: an account typed Windows only on a Windows signal, account type 19
 // read as one, adr/0366
-func (*authNormalizer) Version() int { return 8 }
+// 9: the account type read by the one rule, a caption for every type and
+// the id over it, adr/0367
+func (*authNormalizer) Version() int { return 9 }
 
 func (n *authNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload

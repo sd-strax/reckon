@@ -507,6 +507,43 @@ func TestAccountShapingTypes(t *testing.T) {
 	})
 }
 
+// TestAccountTypeOneRule (adr/0367): the account type is read by
+// ocsf.AccountTypeID. A caption counts for every type, and the id wins when
+// both are present.
+func TestAccountTypeOneRule(t *testing.T) {
+	reg := testRegistry()
+	typeOf := func(t *testing.T, user map[string]any) string {
+		t.Helper()
+		res, err := reg.Normalize(toolEvent("edr", 1007, map[string]any{"device": map[string]any{"hostname": "WS1"}, "actor": map[string]any{"user": user}}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		a := accountsIn(res)
+		if len(a) != 1 {
+			t.Fatalf("accounts = %v; want one", a)
+		}
+		s, _ := scoByID(res.SCOs, a[0])
+		return toString(s.Properties["account_type"])
+	}
+	for _, tc := range []struct {
+		name    string
+		account map[string]any
+		want    string
+	}{
+		{"caption LDAP Account", map[string]any{"type": "LDAP Account"}, identity.AccountLDAP},
+		{"caption Mac OS Account", map[string]any{"type": "mac os account"}, identity.AccountUnix},
+		{"caption Linux Account", map[string]any{"type": "Linux Account"}, identity.AccountUnix},
+		{"id 6 beside the caption Windows Account", map[string]any{"type_id": 6, "type": "Windows Account"}, identity.AccountCloud},
+		{"id 2 beside the caption Azure AD Account", map[string]any{"type_id": 2, "type": "Azure AD Account"}, identity.AccountWindowsDomain},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := typeOf(t, map[string]any{"name": "jdoe", "domain": "CONTOSO", "account": tc.account}); got != tc.want {
+				t.Errorf("account_type = %q; want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 // TestDirectorySlugExact: a directory is scoped by its product named whole:
 // a managed domain service that names a provider is its own directory, so
 // its person with the same id is not the provider's person.

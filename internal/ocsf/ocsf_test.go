@@ -192,3 +192,33 @@ func TestUserName(t *testing.T) {
 		}
 	}
 }
+
+// ReadUser reads a user object by the one rule (adr/0367): the name and
+// domain by UserName, the domain\sam login only for a name with no "@", the
+// principal name from the name or the uid_alt, the ids trimmed with a
+// placeholder read as none, and the account type by AccountTypeID through
+// the caller's reader.
+func TestReadUser(t *testing.T) {
+	for _, tc := range []struct {
+		user map[string]any
+		want User
+	}{
+		{map[string]any{"name": `CONTOSO\jdoe`, "uid": " S-1-5-21-7-1101 ", "uid_alt": "jdoe@contoso.com"},
+			User{Name: "jdoe", Domain: "CONTOSO", UID: "S-1-5-21-7-1101", UIDAlt: "jdoe@contoso.com", Login: `CONTOSO\jdoe`, PrincipalName: "jdoe@contoso.com"}},
+		{map[string]any{"name": "jdoe@contoso.com", "domain": "contoso.com", "uid": "-"},
+			User{Name: "jdoe@contoso.com", Domain: "contoso.com", Login: "jdoe@contoso.com", PrincipalName: "jdoe@contoso.com"}},
+		{map[string]any{"name": "root", "account": map[string]any{"type": "linux account"}},
+			User{Name: "root", Login: "root", AccountTypeID: 9}},
+		{map[string]any{"name": "jdoe", "account": map[string]any{"type_id": float64(6), "type": "Windows Account"}},
+			User{Name: "jdoe", Login: "jdoe", AccountTypeID: 6}},
+	} {
+		read := map[string]bool{}
+		got := ReadUser(tc.user, func(m map[string]any, k string) any { read[k] = true; return m[k] })
+		if got != tc.want {
+			t.Errorf("ReadUser(%v) = %+v; want %+v", tc.user, got, tc.want)
+		}
+		if _, ok := tc.user["account"]; ok && !read["type_id"] {
+			t.Errorf("ReadUser(%v) read the account type outside the caller's reader", tc.user)
+		}
+	}
+}
