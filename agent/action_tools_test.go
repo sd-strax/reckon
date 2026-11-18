@@ -128,11 +128,35 @@ func TestActionTools_EveryTypeHasATool(t *testing.T) {
 			t.Errorf("%s says it is unavailable:\n%s", d.Name, d.Description)
 		}
 	}
-	if !strings.HasPrefix(block.Description, "Block an indicator. Tier T2, BEST_EFFORT.") {
-		t.Errorf("the unavailable type does not open with its intent, tier and reversibility:\n%s", block.Description)
+	if !strings.HasPrefix(block.Description, "Action type: ioc.block. Block an indicator. Tier T2, BEST_EFFORT.") {
+		t.Errorf("the unavailable type does not open with its type, intent, tier and reversibility:\n%s", block.Description)
 	}
-	requireLedgerText(t, "action tool", ticket.Description, "Open a ticket.", "T1", "IRREVERSIBLE")
-	requireLedgerText(t, "unavailable action tool", block.Description, "Block an indicator.", "T2", "BEST_EFFORT")
+	requireLedgerText(t, "action tool", ticket.Description, "ticket.create", "Open a ticket.", "T1", "IRREVERSIBLE")
+	requireLedgerText(t, "unavailable action tool", block.Description, "ioc.block", "Block an indicator.", "T2", "BEST_EFFORT")
+}
+
+// TestActionTools_DescriptionNamesItsType (adr/0386): every action tool's
+// description opens with its exact action type, available, degraded and
+// unavailable alike, so the model matches the type id it reads anywhere to
+// the tool that names it.
+func TestActionTools_DescriptionNamesItsType(t *testing.T) {
+	types := exampleCatalog()
+	tools := actionToolsOf(t, types)
+	statuses := map[catalog.ActionAvailability]bool{}
+	for _, a := range types {
+		statuses[a.Status] = true
+		tl, ok := tools[actionToolName(a.Descriptor.ActionType)]
+		if !ok {
+			t.Fatalf("no tool for %s", a.Descriptor.ActionType)
+		}
+		want := "Action type: " + a.Descriptor.ActionType + ". "
+		if !strings.HasPrefix(tl.def.Description, want) {
+			t.Errorf("%s (%s) description does not open with %q:\n%s", tl.def.Name, a.Status, want, tl.def.Description)
+		}
+	}
+	if len(statuses) != 3 {
+		t.Errorf("the example catalog covers statuses %v; want available, degraded and unavailable", statuses)
+	}
 }
 
 // TestRequestAction_UnavailableReachesTheEngine: a call to an unavailable

@@ -57,6 +57,7 @@ func actionTools(actionTypes []ActionType) []tool {
 			kind:       ToolKindAction,
 			actionType: a.Descriptor.ActionType,
 			origin:     "#380",
+			revised:    []string{"#386"},
 			run: func(ctx context.Context, s *Session, input json.RawMessage) (toolResult, error) {
 				return s.requestAction(ctx, a, input)
 			},
@@ -103,12 +104,14 @@ func actionToolDef(a ActionType) ToolDef {
 }
 
 // actionToolDescription renders a tool's description from its descriptor and
-// the ledger's text: the intent, the tier and reversibility, then for a type
-// that can be carried out whether it is degraded and the guidance every
-// request shares, and for an unavailable type that it cannot be carried out.
+// the ledger's text: the action type (adr/0386), the intent, the tier and
+// reversibility, then for a type that can be carried out whether it is
+// degraded and the guidance every request shares, and for an unavailable type
+// that it cannot be carried out.
 func actionToolDescription(a ActionType) string {
 	d := a.Descriptor
 	var b strings.Builder
+	fmt.Fprintf(&b, textActionToolType.Text, d.ActionType)
 	fmt.Fprintf(&b, textActionTool.Text, d.Intent, d.DefaultTier, d.Reversibility)
 	if unavailable(a) {
 		// Nothing can carry it out, so the guidance on how a request goes
