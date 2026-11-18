@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sd-strax/reckon/agent"
+	"github.com/sd-strax/reckon/internal/agentapi"
 )
 
 // TestPrettyJSON: valid JSON is indented; non-JSON (e.g. a plain error result)
@@ -41,12 +41,12 @@ func TestToolNames(t *testing.T) {
 func TestTargetList(t *testing.T) {
 	cases := []struct {
 		name string
-		in   []agent.ActionTarget
+		in   []agentapi.TargetSpec
 		want string
 	}{
-		{"resolved", []agent.ActionTarget{{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-FILE01"}}, "WIN-FILE01"},
-		{"fallback", []agent.ActionTarget{{EntityRef: "reckon-host--1"}}, "reckon-host--1"},
-		{"multi", []agent.ActionTarget{{ResolvedIdentifier: "A"}, {ResolvedIdentifier: "B"}}, "A, B"},
+		{"resolved", []agentapi.TargetSpec{{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-FILE01"}}, "WIN-FILE01"},
+		{"fallback", []agentapi.TargetSpec{{EntityRef: "reckon-host--1"}}, "reckon-host--1"},
+		{"multi", []agentapi.TargetSpec{{ResolvedIdentifier: "A"}, {ResolvedIdentifier: "B"}}, "A, B"},
 		{"empty", nil, "(no targets)"},
 	}
 	for _, c := range cases {
@@ -63,7 +63,7 @@ func TestTargetList_NeutralizesControlBytes(t *testing.T) {
 	// "dc-01.corp.local" + CR + ANSI erase-line + "test-sandbox-vm": on a raw
 	// terminal the CR/erase would overwrite the real target with the fake one.
 	evil := "dc-01.corp.local\r\x1b[Ktest-sandbox-vm"
-	got := targetList([]agent.ActionTarget{{ResolvedIdentifier: evil}})
+	got := targetList([]agentapi.TargetSpec{{ResolvedIdentifier: evil}})
 	if strings.ContainsAny(got, "\r\x1b") {
 		t.Fatalf("control bytes survived to the terminal: %q", got)
 	}

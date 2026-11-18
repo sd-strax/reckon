@@ -4,6 +4,7 @@ import (
 	"slices"
 	"sort"
 
+	"github.com/sd-strax/reckon/internal/agentapi"
 	"github.com/sd-strax/reckon/internal/catalog"
 )
 
@@ -28,20 +29,13 @@ const (
 // bound adapter reports it cannot express for the bound operation (§2.8,
 // 11 §4.4); it never changes Status — the verb still answers the calls it can
 // express.
-type CapabilitySummary struct {
-	Descriptor  CapabilityDescriptor `json:"descriptor"`
-	Status      CapabilityStatus     `json:"status"`
-	Bindings    int                  `json:"bindings"`
-	Limitations []Limitation         `json:"limitations,omitempty"`
-}
+//
+// It is defined in internal/agentapi, which the agent shares (adr/0278).
+type CapabilitySummary = agentapi.CapabilitySummary
 
 // Limitation is one capability a verb's bound adapter cannot express, and why
 // (11 §4.4), attributed to the adapter instance that reports it.
-type Limitation struct {
-	Adapter    string `json:"adapter"`
-	Capability string `json:"capability"`
-	Reason     string `json:"reason"`
-}
+type Limitation = agentapi.Limitation
 
 // ListCapabilities implements the list_capabilities verb (§2.8): for every
 // catalog descriptor it reports whether the tenant can currently resolve it,

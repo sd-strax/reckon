@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/sd-strax/reckon/internal/agentapi"
 	"github.com/sd-strax/reckon/internal/catalog"
 )
 
@@ -58,7 +59,7 @@ func digest(b []byte) string {
 // prompt; each intrinsic tool; the tool text that only renders with a catalog
 // or a verb, through the example ones below; and each engine-text template.
 func promptComponents(framing string) []versionComponent {
-	comps := []versionComponent{{"prompt", []byte(systemPrompt(Investigation{HypothesisFraming: framing}, nil))}}
+	comps := []versionComponent{{"prompt", []byte(systemPrompt(agentapi.InvestigationView{HypothesisFraming: framing}, nil))}}
 	for _, t := range intrinsicTools() {
 		comps = append(comps, versionComponent{"tools/" + t.def.Name, toolBytes(t.def)})
 	}
@@ -101,26 +102,26 @@ func exampleActionTools() []tool {
 // around the catalog, never the catalog's own. Its literal strings are part of
 // the version all the same: editing one moves a tools/<action tool>+catalog
 // component, though no model is ever shown them.
-func exampleCatalog() []ActionType {
-	var isolate, ticket, block ActionType
+func exampleCatalog() []agentapi.ActionSummary {
+	var isolate, ticket, block agentapi.ActionSummary
 	isolate.Status = catalog.ActionAvailable
 	isolate.Descriptor.ActionType = "host.isolate"
 	isolate.Descriptor.Intent = "Isolate a host."
 	isolate.Descriptor.DefaultTier = "T2"
 	isolate.Descriptor.Reversibility = "REVERSIBLE"
-	isolate.Descriptor.Inputs = []ActionInput{{Name: "target", Type: "entity", Required: true}, {Name: "reason", Type: "string", Required: true, Desc: "why"}}
+	isolate.Descriptor.Inputs = []agentapi.InputParam{{Name: "target", Type: "entity", Required: true}, {Name: "reason", Type: "string", Required: true, Desc: "why"}}
 	ticket.Status = catalog.ActionDegraded
 	ticket.Descriptor.ActionType = "ticket.create"
 	ticket.Descriptor.Intent = "Open a ticket."
 	ticket.Descriptor.DefaultTier = "T1"
 	ticket.Descriptor.Reversibility = "IRREVERSIBLE"
-	ticket.Descriptor.Inputs = []ActionInput{{Name: "summary", Type: "string", Required: true, Desc: "headline"}, {Name: "reason", Type: "string"}, {Name: "priority", Type: "integer"}}
+	ticket.Descriptor.Inputs = []agentapi.InputParam{{Name: "summary", Type: "string", Required: true, Desc: "headline"}, {Name: "reason", Type: "string"}, {Name: "priority", Type: "integer"}}
 	block.Status = catalog.ActionUnavailable
 	block.Descriptor.ActionType = "ioc.block"
 	block.Descriptor.Intent = "Block an indicator."
 	block.Descriptor.DefaultTier = "T2"
 	block.Descriptor.Reversibility = "BEST_EFFORT"
-	return []ActionType{isolate, ticket, block}
+	return []agentapi.ActionSummary{isolate, ticket, block}
 }
 
 // exampleVerb is a capability descriptor with every input kind the loop
@@ -128,8 +129,8 @@ func exampleCatalog() []ActionType {
 // distinguishes: string by default, int, list<string>), for the same reason:
 // a change to how any one kind renders moves the version. Its literal
 // strings are part of the version too, through tools/<verb>.
-func exampleVerb() Capability {
-	var c Capability
+func exampleVerb() agentapi.CapabilitySummary {
+	var c agentapi.CapabilitySummary
 	c.Status = catalog.StatusAvailable
 	c.Descriptor.Verb = "verb"
 	c.Descriptor.Intent = "Intent."

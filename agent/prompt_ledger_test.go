@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/sd-strax/reckon/internal/agentapi"
 )
 
 // pointerRe is the one form a ledger provenance pointer takes: a GitHub issue
@@ -264,7 +266,7 @@ func TestPromptLedger_Complete(t *testing.T) {
 	// Every rule renders: the prompt under each dial contains each rule's text
 	// for that dial, so the ledger and the prompt cannot drift apart.
 	for _, dial := range []string{framingLeadingNull, framingLeadingOnly} {
-		p := systemPrompt(Investigation{HypothesisFraming: dial}, nil)
+		p := systemPrompt(agentapi.InvestigationView{HypothesisFraming: dial}, nil)
 		for _, sec := range promptLedger {
 			for _, r := range sec.Rules {
 				if !strings.Contains(p, "- "+r.render(dial)+"\n") {

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/sd-strax/reckon/aggregate"
+	"github.com/sd-strax/reckon/internal/agentapi"
 	"github.com/sd-strax/reckon/internal/catalog"
 )
 
@@ -70,9 +71,9 @@ type recordedCall struct {
 type fakeBackend struct {
 	srv           *httptest.Server
 	calls         []recordedCall
-	actions       []ActionStatus
+	actions       []agentapi.ActionView
 	hypotheses    json.RawMessage                                   // GET …/hypotheses body when set; else an empty set
-	investigation *Investigation                                    // detail response when set; else a default ACTIVE stub
+	investigation *agentapi.InvestigationView                       // detail response when set; else a default ACTIVE stub
 	override      func(w http.ResponseWriter, r *http.Request) bool // handled?
 }
 
@@ -109,7 +110,7 @@ func newFakeBackend(t *testing.T) *fakeBackend {
 			_ = json.NewEncoder(w).Encode(*f.investigation)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(Investigation{AggregateID: "inv-1", Title: "INV", Status: "ACTIVE"})
+		_ = json.NewEncoder(w).Encode(agentapi.InvestigationView{AggregateID: "inv-1", Title: "INV", Status: "ACTIVE"})
 	})
 	mux.HandleFunc("/api/capabilities", func(w http.ResponseWriter, r *http.Request) {
 		record(r)
@@ -136,10 +137,10 @@ func newFakeBackend(t *testing.T) *fakeBackend {
 	})
 	mux.HandleFunc("/api/interpretations", func(w http.ResponseWriter, r *http.Request) {
 		record(r)
-		var body InterpretationRequest
+		var body agentapi.RecordInterpretationBody
 		raw := f.calls[len(f.calls)-1].Body
 		_ = json.Unmarshal(raw, &body)
-		resp := InterpretationResponse{InterpretationID: "interp-1", SequenceNo: 7}
+		resp := agentapi.RecordInterpretationResponse{InterpretationID: "interp-1", SequenceNo: 7}
 		if body.Hypothesis != nil {
 			resp.NodeID = "reckon-hypothesis--h1"
 		}
@@ -147,14 +148,14 @@ func newFakeBackend(t *testing.T) *fakeBackend {
 	})
 	mux.HandleFunc("/api/actions", func(w http.ResponseWriter, r *http.Request) {
 		record(r)
-		var body ActionRequest
+		var body agentapi.RequestActionBody
 		_ = json.Unmarshal(f.calls[len(f.calls)-1].Body, &body)
 		id := fmt.Sprintf("act-%d", len(f.actions)+1)
-		f.actions = append(f.actions, ActionStatus{
+		f.actions = append(f.actions, agentapi.ActionView{
 			ActionID: id, ActionType: body.ActionType, Tier: "T2",
 			Status: "REQUESTED", RequiredMode: "MANUAL", Targets: body.Targets,
 		})
-		_ = json.NewEncoder(w).Encode(ActionResponse{ActionID: id, Tier: "T2", Status: "PENDING_MANUAL", Mode: "MANUAL"})
+		_ = json.NewEncoder(w).Encode(agentapi.RequestActionResponse{ActionID: id, Tier: "T2", Status: "PENDING_MANUAL", Mode: "MANUAL"})
 	})
 	mux.HandleFunc("/api/knowledge/recall_sops", func(w http.ResponseWriter, r *http.Request) {
 		record(r)
@@ -300,7 +301,7 @@ func TestSession_Turn(t *testing.T) {
 	if len(invokes) != 1 {
 		t.Fatalf("capability invocations = %d; want 1", len(invokes))
 	}
-	var call InvokeInput
+	var call agentapi.CapabilityInvokeBody
 	_ = json.Unmarshal(invokes[0].Body, &call)
 	host, _ := call.Entity["host"].(map[string]any)
 	if host["hostname"] != "H1" || call.Extra["outcome"] != "SUCCESS" {
@@ -317,12 +318,12 @@ func TestSession_Turn(t *testing.T) {
 	if len(interps) != 2 {
 		t.Fatalf("interpretation posts = %d; want 2 (hypothesis + turn summary)", len(interps))
 	}
-	var hyp InterpretationRequest
+	var hyp agentapi.RecordInterpretationBody
 	_ = json.Unmarshal(interps[0].Body, &hyp)
 	if hyp.InterpretationType != "hypothesis" || hyp.Hypothesis == nil || hyp.Hypothesis.Labels[0] != "T1021.001" {
 		t.Errorf("hypothesis interpretation mangled: %+v", hyp)
 	}
-	var summary InterpretationRequest
+	var summary agentapi.RecordInterpretationBody
 	_ = json.Unmarshal(interps[1].Body, &summary)
 	if summary.Transcript == nil || summary.Transcript.Body == "" {
 		t.Fatal("turn summary carries no transcript")
@@ -420,7 +421,7 @@ func TestSession_Rehydrates(t *testing.T) {
 		case r.URL.Path == "/api/interpretations":
 			_, _ = w.Write([]byte(`{"interpretation_id":"interp-3"}`))
 		case strings.HasPrefix(r.URL.Path, "/api/investigations/"):
-			_ = json.NewEncoder(w).Encode(Investigation{AggregateID: "inv-1", Title: "INV", Status: "ACTIVE"})
+			_ = json.NewEncoder(w).Encode(agentapi.InvestigationView{AggregateID: "inv-1", Title: "INV", Status: "ACTIVE"})
 		default:
 			http.Error(w, "unexpected "+r.URL.Path, http.StatusNotFound)
 		}
@@ -677,7 +678,7 @@ func TestSession_ModelFailureKeepsPendingActions(t *testing.T) {
 func TestSession_ListActionsTool(t *testing.T) {
 	f := newFakeBackend(t)
 	longDead := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
-	f.actions = []ActionStatus{
+	f.actions = []agentapi.ActionView{
 		{ActionID: "act-9", ActionType: "account.disable", Tier: "T2", Status: "SUCCEEDED"},
 		{ActionID: "act-10", ActionType: "ticket.create", Tier: "T2", Status: "REQUESTED", ExpiresAt: &longDead},
 	}
@@ -944,7 +945,7 @@ func TestSession_ConsultedSimilarRecorded(t *testing.T) {
 	if len(calls) == 0 {
 		t.Fatal("no interpretation committed")
 	}
-	var body InterpretationRequest
+	var body agentapi.RecordInterpretationBody
 	if err := json.Unmarshal(calls[len(calls)-1].Body, &body); err != nil {
 		t.Fatal(err)
 	}
@@ -966,11 +967,11 @@ func TestSession_ConsultedSimilarRecorded(t *testing.T) {
 // title does not say which recalled item the model meant (adr/0236).
 func TestConsulted_CitedByRef(t *testing.T) {
 	s := &Session{
-		consulted: map[consultedKey]ConsultedSOP{
+		consulted: map[consultedKey]agentapi.ConsultedSOP{
 			{id: "sop-phish-3"}: {SOPID: "sop-phish-3", Title: "Phishing", RetrievalScore: 0.9, Sections: []int{1}},
 			{id: "sop-rdp-7"}:   {SOPID: "sop-rdp-7", Title: "RDP lateral movement", RetrievalScore: 0.8, Sections: []int{3}},
 		},
-		consultedSimilar: map[string]ConsultedSimilarInvestigation{
+		consultedSimilar: map[string]agentapi.ConsultedSimilarInvestigation{
 			"grouping--prior1": {InvestigationRef: "grouping--prior1", Title: "Phishing wave", RetrievalScore: 0.9},
 			"grouping--prior2": {InvestigationRef: "grouping--prior2", Title: "RDP pivot", RetrievalScore: 0.7},
 		},
@@ -998,13 +999,13 @@ func TestConsulted_CitedByRef(t *testing.T) {
 // only when a section of it was in front of the model this turn — a hit's
 // section or a read_sop (adr/0303). An outline alone is not a read.
 func TestConsulted_CitedRequiresARead(t *testing.T) {
-	s := &Session{consulted: map[consultedKey]ConsultedSOP{
+	s := &Session{consulted: map[consultedKey]agentapi.ConsultedSOP{
 		{id: "sop-cred-9"}: {SOPID: "sop-cred-9", Title: "Credential theft", RetrievalScore: 0.7},
 	}}
 	if got := s.consultedList("Per sop-cred-9, reset the account."); len(got) != 1 || got[0].Cited {
 		t.Errorf("named by ref with no section shown: %+v; want not cited", got)
 	}
-	s.recordConsulted([]ConsultedSOP{{SOPID: "sop-cred-9", Sections: []int{2}}}, nil)
+	s.recordConsulted([]agentapi.ConsultedSOP{{SOPID: "sop-cred-9", Sections: []int{2}}}, nil)
 	if got := s.consultedList("Per sop-cred-9, reset the account."); len(got) != 1 || !got[0].Cited {
 		t.Errorf("named by ref after a read: %+v; want cited", got)
 	}
@@ -1013,10 +1014,10 @@ func TestConsulted_CitedRequiresARead(t *testing.T) {
 // TestRecordConsulted_MergesSections: one entry per procedure across a turn,
 // with the best score, the title once known, and every section shown.
 func TestRecordConsulted_MergesSections(t *testing.T) {
-	s := &Session{consulted: map[consultedKey]ConsultedSOP{}}
-	s.recordConsulted([]ConsultedSOP{{SOPID: "sop-1", Title: "T", RetrievalScore: 0.5, Sections: []int{3}}}, nil)
-	s.recordConsulted([]ConsultedSOP{{SOPID: "sop-1", RetrievalScore: 0.9, Sections: []int{1}}}, nil)
-	s.recordConsulted([]ConsultedSOP{{SOPID: "sop-1", Sections: []int{3}}}, nil) // a read of the same section again
+	s := &Session{consulted: map[consultedKey]agentapi.ConsultedSOP{}}
+	s.recordConsulted([]agentapi.ConsultedSOP{{SOPID: "sop-1", Title: "T", RetrievalScore: 0.5, Sections: []int{3}}}, nil)
+	s.recordConsulted([]agentapi.ConsultedSOP{{SOPID: "sop-1", RetrievalScore: 0.9, Sections: []int{1}}}, nil)
+	s.recordConsulted([]agentapi.ConsultedSOP{{SOPID: "sop-1", Sections: []int{3}}}, nil) // a read of the same section again
 	got := s.consulted[consultedKey{id: "sop-1"}]
 	if got.Title != "T" || got.RetrievalScore != 0.9 || len(got.Sections) != 2 || got.Sections[0] != 1 || got.Sections[1] != 3 {
 		t.Errorf("merged = %+v; want title T, score 0.9, sections [1 3]", got)
@@ -1026,15 +1027,15 @@ func TestRecordConsulted_MergesSections(t *testing.T) {
 // TestConsultedSOPs_ReadsTheSection: a recall hit's section idx is the
 // section shown; a read_sop result records the section read, an outline none.
 func TestConsultedSOPs_ReadsTheSection(t *testing.T) {
-	hits := consultedSOPs([]byte(`{"results":[{"sop_id":"sop-1","title":"T","revision":2,"cut":"1/16000","score":0.8,"section":{"idx":3,"of":4}},{"sop_id":"sop-2","score":0.2}]}`))
+	hits := consultedSOPs([]byte(`{"results":[{"sop_id":"00000000-0000-4000-8000-000000000001","title":"T","revision":2,"cut":"1/16000","score":0.8,"section":{"idx":3,"of":4}},{"sop_id":"00000000-0000-4000-8000-000000000002","score":0.2}]}`))
 	if len(hits) != 2 || len(hits[0].Sections) != 1 || hits[0].Sections[0] != 3 || hits[0].Revision != 2 || hits[0].Cut != "1/16000" || hits[1].Sections != nil {
 		t.Errorf("hits = %+v", hits)
 	}
-	read := readSOPConsulted([]byte(`{"sop_id":"sop-1","title":"T","revision":2,"cut":"1/16000","section":{"idx":2,"of":4,"text":"## B"},"outline":["A","A > B"]}`))
-	if len(read) != 1 || read[0].SOPID != "sop-1" || len(read[0].Sections) != 1 || read[0].Sections[0] != 2 || read[0].Cut != "1/16000" {
+	read := readSOPConsulted([]byte(`{"sop_id":"00000000-0000-4000-8000-000000000001","title":"T","revision":2,"cut":"1/16000","section":{"idx":2,"of":4,"text":"## B"},"outline":["A","A > B"]}`))
+	if len(read) != 1 || read[0].SOPID != "00000000-0000-4000-8000-000000000001" || len(read[0].Sections) != 1 || read[0].Sections[0] != 2 || read[0].Cut != "1/16000" {
 		t.Errorf("read = %+v", read)
 	}
-	outline := readSOPConsulted([]byte(`{"sop_id":"sop-1","title":"T","sections":[{"idx":1},{"idx":2}]}`))
+	outline := readSOPConsulted([]byte(`{"sop_id":"00000000-0000-4000-8000-000000000001","title":"T","sections":[{"idx":1},{"idx":2}]}`))
 	if len(outline) != 1 || outline[0].Sections != nil {
 		t.Errorf("outline = %+v; want the procedure consulted with no section", outline)
 	}
@@ -1042,15 +1043,15 @@ func TestConsultedSOPs_ReadsTheSection(t *testing.T) {
 	// carries a part is a read; a page of the same result that carries none
 	// (the outline alone, past the last part) showed the section's place and
 	// nothing of the section.
-	part := readSOPConsulted([]byte(`{"sop_id":"sop-1","title":"T","section":{"idx":2,"of":4},"text_parts":["## B part"],"outline":["A"]}`))
+	part := readSOPConsulted([]byte(`{"sop_id":"00000000-0000-4000-8000-000000000001","title":"T","section":{"idx":2,"of":4},"text_parts":["## B part"],"outline":["A"]}`))
 	if len(part) != 1 || len(part[0].Sections) != 1 || part[0].Sections[0] != 2 {
 		t.Errorf("page with a text part = %+v; want section 2 read", part)
 	}
-	bare := readSOPConsulted([]byte(`{"sop_id":"sop-1","title":"T","section":{"idx":2,"of":4},"text_parts":[],"outline":["A > D"]}`))
+	bare := readSOPConsulted([]byte(`{"sop_id":"00000000-0000-4000-8000-000000000001","title":"T","section":{"idx":2,"of":4},"text_parts":[],"outline":["A > D"]}`))
 	if len(bare) != 1 || bare[0].Sections != nil {
 		t.Errorf("page with no text part = %+v; want the procedure consulted with no section", bare)
 	}
-	if noText := readSOPConsulted([]byte(`{"sop_id":"sop-1","title":"T","section":{"idx":2,"of":4}}`)); len(noText) != 1 || noText[0].Sections != nil {
+	if noText := readSOPConsulted([]byte(`{"sop_id":"00000000-0000-4000-8000-000000000001","title":"T","section":{"idx":2,"of":4}}`)); len(noText) != 1 || noText[0].Sections != nil {
 		t.Errorf("section with no text = %+v; want no section read", noText)
 	}
 }
@@ -1065,13 +1066,13 @@ func TestSession_ReadSOP(t *testing.T) {
 	f.override = func(w http.ResponseWriter, r *http.Request) bool {
 		switch r.URL.Path {
 		case "/api/knowledge/recall_sops":
-			_, _ = w.Write([]byte(`{"results":[{"sop_id":"sop-rdp-7","title":"RDP containment","revision":2,"cut":"1/16000","score":0.9,"section":{"idx":1,"of":4,"location":"RDP containment"},"excerpt":"# RDP containment\n\nScope."}],"coverage":"COMPLETE"}`))
-		case "/api/sops/sop-rdp-7/sections/3":
+			_, _ = w.Write([]byte(`{"results":[{"sop_id":"00000000-0000-4000-8000-000000000007","title":"RDP containment","revision":2,"cut":"1/16000","score":0.9,"section":{"idx":1,"of":4,"location":"RDP containment"},"excerpt":"# RDP containment\n\nScope."}],"coverage":"COMPLETE"}`))
+		case "/api/sops/00000000-0000-4000-8000-000000000007/sections/3":
 			if q := r.URL.Query(); q.Get("revision") != "2" || q.Get("cut") != "1/16000" {
 				t.Errorf("read_sop did not pin the revision and cut the hit was shown under: %s", r.URL.RequestURI())
 			}
 			reads++
-			_, _ = w.Write([]byte(`{"sop_id":"sop-rdp-7","title":"RDP containment","revision":2,"cut":"1/16000","status":"published","section":{"idx":3,"of":4,"heading_path":["RDP containment","Containment"],"location":"RDP containment > Containment","runes":40,"text":"## Containment\nIsolate the destination host."},"outline":["RDP containment","RDP containment > Triage","RDP containment > Containment","RDP containment > Do not"]}`))
+			_, _ = w.Write([]byte(`{"sop_id":"00000000-0000-4000-8000-000000000007","title":"RDP containment","revision":2,"cut":"1/16000","status":"published","section":{"idx":3,"of":4,"heading_path":["RDP containment","Containment"],"location":"RDP containment > Containment","runes":40,"text":"## Containment\nIsolate the destination host."},"outline":["RDP containment","RDP containment > Triage","RDP containment > Containment","RDP containment > Do not"]}`))
 		default:
 			return false
 		}
@@ -1079,8 +1080,8 @@ func TestSession_ReadSOP(t *testing.T) {
 	}
 	llm := &scriptedLLM{script: []CompleteResponse{
 		{StopReason: StopToolUse, Content: []ContentBlock{toolUse("t1", ToolRecallSOPs, `{"query":"rdp"}`)}},
-		{StopReason: StopToolUse, Content: []ContentBlock{toolUse("t2", ToolReadSOP, `{"sop_id":"sop-rdp-7","section":3}`)}},
-		{StopReason: StopEndTurn, Content: []ContentBlock{TextBlock("Following sop-rdp-7, isolate the destination host.")}},
+		{StopReason: StopToolUse, Content: []ContentBlock{toolUse("t2", ToolReadSOP, `{"sop_id":"00000000-0000-4000-8000-000000000007","section":3}`)}},
+		{StopReason: StopEndTurn, Content: []ContentBlock{TextBlock("Following 00000000-0000-4000-8000-000000000007, isolate the destination host.")}},
 	}}
 	s, err := NewSession(context.Background(), Config{Backend: f.client(), LLM: llm, InvestigationID: "inv-1", MaxToolRounds: 3})
 	if err != nil {
@@ -1096,7 +1097,7 @@ func TestSession_ReadSOP(t *testing.T) {
 	if len(calls) == 0 {
 		t.Fatal("no interpretation committed")
 	}
-	var body InterpretationRequest
+	var body agentapi.RecordInterpretationBody
 	if err := json.Unmarshal(calls[len(calls)-1].Body, &body); err != nil {
 		t.Fatal(err)
 	}
@@ -1104,8 +1105,8 @@ func TestSession_ReadSOP(t *testing.T) {
 		t.Fatalf("consulted SOPs = %+v; want one entry", body.ConsultedSOPs)
 	}
 	got := body.ConsultedSOPs[0]
-	if got.SOPID != "sop-rdp-7" || !got.Cited || len(got.Sections) != 2 || got.Sections[0] != 1 || got.Sections[1] != 3 || got.Revision != 2 || got.Cut != "1/16000" {
-		t.Errorf("consulted = %+v; want sop-rdp-7 revision 2 cut 1/16000 cited with sections [1 3]", got)
+	if got.SOPID != "00000000-0000-4000-8000-000000000007" || !got.Cited || len(got.Sections) != 2 || got.Sections[0] != 1 || got.Sections[1] != 3 || got.Revision != 2 || got.Cut != "1/16000" {
+		t.Errorf("consulted = %+v; want 00000000-0000-4000-8000-000000000007 revision 2 cut 1/16000 cited with sections [1 3]", got)
 	}
 }
 
@@ -1117,14 +1118,14 @@ func TestSession_ReadSOP_RequiresAPin(t *testing.T) {
 	f := newFakeBackend(t)
 	var requests []string
 	f.override = func(w http.ResponseWriter, r *http.Request) bool {
-		if !strings.HasPrefix(r.URL.Path, "/api/sops/sop-x/sections") {
+		if !strings.HasPrefix(r.URL.Path, "/api/sops/00000000-0000-4000-8000-000000000010/sections") {
 			return false
 		}
 		requests = append(requests, r.URL.RequestURI())
-		if r.URL.Path == "/api/sops/sop-x/sections" {
-			_, _ = w.Write([]byte(`{"sop_id":"sop-x","title":"X","revision":4,"cut":"1/16000","status":"published","sections":[{"idx":1,"of":2,"location":"X","runes":10},{"idx":2,"of":2,"location":"X > Y","runes":12}]}`))
+		if r.URL.Path == "/api/sops/00000000-0000-4000-8000-000000000010/sections" {
+			_, _ = w.Write([]byte(`{"sop_id":"00000000-0000-4000-8000-000000000010","title":"X","revision":4,"cut":"1/16000","status":"published","sections":[{"idx":1,"of":2,"location":"X","runes":10},{"idx":2,"of":2,"location":"X > Y","runes":12}]}`))
 		} else {
-			_, _ = w.Write([]byte(`{"sop_id":"sop-x","title":"X","revision":4,"cut":"1/16000","status":"published","section":{"idx":2,"of":2,"location":"X > Y","runes":12,"text":"## Y\nsay so."},"outline":["X","X > Y"]}`))
+			_, _ = w.Write([]byte(`{"sop_id":"00000000-0000-4000-8000-000000000010","title":"X","revision":4,"cut":"1/16000","status":"published","section":{"idx":2,"of":2,"location":"X > Y","runes":12,"text":"## Y\nsay so."},"outline":["X","X > Y"]}`))
 		}
 		return true
 	}
@@ -1133,16 +1134,16 @@ func TestSession_ReadSOP_RequiresAPin(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	if _, err := s.readSOP(ctx, readSOPInput{SOPID: "sop-x", Section: 2}); err == nil || !strings.Contains(err.Error(), "not recalled or outlined") {
+	if _, err := s.readSOP(ctx, readSOPInput{SOPID: "00000000-0000-4000-8000-000000000010", Section: 2}); err == nil || !strings.Contains(err.Error(), "not recalled or outlined") {
 		t.Fatalf("section read with no pin: %v; want refused", err)
 	}
-	if _, err := s.readSOP(ctx, readSOPInput{SOPID: "sop-x", Revision: 4, Section: 2}); err == nil {
+	if _, err := s.readSOP(ctx, readSOPInput{SOPID: "00000000-0000-4000-8000-000000000010", Revision: 4, Section: 2}); err == nil {
 		t.Fatal("a revision the model asserts but was never shown is not a pin")
 	}
 	if len(requests) != 0 {
 		t.Fatalf("refused reads reached the backend: %v", requests)
 	}
-	res, err := s.readSOP(ctx, readSOPInput{SOPID: "sop-x"})
+	res, err := s.readSOP(ctx, readSOPInput{SOPID: "00000000-0000-4000-8000-000000000010"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1150,13 +1151,13 @@ func TestSession_ReadSOP_RequiresAPin(t *testing.T) {
 		t.Errorf("outline consulted = %+v; want revision 4, cut 1/16000, no section", res.Consulted)
 	}
 	s.recordConsulted(res.Consulted, nil)
-	if _, err := s.readSOP(ctx, readSOPInput{SOPID: "sop-x", Section: 2}); err != nil {
+	if _, err := s.readSOP(ctx, readSOPInput{SOPID: "00000000-0000-4000-8000-000000000010", Section: 2}); err != nil {
 		t.Fatalf("section read after the outline: %v", err)
 	}
-	if _, err := s.readSOP(ctx, readSOPInput{SOPID: "sop-x", Revision: 3, Section: 2}); err == nil {
+	if _, err := s.readSOP(ctx, readSOPInput{SOPID: "00000000-0000-4000-8000-000000000010", Revision: 3, Section: 2}); err == nil {
 		t.Error("a revision not shown this session accepted")
 	}
-	if len(requests) != 2 || requests[0] != "/api/sops/sop-x/sections" || requests[1] != "/api/sops/sop-x/sections/2?cut=1%2F16000&revision=4" {
+	if len(requests) != 2 || requests[0] != "/api/sops/00000000-0000-4000-8000-000000000010/sections" || requests[1] != "/api/sops/00000000-0000-4000-8000-000000000010/sections/2?cut=1%2F16000&revision=4" {
 		t.Errorf("requests = %v; want the unpinned outline then the section pinned to revision 4 and cut 1/16000", requests)
 	}
 }
@@ -1166,13 +1167,13 @@ func TestSession_ReadSOP_RequiresAPin(t *testing.T) {
 // then a read after a re-import) records both, each with its own sections and
 // its own citation; neither is lost to the other.
 func TestRecordConsulted_RevisionsAreSeparateEntries(t *testing.T) {
-	s := &Session{consulted: map[consultedKey]ConsultedSOP{}}
-	s.recordConsulted([]ConsultedSOP{{SOPID: "sop-1", Revision: 1, Cut: "1/16000", RetrievalScore: 0.9, Sections: []int{3}}}, nil)
-	s.recordConsulted([]ConsultedSOP{{SOPID: "sop-1", Revision: 2, Cut: "1/16000", RetrievalScore: 0.5}}, nil) // an outline of the new revision
+	s := &Session{consulted: map[consultedKey]agentapi.ConsultedSOP{}}
+	s.recordConsulted([]agentapi.ConsultedSOP{{SOPID: "sop-1", Revision: 1, Cut: "1/16000", RetrievalScore: 0.9, Sections: []int{3}}}, nil)
+	s.recordConsulted([]agentapi.ConsultedSOP{{SOPID: "sop-1", Revision: 2, Cut: "1/16000", RetrievalScore: 0.5}}, nil) // an outline of the new revision
 	if len(s.consulted) != 2 {
 		t.Fatalf("entries = %+v; want one per revision", s.consulted)
 	}
-	s.recordConsulted([]ConsultedSOP{{SOPID: "sop-1", Revision: 1, Cut: "1/16000", Sections: []int{4}}}, nil)
+	s.recordConsulted([]agentapi.ConsultedSOP{{SOPID: "sop-1", Revision: 1, Cut: "1/16000", Sections: []int{4}}}, nil)
 	if got := s.consulted[consultedKey{id: "sop-1", revision: 1, cut: "1/16000"}]; len(got.Sections) != 2 || got.Sections[0] != 3 || got.Sections[1] != 4 {
 		t.Errorf("revision 1 after a second read: %+v; want sections [3 4]", got)
 	}
@@ -1193,9 +1194,9 @@ func TestRecordConsulted_RevisionsAreSeparateEntries(t *testing.T) {
 // held recall page, then a recall after the reindex) records both, each
 // keeping the numbering its indexes came from.
 func TestRecordConsulted_CutsAreSeparateEntries(t *testing.T) {
-	s := &Session{consulted: map[consultedKey]ConsultedSOP{}}
-	s.recordConsulted([]ConsultedSOP{{SOPID: "sop-1", Revision: 1, Cut: "1/16000", RetrievalScore: 0.9, Sections: []int{3}}}, nil)
-	s.recordConsulted([]ConsultedSOP{{SOPID: "sop-1", Revision: 1, Cut: "1/8000", RetrievalScore: 0.8, Sections: []int{5}}}, nil)
+	s := &Session{consulted: map[consultedKey]agentapi.ConsultedSOP{}}
+	s.recordConsulted([]agentapi.ConsultedSOP{{SOPID: "sop-1", Revision: 1, Cut: "1/16000", RetrievalScore: 0.9, Sections: []int{3}}}, nil)
+	s.recordConsulted([]agentapi.ConsultedSOP{{SOPID: "sop-1", Revision: 1, Cut: "1/8000", RetrievalScore: 0.8, Sections: []int{5}}}, nil)
 	if len(s.consulted) != 2 {
 		t.Fatalf("entries = %+v; want one per cut", s.consulted)
 	}
@@ -1218,10 +1219,10 @@ func TestRecordConsulted_CutsAreSeparateEntries(t *testing.T) {
 // can show (TestRecallLimitWithinAggregateBound), so nothing is dropped to
 // fit it.
 func TestRecordConsulted_NeverTruncates(t *testing.T) {
-	s := &Session{consulted: map[consultedKey]ConsultedSOP{}}
+	s := &Session{consulted: map[consultedKey]agentapi.ConsultedSOP{}}
 	const shown = 300
 	for i := 1; i <= shown; i++ {
-		s.recordConsulted([]ConsultedSOP{{SOPID: "sop-1", Revision: 1, Sections: []int{i}}}, nil)
+		s.recordConsulted([]agentapi.ConsultedSOP{{SOPID: "sop-1", Revision: 1, Sections: []int{i}}}, nil)
 	}
 	if got := s.consulted[consultedKey{id: "sop-1", revision: 1}]; len(got.Sections) != shown || got.Sections[shown-1] != shown {
 		t.Errorf("sections = %d; want all %d shown", len(got.Sections), shown)
@@ -1251,9 +1252,9 @@ func TestSession_LaterPagesAreConsulted(t *testing.T) {
 			return false
 		}
 		_, _ = w.Write([]byte(`{"results":[` +
-			`{"sop_id":"sop-first","title":"A","revision":1,"score":0.9,"section":{"idx":1},"excerpt":"` + big + `"},` +
-			`{"sop_id":"sop-second","title":"B","revision":1,"score":0.8,"section":{"idx":2},"excerpt":"` + big + `"},` +
-			`{"sop_id":"sop-third","title":"C","revision":1,"score":0.7,"section":{"idx":3},"excerpt":"` + big + `"}` +
+			`{"sop_id":"00000000-0000-4000-8000-000000000005","title":"A","revision":1,"score":0.9,"section":{"idx":1},"excerpt":"` + big + `"},` +
+			`{"sop_id":"00000000-0000-4000-8000-000000000008","title":"B","revision":1,"score":0.8,"section":{"idx":2},"excerpt":"` + big + `"},` +
+			`{"sop_id":"00000000-0000-4000-8000-000000000009","title":"C","revision":1,"score":0.7,"section":{"idx":3},"excerpt":"` + big + `"}` +
 			`],"coverage":"COMPLETE"}`))
 		return true
 	}
@@ -1261,7 +1262,7 @@ func TestSession_LaterPagesAreConsulted(t *testing.T) {
 		{StopReason: StopToolUse, Content: []ContentBlock{toolUse("t1", ToolRecallSOPs, `{"query":"q"}`)}},
 		{StopReason: StopToolUse, Content: []ContentBlock{toolUse("t2", ToolReadResult, `{"result_id":"res-1","offset":1}`)}},
 		{StopReason: StopToolUse, Content: []ContentBlock{toolUse("t3", ToolReadResult, `{"result_id":"res-1","offset":2}`)}},
-		{StopReason: StopEndTurn, Content: []ContentBlock{TextBlock("Per sop-third, isolate.")}},
+		{StopReason: StopEndTurn, Content: []ContentBlock{TextBlock("Per 00000000-0000-4000-8000-000000000009, isolate.")}},
 	}}
 	s, err := NewSession(context.Background(), Config{Backend: f.client(), LLM: llm, InvestigationID: "inv-1", MaxToolRounds: 4, MaxToolResultBytes: 1500})
 	if err != nil {
@@ -1274,18 +1275,18 @@ func TestSession_LaterPagesAreConsulted(t *testing.T) {
 	if len(calls) == 0 {
 		t.Fatal("no interpretation committed")
 	}
-	var body InterpretationRequest
+	var body agentapi.RecordInterpretationBody
 	if err := json.Unmarshal(calls[len(calls)-1].Body, &body); err != nil {
 		t.Fatal(err)
 	}
-	byID := map[string]ConsultedSOP{}
+	byID := map[string]agentapi.ConsultedSOP{}
 	for _, c := range body.ConsultedSOPs {
 		byID[c.SOPID] = c
 	}
 	if len(byID) != 3 {
 		t.Fatalf("consulted = %+v; want all three pages' procedures", body.ConsultedSOPs)
 	}
-	if third := byID["sop-third"]; !third.Cited || len(third.Sections) != 1 || third.Sections[0] != 3 {
+	if third := byID["00000000-0000-4000-8000-000000000009"]; !third.Cited || len(third.Sections) != 1 || third.Sections[0] != 3 {
 		t.Errorf("the procedure read on the last page: %+v; want cited with section 3", third)
 	}
 }
@@ -1296,18 +1297,18 @@ func TestSession_ReadSOP_OversizedSectionIsPaged(t *testing.T) {
 	f := newFakeBackend(t)
 	text := strings.Repeat("isolate the host. ", 400) // ~7 KB against a 2 KB page
 	f.override = func(w http.ResponseWriter, r *http.Request) bool {
-		if r.URL.Path != "/api/sops/sop-big/sections/2" {
+		if r.URL.Path != "/api/sops/00000000-0000-4000-8000-000000000003/sections/2" {
 			return false
 		}
-		_, _ = w.Write([]byte(`{"sop_id":"sop-big","title":"Big","revision":1,"status":"published","section":{"idx":2,"of":3,"heading_path":["Big","Long"],"location":"Big > Long","runes":7200,"text":"` + text + `"},"outline":["Big","Big > Long","Big > End"]}`))
+		_, _ = w.Write([]byte(`{"sop_id":"00000000-0000-4000-8000-000000000003","title":"Big","revision":1,"status":"published","section":{"idx":2,"of":3,"heading_path":["Big","Long"],"location":"Big > Long","runes":7200,"text":"` + text + `"},"outline":["Big","Big > Long","Big > End"]}`))
 		return true
 	}
 	s, err := NewSession(context.Background(), Config{Backend: f.client(), LLM: &scriptedLLM{}, InvestigationID: "inv-1", MaxToolResultBytes: 2048})
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.pinSections("sop-big", 1, "1/16000") // as a recall hit would have
-	res, err := s.readSOP(context.Background(), readSOPInput{SOPID: "sop-big", Section: 2})
+	s.pinSections("00000000-0000-4000-8000-000000000003", 1, "1/16000") // as a recall hit would have
+	res, err := s.readSOP(context.Background(), readSOPInput{SOPID: "00000000-0000-4000-8000-000000000003", Section: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1325,8 +1326,9 @@ func TestSession_ReadSOP_OversizedSectionIsPaged(t *testing.T) {
 
 // TestSession_FooterIsNotACitation: the engine footer is appended to the
 // turn's text, but a ref that only the footer holds is not a citation. The
-// recalled items here are keyed by text the footer writes and the model did
-// not.
+// recalled case is keyed by text the footer writes and the model did not, so
+// the cases half carries the proof. A SOP's id is a UUID, which a footer
+// cannot hold, so the SOP half only checks that the recall is recorded.
 func TestSession_FooterIsNotACitation(t *testing.T) {
 	const engineWords = "engine record"
 	if !strings.Contains(textNoActionRequested.Text, engineWords) {
@@ -1336,7 +1338,7 @@ func TestSession_FooterIsNotACitation(t *testing.T) {
 	f.override = func(w http.ResponseWriter, r *http.Request) bool {
 		switch r.URL.Path {
 		case "/api/knowledge/recall_sops":
-			_, _ = w.Write([]byte(`{"results":[{"sop_id":"` + engineWords + `","title":"T","score":0.9,"section":{"idx":1,"of":1}}],"coverage":"COMPLETE"}`))
+			_, _ = w.Write([]byte(`{"results":[{"sop_id":"00000000-0000-4000-8000-000000000099","title":"T","score":0.9,"section":{"idx":1,"of":1}}],"coverage":"COMPLETE"}`))
 		case "/api/knowledge/recall_similar_investigations":
 			_, _ = w.Write([]byte(`{"results":[{"investigation_ref":"` + engineWords + `","title":"T","score":0.9}],"coverage":"COMPLETE"}`))
 		default:
@@ -1366,12 +1368,12 @@ func TestSession_FooterIsNotACitation(t *testing.T) {
 	if len(calls) == 0 {
 		t.Fatal("no interpretation committed")
 	}
-	var body InterpretationRequest
+	var body agentapi.RecordInterpretationBody
 	if err := json.Unmarshal(calls[len(calls)-1].Body, &body); err != nil {
 		t.Fatal(err)
 	}
-	if len(body.ConsultedSOPs) != 1 || body.ConsultedSOPs[0].Cited {
-		t.Errorf("consulted SOPs = %+v; want one, not cited", body.ConsultedSOPs)
+	if len(body.ConsultedSOPs) != 1 {
+		t.Errorf("consulted SOPs = %+v; want one", body.ConsultedSOPs)
 	}
 	if len(body.ConsultedSimilar) != 1 || body.ConsultedSimilar[0].Cited {
 		t.Errorf("consulted cases = %+v; want one, not cited", body.ConsultedSimilar)
@@ -1572,7 +1574,7 @@ func TestSession_TranscriptFramingIsInjectionSafe(t *testing.T) {
 	}
 
 	// Pull the committed transcript body out of the interpretations call.
-	var body InterpretationRequest
+	var body agentapi.RecordInterpretationBody
 	calls := f.callsTo("/api/interpretations")
 	if len(calls) == 0 {
 		t.Fatal("turn did not commit an interpretation")
@@ -1610,7 +1612,7 @@ func TestSession_ReconcileActionClaims(t *testing.T) {
 	const realID = "dd4352b1-4924-4e6d-a448-94005141264a" // exists, FAILED
 	const fakeID = "7c3e0f9b-4d2a-4e1c-9a6f-2b8d1e5a0c34" // fabricated
 	f := newFakeBackend(t)
-	f.actions = []ActionStatus{{ActionID: realID, ActionType: "ticket.create", Tier: "T2", Status: "FAILED"}}
+	f.actions = []agentapi.ActionView{{ActionID: realID, ActionType: "ticket.create", Tier: "T2", Status: "FAILED"}}
 
 	llm := &scriptedLLM{script: []CompleteResponse{{
 		StopReason: StopEndTurn,
@@ -1702,7 +1704,7 @@ func TestSession_ReconcileSuppressesEngineIDs(t *testing.T) {
 	const obsRef = "580d8b58-ecf8-5bf4-ab61-e5b386719ca6"     // an observed-data ref a read verb returned
 	const fakeID = "7c3e0f9b-4d2a-4e1c-9a6f-2b8d1e5a0c34"     // fabricated, unknown to the engine
 	f := newFakeBackend(t)
-	f.actions = []ActionStatus{{ActionID: realAction, ActionType: "ticket.create", Tier: "T2", Status: "FAILED"}}
+	f.actions = []agentapi.ActionView{{ActionID: realAction, ActionType: "ticket.create", Tier: "T2", Status: "FAILED"}}
 	s, err := NewSession(context.Background(), Config{Backend: f.client(), LLM: &scriptedLLM{}, InvestigationID: invID})
 	if err != nil {
 		t.Fatalf("NewSession: %v", err)
@@ -1754,7 +1756,7 @@ func TestSession_AttestationIgnoresQuotedData(t *testing.T) {
 // authoritative record, not remembered prose.
 func TestSession_ResetContextAndAnchor(t *testing.T) {
 	f := newFakeBackend(t)
-	f.actions = []ActionStatus{
+	f.actions = []agentapi.ActionView{
 		{ActionID: "dd4352b1-4924-4e6d-a448-94005141264a", ActionType: "ticket.create", Tier: "T2", Status: "FAILED"},
 	}
 	llm := &scriptedLLM{script: []CompleteResponse{{
@@ -1953,14 +1955,14 @@ func TestCapabilityCallID(t *testing.T) {
 // TestToolSetHash: the hash moves with what the model is offered — a verb's
 // description or availability — and not with the order the backend served.
 func TestToolSetHash(t *testing.T) {
-	verb := func(name, intent string, status catalog.CapabilityStatus) Capability {
-		var c Capability
+	verb := func(name, intent string, status catalog.CapabilityStatus) agentapi.CapabilitySummary {
+		var c agentapi.CapabilitySummary
 		c.Status = status
 		c.Descriptor.Verb = name
 		c.Descriptor.Intent = intent
 		return c
 	}
-	hash := func(caps ...Capability) string {
+	hash := func(caps ...agentapi.CapabilitySummary) string {
 		tools, _, err := buildTools(caps, nil)
 		if err != nil {
 			t.Fatal(err)
@@ -2062,8 +2064,8 @@ func TestSession_DraftNarrative(t *testing.T) {
 	// person's attestation), a verdict and an action by hand: none of it is
 	// in the conversation.
 	f.hypotheses = json.RawMessage(`{"hypotheses":[{"id":"h-1","handle":"H1","statement":"user-a moved laterally over RDP","status":"OPEN","predictions":[{"id":"p-1","ordinal":1,"statement":"a second logon follows","status":"CONFIRMED","test_kind":"manual","test_result_refs":["note--77"],"attestation":{"content":"the account owner denied the logon by phone"}}]}]}`)
-	f.investigation = &Investigation{AggregateID: "inv-1", Title: "INV", Status: "ACTIVE", Verdict: &InvestigationVerdict{Disposition: "MALICIOUS", Rationale: "confirmed by the second logon"}}
-	f.actions = []ActionStatus{{ActionID: "act-9", ActionType: "host.isolate", Status: "SUCCEEDED"}}
+	f.investigation = &agentapi.InvestigationView{AggregateID: "inv-1", Title: "INV", Status: "ACTIVE", Verdict: &agentapi.VerdictView{Disposition: "MALICIOUS", Rationale: "confirmed by the second logon"}}
+	f.actions = []agentapi.ActionView{{ActionID: "act-9", ActionType: "host.isolate", Status: "SUCCEEDED"}}
 	hypReads := len(f.callsTo("/api/investigations/inv-1/hypotheses"))
 	before := len(s.messages)
 	text, rev, err := s.DraftNarrative(context.Background())
@@ -2166,7 +2168,7 @@ func TestSession_DraftNarrative_FromTheRecordAlone(t *testing.T) {
 				}
 				return false
 			}
-			f.investigation = &Investigation{AggregateID: "inv-1", Title: "INV", Status: "ACTIVE", Verdict: &InvestigationVerdict{Disposition: "BENIGN"}}
+			f.investigation = &agentapi.InvestigationView{AggregateID: "inv-1", Title: "INV", Status: "ACTIVE", Verdict: &agentapi.VerdictView{Disposition: "BENIGN"}}
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

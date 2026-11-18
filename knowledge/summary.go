@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/sd-strax/reckon/internal/agentapi"
 	"github.com/sd-strax/reckon/knowledge/substrate"
 )
 
@@ -18,14 +19,6 @@ import (
 // becomes a substrate revision (design/06 §3.1) rather than a duplicate — which
 // also makes the post-conclusion pipeline safely retriable.
 const summarySourcePrefix = "__case_source:"
-
-// SummaryAction is one state-changing action a summary records (design/06
-// §3.2 actions_taken).
-type SummaryAction struct {
-	ActionType  string `json:"action_type"`
-	TargetCount int    `json:"target_count"`
-	Outcome     string `json:"outcome"`
-}
 
 // Summary is the domain shape of a concluded-investigation summary (design/06
 // §3.1) — assembled by the producer (temporal/summary_activities.go) from the
@@ -120,37 +113,9 @@ type SimilarRequest struct {
 	IncludeRetired bool     `json:"include_retired"`
 }
 
-// SimilarMatch is one ranked similar-investigation result. InvestigationRef is
-// the source investigation's grouping ref (recovered from the reserved source
-// tag), so the agent can cite the prior case it learned from.
-type SimilarMatch struct {
-	InvestigationRef string     `json:"investigation_ref"`
-	Title            string     `json:"title"`
-	Excerpt          string     `json:"excerpt"`
-	Truncated        bool       `json:"truncated,omitempty"`
-	Section          SectionRef `json:"section"`
-	Outline          []string   `json:"outline"`
-	Score            float64    `json:"score"`
-	Band             string     `json:"band"`
-	MatchRationale   string     `json:"match_rationale"`
-	Tags             []string   `json:"tags,omitempty"`
-	ContentHash      string     `json:"content_hash,omitempty"`
-	Backend          string     `json:"backend,omitempty"`
-}
-
-// SimilarResult is the recall_similar_investigations response envelope.
-type SimilarResult struct {
-	Results     []SimilarMatch `json:"results"`
-	Coverage    Coverage       `json:"coverage"`
-	RetrievalAt time.Time      `json:"retrieval_at"`
-	// UnmatchedTags names the filter tags no summary carries, when they are
-	// why the answer is empty (Coverage EMPTY_UNDER_FILTER).
-	UnmatchedTags []string `json:"unmatched_tags,omitempty"`
-}
-
 // CoverageEmptyUnderFilter means the recall found nothing because a filter tag
 // matches no summary — not evidence that nothing alike exists.
-const CoverageEmptyUnderFilter = "EMPTY_UNDER_FILTER"
+const CoverageEmptyUnderFilter = agentapi.RecallEmptyUnderFilter
 
 // RecallSimilar runs SIMILARITY recall over the case-summaries corpus (06 §4):
 // "have we handled something like this before?" The query is the current
@@ -354,16 +319,6 @@ type PriorRequest struct {
 	Limit  int    `json:"limit,omitempty"`
 }
 
-// PriorResult answers PriorRequest exactly: every concluded investigation whose
-// summary records the entity, most recently concluded first. Coverage is
-// COMPLETE with results, EMPTY with none — over the summaries that record
-// entities (those written since adr/0163, plus the seeded prior cases).
-type PriorResult struct {
-	Entity         string            `json:"entity"`
-	Coverage       Coverage          `json:"coverage"`
-	Investigations []CaseSummaryView `json:"investigations"`
-}
-
 // PriorByEntity is the exact lookup "have we investigated this before?"
 // (adr/0163): a tag filter over the case-summaries corpus, usable from the
 // seed alone, before anything has been observed. Similarity recall stays the
@@ -538,31 +493,6 @@ func summaryMeta(sum Summary) map[string]any {
 		"duration_hours":     sum.DurationHours,
 		"verdict":            map[string]any{"disposition": sum.VerdictDisposition, "rationale": sum.VerdictRationale},
 	}
-}
-
-// CaseSummaryView is one concluded investigation's summary read back by its
-// source investigation (design/ui 08 §8.6.1 "Similar past case"): the
-// structured fields the producer recorded plus the recallable body — the LLM
-// narrative once the client tier wrote one, the deterministic baseline until
-// then (06 §3.2). Reserved tags are stripped.
-type CaseSummaryView struct {
-	InvestigationRef   string          `json:"investigation_ref"`
-	Title              string          `json:"title"`
-	Body               string          `json:"body"`
-	GeneratorModel     string          `json:"generator_model,omitempty"`
-	ConclusionAt       string          `json:"conclusion_at,omitempty"`
-	SeedKind           string          `json:"seed_kind,omitempty"`
-	SeedValue          string          `json:"seed_value,omitempty"`
-	Techniques         []string        `json:"techniques"`
-	PrimaryEntities    []string        `json:"primary_entities"`
-	ActionsTaken       []SummaryAction `json:"actions_taken"`
-	ConclusionOutcome  string          `json:"conclusion_outcome,omitempty"`
-	DurationHours      float64         `json:"duration_hours,omitempty"`
-	VerdictDisposition string          `json:"verdict_disposition,omitempty"`
-	VerdictRationale   string          `json:"verdict_rationale,omitempty"`
-	Tags               []string        `json:"tags"`
-	Revision           int             `json:"revision"`
-	ContentHash        string          `json:"content_hash,omitempty"`
 }
 
 // SummaryByInvestigation reads the current summary of one concluded

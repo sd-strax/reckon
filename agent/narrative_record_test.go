@@ -5,20 +5,22 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/sd-strax/reckon/internal/agentapi"
 )
 
 // TestNarrativeActsBlock: the thread rides the draft as recorded, oldest
 // first, without reset markers; beyond the bound the oldest acts are elided
 // with their count, and a long rationale is clipped.
 func TestNarrativeActsBlock(t *testing.T) {
-	if narrativeActsBlock(nil) != "" || narrativeActsBlock([]ThreadEntry{{InterpretationType: interpretationContextReset}}) != "" {
+	if narrativeActsBlock(nil) != "" || narrativeActsBlock([]agentapi.ThreadEntryView{{InterpretationType: interpretationContextReset}}) != "" {
 		t.Fatal("a thread without an act rendered a block")
 	}
-	thread := []ThreadEntry{{SequenceNo: 1, InterpretationType: interpretationContextReset, Summary: "reset"}}
+	thread := []agentapi.ThreadEntryView{{SequenceNo: 1, InterpretationType: interpretationContextReset, Summary: "reset"}}
 	for i := 2; i <= narrativeActsMax+6; i++ {
-		thread = append(thread, ThreadEntry{SequenceNo: int64(i), InterpretationType: "hypothesis", Summary: fmt.Sprintf("act %d", i), Actor: ThreadActor{Kind: "AI_DELEGATED"}})
+		thread = append(thread, agentapi.ThreadEntryView{SequenceNo: int64(i), InterpretationType: "hypothesis", Summary: fmt.Sprintf("act %d", i), Actor: agentapi.ThreadActorView{Kind: "AI_DELEGATED"}})
 	}
-	thread = append(thread, ThreadEntry{SequenceNo: 99, InterpretationType: "evidence-pin", Summary: strings.Repeat("x", narrativeActSummaryMax+50), Actor: ThreadActor{Kind: "HUMAN"}})
+	thread = append(thread, agentapi.ThreadEntryView{SequenceNo: 99, InterpretationType: "evidence-pin", Summary: strings.Repeat("x", narrativeActSummaryMax+50), Actor: agentapi.ThreadActorView{Kind: "HUMAN"}})
 	got := narrativeActsBlock(thread)
 	lines := strings.Split(got, "\n")
 	// Header, the elision line, narrativeActsMax acts (the pin is the last).

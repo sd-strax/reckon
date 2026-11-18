@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sd-strax/reckon/internal/agentapi"
 )
 
 var (
@@ -92,7 +94,7 @@ func TestEngineText_RenderersUseTheLedger(t *testing.T) {
 	const lapsed = "ff4352b1-4924-4e6d-a448-94005141264a"
 	past := time.Date(2001, 1, 1, 0, 0, 0, 0, time.UTC)
 	f := newFakeBackend(t)
-	f.actions = []ActionStatus{
+	f.actions = []agentapi.ActionView{
 		{ActionID: failed, ActionType: "ticket.create", Status: "FAILED"},
 		{ActionID: requested, ActionType: "host.isolate", Status: "REQUESTED"},
 		{ActionID: lapsed, ActionType: "user.disable", Status: "REQUESTED", ExpiresAt: &past},
@@ -147,7 +149,7 @@ func TestActionStateBlock_Expired(t *testing.T) {
 	past, future := now.Add(-time.Minute), now.Add(time.Hour)
 	const lapsed, live, done = "aa4352b1-4924-4e6d-a448-94005141264a", "bb4352b1-4924-4e6d-a448-94005141264a", "cc4352b1-4924-4e6d-a448-94005141264a"
 
-	got := actionStateBlock([]ActionStatus{
+	got := actionStateBlock([]agentapi.ActionView{
 		{ActionID: lapsed, ActionType: "host.isolate", Status: "REQUESTED", ExpiresAt: &past},
 		{ActionID: live, ActionType: "ticket.create", Status: "REQUESTED", ExpiresAt: &future},
 		{ActionID: done, ActionType: "user.disable", Status: "SUCCEEDED", ExpiresAt: &past},
@@ -162,7 +164,7 @@ func TestActionStateBlock_Expired(t *testing.T) {
 		t.Errorf("expired + live + finished:\n got %q\nwant %q", got, want)
 	}
 
-	plain := actionStateBlock([]ActionStatus{
+	plain := actionStateBlock([]agentapi.ActionView{
 		{ActionID: lapsed, ActionType: "host.isolate", Status: "REQUESTED"},
 		{ActionID: live, ActionType: "ticket.create", Status: "REQUESTED"},
 	}, now)
@@ -186,7 +188,7 @@ func TestApprovalLapsed_BlockAndListActionsAgree(t *testing.T) {
 	now := time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)
 	past, future := now.Add(-time.Minute), now.Add(time.Hour)
 	const succeededPast, requestedPast = "a14352b1-4924-4e6d-a448-94005141264a", "a24352b1-4924-4e6d-a448-94005141264a"
-	acts := []ActionStatus{
+	acts := []agentapi.ActionView{
 		{ActionID: succeededPast, ActionType: "account.disable", Status: "SUCCEEDED", ExpiresAt: &past},
 		{ActionID: requestedPast, ActionType: "host.isolate", Status: "REQUESTED", ExpiresAt: &past},
 		{ActionID: "a34352b1-4924-4e6d-a448-94005141264a", ActionType: "ticket.create", Status: "REQUESTED", ExpiresAt: &future},

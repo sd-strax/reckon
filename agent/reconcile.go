@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/sd-strax/reckon/internal/agentapi"
 )
 
 // actionIDRe matches a full UUID as the model prints it when "confirming" an
@@ -37,7 +39,7 @@ func (s *Session) reconcileActionClaims(ctx context.Context, finalText string, s
 	}
 	status := make(map[string]string, len(acts))
 	for _, a := range acts {
-		status[strings.ToLower(a.ActionID)] = a.Status
+		status[strings.ToLower(a.ActionID)] = string(a.Status)
 	}
 	parts := make([]string, 0, len(cited))
 	for _, id := range cited {
@@ -139,7 +141,7 @@ func (s *Session) engineStateAnchor(ctx context.Context) string {
 // (the session's clock, the one list_actions judges expiry by) says so on its
 // row and is not counted as awaiting approval, so the block and list_actions
 // never disagree about the same action (adr/0339).
-func actionStateBlock(acts []ActionStatus, now time.Time) string {
+func actionStateBlock(acts []agentapi.ActionView, now time.Time) string {
 	if len(acts) == 0 {
 		return ""
 	}

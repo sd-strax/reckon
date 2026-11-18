@@ -12,18 +12,6 @@ import (
 	"github.com/sd-strax/reckon/module"
 )
 
-// ApproveActionBody is the optional body of an approve request. ChallengeResponse
-// carries the typed-challenge value for higher-tier confirmations (04 §5.5); it
-// is recorded on the Authorization for audit.
-type ApproveActionBody struct {
-	ChallengeResponse string `json:"challenge_response,omitempty"`
-}
-
-// RejectActionBody is the body of a reject request.
-type RejectActionBody struct {
-	Reason string `json:"reason"`
-}
-
 // ResolveOutcomeBody is the body of a resolve request (adr/0216): what the
 // person found when they checked the tool, what they checked, and optionally
 // where the evidence is (adr/0139).

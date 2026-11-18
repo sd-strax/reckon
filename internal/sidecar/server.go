@@ -8,12 +8,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/sd-strax/reckon/agent"
+	"github.com/sd-strax/reckon/internal/agentapi"
 	"github.com/sd-strax/reckon/internal/apiversion"
 )
 
@@ -373,50 +375,32 @@ type turnUsage struct {
 // needs to render and act (approve/reject go extension→backend directly on
 // the human token — never through this process, §5).
 type pendingAction struct {
-	ActionID   string        `json:"action_id"`
-	ActionType string        `json:"action_type"`
-	Tier       actionTier    `json:"tier"`
-	Status     pendingStatus `json:"status"`
-	Targets    []string      `json:"targets,omitempty"`
+	ActionID   string                 `json:"action_id"`
+	ActionType string                 `json:"action_type"`
+	Tier       agentapi.Tier          `json:"tier"`
+	Status     agentapi.PendingStatus `json:"status"`
+	Targets    []string               `json:"targets,omitempty"`
 	// Expired: the approval window elapsed — the engine refuses an approve
 	// even though Status may still read pending (lazy expiry, 04). Surfaces
 	// must not offer an approve affordance on these.
 	Expired bool `json:"expired,omitempty"`
 }
 
-// actionTier is a pending action's trust tier. The backend owns the words; the
-// sidecar may not import it (adr/0237), so they are listed here and a test
-// holds them equal to the backend's.
-type actionTier string
-
-// WireValues lists every trust tier.
-func (actionTier) WireValues() []string {
-	return []string{"T1", "T2", "T3"}
-}
-
-// pendingStatus is a pending action's status as the agent labels it
-// (agent.ActionStatus.PendingLabel): a request still waiting for a person is
-// PENDING_MANUAL or PENDING_TWO_PARTY, and any other status passes through.
-type pendingStatus string
-
-// WireValues lists the two pending labels, then every backend action status
-// the label passes through. A test holds them equal to the backend's.
-func (pendingStatus) WireValues() []string {
-	return []string{
-		"PENDING_MANUAL", "PENDING_TWO_PARTY",
-		"APPROVED", "REJECTED", "EXPIRED", "EXECUTING", "SUCCEEDED", "FAILED", "REVERSED", "OUTCOME_UNKNOWN",
-	}
-}
-
 // resultCoverage is the coverage a tool result's envelope states: a capability
-// call's, or a knowledge recall's. A test holds the words equal to the
-// backend's.
+// call's, or a knowledge recall's. The words are the backend's, from
+// internal/agentapi (adr/0278).
 type resultCoverage string
 
 // WireValues lists the capability coverages, then the recall coverages the
 // capability list lacks.
 func (resultCoverage) WireValues() []string {
-	return []string{"COMPLETE", "PARTIAL", "UNAVAILABLE_TENANT", "UNAVAILABLE_TRANSIENT", "FAILED", "EMPTY", "EMPTY_UNDER_FILTER"}
+	out := agentapi.Coverage("").WireValues()
+	for _, w := range agentapi.RecallCoverage("").WireValues() {
+		if !slices.Contains(out, w) {
+			out = append(out, w)
+		}
+	}
+	return out
 }
 
 // turnTextNote rides both text notifications: turn/text carries a
@@ -546,8 +530,8 @@ func (s *service) handleTurn(ctx context.Context, raw json.RawMessage) (any, err
 		pa := pendingAction{
 			ActionID:   a.ActionID,
 			ActionType: a.ActionType,
-			Tier:       actionTier(a.Tier),
-			Status:     pendingStatus(a.PendingLabel()),
+			Tier:       a.Tier,
+			Status:     a.PendingLabel(),
 			Expired:    a.Expired(time.Now()),
 		}
 		for _, t := range a.Targets {

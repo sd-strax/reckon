@@ -125,15 +125,6 @@ func (b *Backend) refAppearances(r *http.Request, refs []string) ([]aggregate.Re
 	return out, nil
 }
 
-// TranscriptResponse is GET /api/interpretations/{id}/transcript: the
-// committed turn record behind a thread step.
-type TranscriptResponse struct {
-	Body             string `json:"body"`
-	ContentHash      string `json:"content_hash"`
-	InterpretationID string `json:"interpretation_id"`
-	TurnID           string `json:"turn_id"`
-}
-
 // getInterpretationTranscript serves GET /api/interpretations/{id}/transcript:
 // the full committed turn record behind a thread step (02 §6 Layer B — the
 // content-addressed side store; the event carries the hash, this serves the

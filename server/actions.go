@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 
@@ -13,141 +12,6 @@ import (
 	"github.com/sd-strax/reckon/aggregate"
 	"github.com/sd-strax/reckon/authz"
 )
-
-// RequestActionBody is the request_action tool call over HTTP (08 §2).
-type RequestActionBody struct {
-	ActionType       string                 `json:"action_type"`
-	Targets          []aggregate.TargetSpec `json:"targets"`
-	Parameters       json.RawMessage        `json:"parameters,omitempty"`
-	EvidenceRefs     []string               `json:"evidence_refs,omitempty"`
-	Rationale        string                 `json:"rationale"`
-	InvestigationRef string                 `json:"investigation_ref"`
-	// ReversalOfRef, when set, makes this request a reversal of that original
-	// action (04 §7): action_type should be the inverse, and auto-approval
-	// triggers the ReversalSaga instead of a plain dispatch.
-	ReversalOfRef string `json:"reversal_of_ref,omitempty"`
-	// RetryOf records lineage to the prior FAILED/EXPIRED action this request
-	// replaces (design/ui binding §2.3).
-	RetryOf string `json:"retry_of,omitempty"`
-}
-
-// RequestActionResponse reports the created reckon-action and how authorization
-// resolved.
-type RequestActionResponse struct {
-	ActionID         string              `json:"action_id"`
-	Tier             aggregate.Tier      `json:"tier"`
-	Status           ActionRequestStatus `json:"status"`
-	Mode             aggregate.AuthMode  `json:"mode"`
-	MatchedPolicyRef string              `json:"matched_policy_ref,omitempty"`
-	WorkflowID       string              `json:"workflow_id,omitempty"`
-}
-
-// ActionRequestStatus is where a request left the new action: waiting for a
-// person, waiting for two, or approved by a policy.
-type ActionRequestStatus string
-
-// The statuses a request answers with.
-const (
-	RequestPendingManual   ActionRequestStatus = "PENDING_MANUAL"
-	RequestPendingTwoParty ActionRequestStatus = "PENDING_TWO_PARTY"
-	RequestApproved        ActionRequestStatus = "APPROVED"
-)
-
-// WireValues lists every request status, in the order declared above.
-func (ActionRequestStatus) WireValues() []string {
-	return []string{string(RequestPendingManual), string(RequestPendingTwoParty), string(RequestApproved)}
-}
-
-// ActionView is one row of GET /api/investigations/{id}/actions — the action
-// review queue + audit list a surface renders to offer approvals. Status is the
-// projection's raw lifecycle status (REQUESTED/PENDING_SECONDARY/APPROVED/…);
-// required_mode says what approval the request still needs (MANUAL/TWO_PARTY).
-type ActionView struct {
-	ActionID     string                 `json:"action_id"`
-	ActionType   string                 `json:"action_type"`
-	Tier         aggregate.Tier         `json:"tier"`
-	Status       aggregate.ActionStatus `json:"status"`
-	RequiredMode aggregate.AuthMode     `json:"required_mode,omitempty"`
-	// Outcome is the recorded final outcome (SUCCEEDED | FAILED | PARTIAL |
-	// TIMEOUT), or a person's resolution of an unknown one. Empty until one
-	// is recorded. Status folds PARTIAL into SUCCEEDED and TIMEOUT into
-	// FAILED (08 §7.1), so a surface that tells the analyst what happened
-	// reads this field (adr/0361).
-	Outcome string `json:"outcome,omitempty"`
-	// SecondaryApproverPool is who may complete a two-party approval, frozen
-	// at request time by the policy that required it (04 §4.1); empty for a
-	// manual action, and for a two-party one whose policy named no pool (the
-	// on-call rotation then). The card tells the first approver who finishes
-	// it (adr/0099).
-	SecondaryApproverPool []string `json:"secondary_approver_pool,omitempty"`
-	// PrimaryApproverRef is who gave the first approval, once one is in; a
-	// two-party card awaiting its second approval leaves them out of the
-	// candidates, since the aggregate requires two distinct humans.
-	PrimaryApproverRef string                 `json:"primary_approver_ref,omitempty"`
-	Mode               aggregate.AuthMode     `json:"mode,omitempty"`
-	IsReversal         bool                   `json:"is_reversal,omitempty"`
-	Targets            []aggregate.TargetSpec `json:"targets,omitempty"`
-	EvidenceRefs       []string               `json:"evidence_refs,omitempty"`
-	ExpiresAt          *time.Time             `json:"expires_at,omitempty"`
-	// Parameters are the request's frozen parameters — the pre-send preview
-	// for notify.* actions renders the message body from here (binding §4:
-	// the preview IS the approval surface, so the approver must see exactly
-	// what will be sent).
-	Parameters json.RawMessage `json:"parameters,omitempty"`
-
-	// Reversibility is the classification frozen at request time (04 §7):
-	// REVERSIBLE | BEST_EFFORT | IRREVERSIBLE — the decision-grade card states
-	// it honestly BEFORE approval (design/ui 03 §3.3).
-	Reversibility string `json:"reversibility,omitempty"`
-	// TierEscalated: the blast-radius escalator raised this above the type's
-	// default tier (04 §1) — the card says why it is T3.
-	TierEscalated bool `json:"tier_escalated,omitempty"`
-	// EditedAt is when the request was last edited before approval (adr/0127).
-	EditedAt *time.Time `json:"edited_at,omitempty"`
-	// RequestedAt is when the action was requested; the Response lens orders
-	// its timeline by it (adr/0361).
-	RequestedAt *time.Time `json:"requested_at,omitempty"`
-	// ApprovedAt is when the first approval was recorded. A two-party action
-	// carries it while it still awaits its second approval, so it says when,
-	// never whether: the status says whether. Absent before any approval, and
-	// on rows approved before the time was recorded (adr/0361).
-	ApprovedAt *time.Time `json:"approved_at,omitempty"`
-	// Inputs are the type's declared non-entity parameters — what an edit may
-	// set — so a surface can offer the fields the request did not fill.
-	Inputs []EditableInput `json:"inputs,omitempty"`
-	// Name and Category come from the action catalog (#123): what a surface
-	// titles and groups the action by, so no surface guesses from the id.
-	Name     string `json:"name,omitempty"`
-	Category string `json:"category,omitempty"`
-	// RetryOf: lineage to the action this one replaces (zero when not a retry).
-	RetryOf string `json:"retry_of,omitempty"`
-	// RequestingInterpretationID: the act that requested it, so the thread's
-	// request line can name the action (#153).
-	RequestingInterpretationID string `json:"requesting_interpretation_id,omitempty"`
-	// ReversalOfRef: the action this one reverses (zero when not a reversal),
-	// so a surface can show an original's reversal on the original.
-	ReversalOfRef string `json:"reversal_of_ref,omitempty"`
-	// Adapter is the tool that dispatched the action (write-side provenance):
-	// which of several possible tools actually acted. Empty until dispatched.
-	Adapter string `json:"adapter,omitempty"`
-	// PlannedAdapter is the tool the resolver WOULD dispatch to if approved now —
-	// the pre-approval preview so the analyst sees which system of record an
-	// external action will hit before committing. Set only while pending
-	// (superseded by Adapter once dispatched).
-	PlannedAdapter string `json:"planned_adapter,omitempty"`
-	// ErrorDetail is the reason a FAILED action failed (08 §6c), so the ledger
-	// explains the outcome instead of a bare FAILED. Empty on success.
-	ErrorDetail string `json:"error_detail,omitempty"`
-	// ResultRef is the operational reference the dispatch returned (e.g. the
-	// created ServiceNow incident number) — the analyst's handle into the
-	// external system of record.
-	ResultRef string `json:"result_ref,omitempty"`
-}
-
-// ActionsResponse is GET /api/investigations/{id}/actions.
-type ActionsResponse struct {
-	Actions []ActionView `json:"actions"`
-}
 
 // listInvestigationActions serves GET /api/investigations/{id}/actions: every
 // reckon-action of the investigation, oldest first. This is how a surface recovers
@@ -176,12 +40,6 @@ func (b *Backend) listInvestigationActions(w http.ResponseWriter, r *http.Reques
 		out = append(out, v)
 	}
 	writeJSON(w, http.StatusOK, ActionsResponse{Actions: out})
-}
-
-// EditableInput is one parameter an edit may set (adr/0127).
-type EditableInput struct {
-	Name     string `json:"name"`
-	Required bool   `json:"required,omitempty"`
 }
 
 // actionView maps one projected reckon-action to the list/record view: the frozen
@@ -265,11 +123,6 @@ func (b *Backend) actionView(a aggregate.ActionCurrent) ActionView {
 		}
 	}
 	return v
-}
-
-// ActionTypesResponse is GET /api/action-types.
-type ActionTypesResponse struct {
-	ActionTypes []action.ActionSummary `json:"action_types"`
 }
 
 // listActionTypes serves GET /api/action-types: the write-side catalog with

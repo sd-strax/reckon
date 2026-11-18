@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/sd-strax/reckon/internal/agentapi"
 	"github.com/sd-strax/reckon/internal/catalog"
 )
 
@@ -415,7 +416,7 @@ func renderLedger(b *strings.Builder, mode string) {
 // user message as an [engine] block (state.go), never this prompt — see the
 // prompt-cache note there. Knowledge rides neither: the agent fetches it
 // through its recall tools (adr/0129).
-func systemPrompt(inv Investigation, caps []Capability) string {
+func systemPrompt(inv agentapi.InvestigationView, caps []agentapi.CapabilitySummary) string {
 	var b strings.Builder
 
 	renderLedger(&b, inv.HypothesisFraming)
@@ -442,7 +443,7 @@ func systemPrompt(inv Investigation, caps []Capability) string {
 }
 
 // degradedVerbs is the verbs the prompt names configured but unresolvable.
-func degradedVerbs(caps []Capability) []string {
+func degradedVerbs(caps []agentapi.CapabilitySummary) []string {
 	var degraded []string
 	for _, c := range caps {
 		if c.Status == catalog.StatusDegraded {

@@ -60,3 +60,27 @@ func TestCatalog_ImportsNoReckonPackage(t *testing.T) {
 		}
 	}
 }
+
+// TestAgentAPI_ImportsNoEnginePackage (adr/0278): internal/agentapi holds the
+// shapes the backend serves and the agent decodes, so it depends on no engine
+// package. The reckon packages it may use are leaves, such as
+// internal/catalog: each depends on no other reckon package.
+func TestAgentAPI_ImportsNoEnginePackage(t *testing.T) {
+	const self = "github.com/sd-strax/reckon/internal/agentapi"
+	for _, dep := range goListDeps(t, "../internal/agentapi") {
+		if !strings.HasPrefix(dep, "github.com/sd-strax/reckon/") || dep == self {
+			continue
+		}
+		for _, engine := range enginePackages {
+			if dep == engine || strings.HasPrefix(dep, engine+"/") {
+				t.Errorf("internal/agentapi depends on %s", dep)
+			}
+		}
+		dir := "../" + strings.TrimPrefix(dep, "github.com/sd-strax/reckon/")
+		for _, inner := range goListDeps(t, dir) {
+			if strings.HasPrefix(inner, "github.com/sd-strax/reckon/") && inner != dep {
+				t.Errorf("internal/agentapi depends on %s, which is not a leaf: it depends on %s", dep, inner)
+			}
+		}
+	}
+}

@@ -38,8 +38,8 @@ const turnUsage: Decoder<TurnUsage> = object({
   cache_write: num,
 });
 
-export type ActionTier = "T1" | "T2" | "T3";
-const actionTier: Decoder<ActionTier> = oneOf("T1", "T2", "T3");
+export type Tier = "T1" | "T2" | "T3";
+const tier: Decoder<Tier> = oneOf("T1", "T2", "T3");
 
 export type PendingStatus = "PENDING_MANUAL" | "PENDING_TWO_PARTY" | "APPROVED" | "REJECTED" | "EXPIRED" | "EXECUTING" | "SUCCEEDED" | "FAILED" | "REVERSED" | "OUTCOME_UNKNOWN";
 const pendingStatus: Decoder<PendingStatus> = oneOf("PENDING_MANUAL", "PENDING_TWO_PARTY", "APPROVED", "REJECTED", "EXPIRED", "EXECUTING", "SUCCEEDED", "FAILED", "REVERSED", "OUTCOME_UNKNOWN");
@@ -47,7 +47,7 @@ const pendingStatus: Decoder<PendingStatus> = oneOf("PENDING_MANUAL", "PENDING_T
 export interface PendingAction {
   action_id: string;
   action_type: string;
-  tier: ActionTier;
+  tier: Tier;
   status: PendingStatus;
   targets?: string[];
   expired?: boolean;
@@ -55,7 +55,7 @@ export interface PendingAction {
 const pendingAction: Decoder<PendingAction> = object({
   action_id: str,
   action_type: str,
-  tier: actionTier,
+  tier: tier,
   status: pendingStatus,
   targets: optional(list(str)),
   expired: optional(bool),

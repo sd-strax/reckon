@@ -28,18 +28,6 @@ import (
 // caseNoteActionType is the action the case note is requested as.
 const caseNoteActionType = "ticket.comment"
 
-// CaseNoteOffer is what the create response hands the client when a note may
-// be posted: the default text, which the analyst may edit before posting.
-type CaseNoteOffer struct {
-	CaseID string `json:"case_id"`
-	Body   string `json:"body"`
-	// SystemName is the case system's display name ("ServiceNow", "Jira"),
-	// derived from the seed's source label or, failing that, the promoted
-	// case read's own `sor` field; "" when neither says (the client then says
-	// "the case system"). Display only — never used to route the write.
-	SystemName string `json:"system_name,omitempty"`
-}
-
 // CaseNoteRequest is the body of POST /api/investigations/{id}/case_note. An
 // empty Body posts the default text.
 type CaseNoteRequest struct {

@@ -11,23 +11,24 @@ import (
 	"time"
 
 	"github.com/sd-strax/reckon/action"
+	"github.com/sd-strax/reckon/internal/agentapi"
 	"github.com/sd-strax/reckon/internal/catalog"
 )
 
 // builtInCatalog is the built-in action catalog as GET /api/action-types
 // serves it: sorted by action type, every type available, so every type gets
 // a tool.
-func builtInCatalog(t *testing.T) []ActionType {
+func builtInCatalog(t *testing.T) []agentapi.ActionSummary {
 	t.Helper()
 	cat := defaultActionCatalog(t)
-	var out []ActionType
+	var out []agentapi.ActionSummary
 	for _, at := range cat.ActionTypes() {
 		d, _ := cat.Descriptor(at)
 		raw, err := json.Marshal(d)
 		if err != nil {
 			t.Fatal(err)
 		}
-		var a ActionType
+		var a agentapi.ActionSummary
 		if err := json.Unmarshal(raw, &a.Descriptor); err != nil {
 			t.Fatal(err)
 		}
@@ -38,7 +39,7 @@ func builtInCatalog(t *testing.T) []ActionType {
 }
 
 // actionToolsOf builds the action tools of a catalog, by name.
-func actionToolsOf(t *testing.T, catalog []ActionType) map[string]tool {
+func actionToolsOf(t *testing.T, catalog []agentapi.ActionSummary) map[string]tool {
 	t.Helper()
 	tools := actionTools(catalog)
 	byName := map[string]tool{}
@@ -171,7 +172,7 @@ func TestRequestAction_UnavailableReachesTheEngine(t *testing.T) {
 			return false
 		}
 		requests++
-		var body ActionRequest
+		var body agentapi.RequestActionBody
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		if body.ActionType != "ioc.block" {
 			t.Errorf("action_type = %q; want ioc.block", body.ActionType)
@@ -268,7 +269,7 @@ func TestResetContext_503KeepsTheActionTools(t *testing.T) {
 
 // sentRequest dispatches one action tool call against the fake backend and
 // returns the request the engine received.
-func sentRequest(t *testing.T, f *fakeBackend, name, input string) ActionRequest {
+func sentRequest(t *testing.T, f *fakeBackend, name, input string) agentapi.RequestActionBody {
 	t.Helper()
 	s := newToolSession(t, f)
 	if res, isErr := s.dispatchTool(context.Background(), name, json.RawMessage(input)); isErr {
@@ -278,7 +279,7 @@ func sentRequest(t *testing.T, f *fakeBackend, name, input string) ActionRequest
 	if len(calls) != 1 {
 		t.Fatalf("%d calls", len(calls))
 	}
-	var body ActionRequest
+	var body agentapi.RequestActionBody
 	if err := json.Unmarshal(calls[0].Body, &body); err != nil {
 		t.Fatal(err)
 	}
@@ -290,7 +291,7 @@ func sentRequest(t *testing.T, f *fakeBackend, name, input string) ActionRequest
 func ticketBackend(t *testing.T) *fakeBackend {
 	t.Helper()
 	f := newFakeBackend(t)
-	var ticket ActionType
+	var ticket agentapi.ActionSummary
 	for _, a := range builtInCatalog(t) {
 		if a.Descriptor.ActionType == "ticket.create" {
 			ticket = a
@@ -300,7 +301,7 @@ func ticketBackend(t *testing.T) *fakeBackend {
 		if r.URL.Path != "/api/action-types" {
 			return false
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"action_types": []ActionType{ticket}})
+		_ = json.NewEncoder(w).Encode(map[string]any{"action_types": []agentapi.ActionSummary{ticket}})
 		return true
 	}
 	return f
@@ -387,7 +388,7 @@ func TestRequestAction_UndeclaredKeyReachesTheEngine(t *testing.T) {
 		if r.URL.Path != "/api/actions" {
 			return inner(w, r)
 		}
-		var body ActionRequest
+		var body agentapi.RequestActionBody
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		if err := action.ValidateParameters(ticket, body.Parameters); err != nil {
 			w.WriteHeader(http.StatusBadRequest)
@@ -469,11 +470,11 @@ func TestSession_CatalogFetch(t *testing.T) {
 // TestActionTools_ListInput: an action input renders through the verb tools'
 // scalar schema, so a list<string> input is an array of strings.
 func TestActionTools_ListInput(t *testing.T) {
-	var a ActionType
+	var a agentapi.ActionSummary
 	a.Status = "available"
 	a.Descriptor.ActionType = "x.act"
-	a.Descriptor.Inputs = []ActionInput{{Name: "recipients", Type: "list<string>", Desc: "who"}}
-	def := actionToolsOf(t, []ActionType{a})["request_x_act"].def
+	a.Descriptor.Inputs = []agentapi.InputParam{{Name: "recipients", Type: "list<string>", Desc: "who"}}
+	def := actionToolsOf(t, []agentapi.ActionSummary{a})["request_x_act"].def
 	got := def.InputSchema["properties"].(map[string]any)["recipients"]
 	want := map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "who"}
 	if !reflect.DeepEqual(got, want) {

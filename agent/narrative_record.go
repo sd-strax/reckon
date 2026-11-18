@@ -13,6 +13,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/sd-strax/reckon/internal/agentapi"
 )
 
 // Bounds on the blocks: a handoff account is drafted from the recent record,
@@ -29,8 +31,8 @@ const (
 // actor kind, a verdict's disposition, a superseded mark, and the rationale.
 // The oldest acts beyond the bound are elided with their count. Empty when
 // the thread holds no act.
-func narrativeActsBlock(thread []ThreadEntry) string {
-	acts := make([]ThreadEntry, 0, len(thread))
+func narrativeActsBlock(thread []agentapi.ThreadEntryView) string {
+	acts := make([]agentapi.ThreadEntryView, 0, len(thread))
 	for _, e := range thread {
 		if e.InterpretationType == interpretationContextReset {
 			continue
@@ -84,19 +86,19 @@ func narrativeTestsBlock(raw json.RawMessage) string {
 	return fmt.Sprintf(sideNarrativeTests.Text, strings.Join(lines, sideNarrativeLine.Text))
 }
 
-// hypothesisRows decodes the hypotheses view as hypothesisStateBlock does:
-// the wrapped list the route serves, or a bare array. Nil when neither.
-func hypothesisRows(raw json.RawMessage) []hypothesisRow {
+// hypothesisRows decodes the hypotheses view for the reasoning-state block
+// and the narrative draft: the wrapped list GET
+// /api/investigations/{id}/hypotheses serves, or a bare array. Nil when
+// neither.
+func hypothesisRows(raw json.RawMessage) []agentapi.HypothesisView {
 	if len(raw) == 0 || string(raw) == "null" {
 		return nil
 	}
-	var wrapped struct {
-		Hypotheses []hypothesisRow `json:"hypotheses"`
-	}
+	var wrapped agentapi.HypothesesResponse
 	if err := json.Unmarshal(raw, &wrapped); err == nil {
 		return wrapped.Hypotheses
 	}
-	var rows []hypothesisRow
+	var rows []agentapi.HypothesisView
 	if err := json.Unmarshal(raw, &rows); err != nil {
 		return nil
 	}
