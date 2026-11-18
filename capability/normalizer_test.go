@@ -557,12 +557,17 @@ func TestHostAliasEmission(t *testing.T) {
 // (accountType): process, authentication, file, scheduled_job, account,
 // email_file, email_url and detection. An "@" name with no Windows signal is
 // no longer a domain account, and account type 19 is read as Windows.
+//
+// adr/0367 moved the same normalizers once more, since the account type is
+// now read by one rule, a caption counting for every type. It also moved
+// api_activity and cloud_resources_inventory_info, which name a cloud
+// account's type by OCSF's caption.
 func TestNormalizerVersions(t *testing.T) {
 	reg := testRegistry()
 	for _, c := range []struct{ class, version int }{
-		{1007, 7}, {3002, 8}, {4001, 4}, {4003, 3}, {1001, 7}, {201001, 6}, {201002, 6}, {1006, 7}, {1005, 4},
-		{3001, 7}, {3005, 7}, {3006, 7}, {4009, 5}, {4011, 7}, {4012, 7}, {2004, 9}, {2005, 3},
-		{5001, 4}, {6003, 4}, {5023, 5}, {5003, 4}, {0, 2},
+		{1007, 8}, {3002, 9}, {4001, 4}, {4003, 3}, {1001, 8}, {201001, 6}, {201002, 6}, {1006, 8}, {1005, 4},
+		{3001, 8}, {3005, 8}, {3006, 8}, {4009, 5}, {4011, 8}, {4012, 8}, {2004, 10}, {2005, 3},
+		{5001, 4}, {6003, 5}, {5023, 6}, {5003, 4}, {0, 2},
 	} {
 		n, ok := reg.byClass[c.class]
 		if c.class == 0 {

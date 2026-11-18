@@ -4,9 +4,10 @@ Issue: #367 · PR: pending · Status: accepted
 
 ## Context
 
-Reckon reads an OCSF user object in three places: the normalizer, which mints
+Reckon reads an OCSF user object in four places: the normalizer, which mints
 accounts; the event view, which shows an event's actor and targets and binds
-them to stored accounts; and an account's "seen as" line. Each read the object
+them to stored accounts; an account's "seen as" line; and the digest of a
+capability result the agent reads, which counts its users. Each read the object
 its own way.
 
 - **Name and domain.** `ocsf.UserName` trims, drops placeholders and splits
@@ -31,9 +32,10 @@ its own way.
 
 - **One read of a user object, in `internal/ocsf`.** It returns the name,
   domain, uid, uid_alt, the `domain\sam` login, the principal name and the
-  account type id. The normalizer, the event view (actor and target alike) and
-  "seen as" all use it. The login and principal rules move into it from the
-  normalizer.
+  account type id. The normalizer, the event view (actor and target alike),
+  "seen as" and the agent's result digest all use it. The login and principal
+  rules move into it from the normalizer. A user with a domain is shown by its
+  login, `CONTOSO\jdoe`, actor and target alike.
 - **The account type is `ocsf.AccountTypeID` everywhere:** the id when present,
   else OCSF's id for the caption, ignoring case, else Unknown. An unknown caption
   is Other. The account rule switches on the id only, so a caption counts for
@@ -41,7 +43,9 @@ its own way.
   a cloud account's type by OCSF's caption for that id.
 - **The view binds an id that keys an account before the name.** A user object
   binds first by its uid, to an account keyed on that user_id; then by its name;
-  then by its uid_alt. An actor is read and bound as a target is.
+  then by its uid_alt. A uid that matches more than one account binds
+  nothing, and the name is not tried. An actor is read and bound as a target
+  is.
 - **The normalizers whose output changes go up one version.** Accounts stored
   before then keep their old reading until they are re-read (`RenormalizePass`,
   #368).

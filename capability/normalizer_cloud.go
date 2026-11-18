@@ -30,7 +30,9 @@ func (*apiActivityNormalizer) ClassUID() int { return 6003 }
 // 4: STIX 2.1 output through the one serializer, an artifact for a record
 // naming nothing, and a broken record is a normalize error; resource_type,
 // is_service_account only when known, addresses in canonical text, adr/0357
-func (*apiActivityNormalizer) Version() int { return 4 }
+// 5: a cloud account's type named by OCSF's caption, an unknown one
+// Other, adr/0367
+func (*apiActivityNormalizer) Version() int { return 5 }
 
 func (n *apiActivityNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
@@ -174,13 +176,6 @@ func credentialUID(actor at) string {
 	return firstNonEmpty(pathStr(p, pre+".user.credential_uid"), pathStr(p, pre+".session.credential_uid"))
 }
 
-// accountTypes are the OCSF account.type_id captions for the cloud account
-// kinds; any other id reads account.type as given.
-var accountTypes = map[int]string{
-	5: "GCP Account", 6: "Azure AD Account", 10: "AWS Account",
-	11: "GCP Project", 13: "Azure Subscription", 17: "M365 Tenant",
-}
-
 // cloudAccount extracts the reckon-cloud-account the event is about (the account
 // an API call ran in): cloud.account first, then the caller's own account,
 // then the deprecated cloud.project_uid as a last fallback. Returns "" when
@@ -244,7 +239,7 @@ func (b *resultBuilder) addAccount(provider, uid string, loc at, inCloud bool) i
 		if name := pathStr(loc.obj, loc.path+".name"); name != "" {
 			props["name"] = name
 		}
-		if t := firstNonEmpty(accountTypes[pathInt(loc.obj, loc.path+".type_id")], pathStr(loc.obj, loc.path+".type")); t != "" {
+		if t := cloudAccountType(loc); t != "" {
 			props["account_type"] = t
 		}
 	}
@@ -254,6 +249,23 @@ func (b *resultBuilder) addAccount(provider, uid string, loc at, inCloud bool) i
 		}
 	}
 	return b.addSCO(b.r.CloudAccount(provider, uid), identity.TypeCloudAccount, props)
+}
+
+// cloudAccountType names the type of the OCSF account object at loc by
+// OCSF's caption for the id ocsf.AccountTypeID reads: account.type_id, else
+// the id of the account.type caption (adr/0367). A caption or an id OCSF
+// does not have reads as Other. No type is "".
+func cloudAccountType(loc at) string {
+	typeID, _ := lookupPath(loc.obj, loc.path+".type_id")
+	id := ocsf.AccountTypeID(typeID, pathStr(loc.obj, loc.path+".type"))
+	if id == ocsf.Unknown {
+		return ""
+	}
+	kind, ok := ocsf.AccountTypeKinds[id]
+	if !ok {
+		kind = ocsf.AccountTypeKinds[ocsf.Other]
+	}
+	return kind.Caption
 }
 
 // cloudResourcesOf extracts the event's resources and links each one that

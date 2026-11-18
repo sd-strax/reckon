@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sd-strax/reckon/identity"
+	"github.com/sd-strax/reckon/internal/ocsf"
 	"github.com/sd-strax/reckon/module"
 	"github.com/sd-strax/reckon/stix"
 )
@@ -690,14 +691,9 @@ func (s *Store) accountSeenAs(ctx context.Context, refs []string, keys accountKe
 		if err := rows.Scan(&tool, &raw); err != nil {
 			return AccountSeenAs{}, fmt.Errorf("scan account seen-as: %w", err)
 		}
-		var u struct {
-			Name   string `json:"name"`
-			Domain string `json:"domain"`
-			UID    string `json:"uid"`
-			UIDAlt string `json:"uid_alt"`
-		}
+		var u map[string]any
 		_ = json.Unmarshal(raw, &u)
-		o := seenUser(u.Name, u.Domain, u.UID, u.UIDAlt)
+		o := seenUser(u)
 		if !o.matches(keys) {
 			continue
 		}
@@ -727,36 +723,14 @@ type seenObject struct {
 	firstIsID                     bool
 }
 
-func seenUser(name, domain, uid, uidAlt string) seenObject {
-	name, domain, uid, uidAlt = strings.TrimSpace(name), strings.TrimSpace(domain), strings.TrimSpace(uid), strings.TrimSpace(uidAlt)
-	if domain == "" {
-		if d, n, ok := strings.Cut(name, `\`); ok {
-			domain, name = d, n
-		}
-	}
-	if identity.PlaceholderLogin(name) {
-		name = ""
-	}
-	if identity.PlaceholderDomain(domain) {
-		domain = ""
-	}
-	if identity.PlaceholderUserID(uid) {
-		uid = ""
-	}
-	o := seenObject{uid: uid, uidAlt: uidAlt}
+// seenUser reads a user object of a stored event by the one rule,
+// ocsf.ReadUser (adr/0367), as the normalizer read it.
+func seenUser(user map[string]any) seenObject {
+	u := ocsf.ReadUser(user, func(obj map[string]any, key string) any { return obj[key] })
+	o := seenObject{login: u.Login, principal: u.PrincipalName, uid: u.UID, uidAlt: u.UIDAlt}
 	switch {
-	case strings.Contains(name, "@"):
-		o.principal = name
-	case strings.Contains(uidAlt, "@"):
-		o.principal = uidAlt
-	}
-	o.login = name
-	if domain != "" && name != "" && !strings.Contains(name, "@") {
-		o.login = domain + `\` + name
-	}
-	switch {
-	case uid != "":
-		o.first, o.firstIsID = strings.ToLower(uid), true
+	case o.uid != "":
+		o.first, o.firstIsID = strings.ToLower(o.uid), true
 	case o.principal != "":
 		o.first = strings.ToLower(o.principal)
 	default:

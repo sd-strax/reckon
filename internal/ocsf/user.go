@@ -13,8 +13,7 @@ import (
 // {name: "CONTOSO\jdoe", domain: "-"} and {name: jdoe, domain: CONTOSO} are
 // one login. A name whose part before the backslash holds "=" or "," is a
 // distinguished name and is not split. After the split, a placeholder name (identity.PlaceholderLogin)
-// or domain is "". The normalizer reads an account's login out of it. The
-// event view uses it for the targets of an account event.
+// or domain is "". ReadUser reads a user object's name and domain by it.
 //
 // field reads one key of the object. Callers pass their own reader, as they
 // do to NamesUser. A key the reader returns as a non-string gives no value.
@@ -43,6 +42,74 @@ func UserName(user map[string]any, field func(obj map[string]any, key string) an
 	return name, domain
 }
 
+// User is what reckon reads from an OCSF user object (adr/0367). The
+// normalizer, the event view and an account's "seen as" line all read it
+// through ReadUser, so they agree on who the object names.
+type User struct {
+	Name, Domain string // as UserName reads them
+	// UID and UIDAlt are the ids, trimmed. An id that is not a string, or
+	// is a placeholder (identity.PlaceholderUserID), is "".
+	UID, UIDAlt string
+	// Login is the login the account rule stores (UserLogin).
+	Login string
+	// PrincipalName is the user@domain the object carries, or ""
+	// (UserPrincipalName).
+	PrincipalName string
+	// AccountTypeID is the account type, read by AccountTypeID.
+	AccountTypeID int
+}
+
+// ReadUser reads an OCSF user object. field reads one key of an object, as
+// it does for UserName. The account type is read from the user's account
+// object, which field reads too.
+func ReadUser(user map[string]any, field func(obj map[string]any, key string) any) User {
+	if user == nil {
+		return User{}
+	}
+	u := User{UID: userID(field(user, "uid")), UIDAlt: userID(field(user, "uid_alt"))}
+	u.Name, u.Domain = UserName(user, field)
+	u.Login = UserLogin(u.Name, u.Domain)
+	u.PrincipalName = UserPrincipalName(u.Name, u.UIDAlt)
+	if account, _ := field(user, "account").(map[string]any); account != nil {
+		caption, _ := field(account, "type").(string)
+		u.AccountTypeID = AccountTypeID(field(account, "type_id"), caption)
+	}
+	return u
+}
+
+// userID is an id of a user object: a string, trimmed, with a placeholder
+// read as "".
+func userID(v any) string {
+	s, _ := v.(string)
+	if s = strings.TrimSpace(s); identity.PlaceholderUserID(s) {
+		return ""
+	}
+	return s
+}
+
+// UserLogin is the login the account rule stores for a name and domain:
+// "domain\name" when both are present and the name holds no "@", else the
+// name. An "@" name is a principal name, which carries its own domain.
+func UserLogin(name, domain string) string {
+	if domain != "" && name != "" && !strings.Contains(name, "@") {
+		return domain + `\` + name
+	}
+	return name
+}
+
+// UserPrincipalName is the principal name (user@domain) a user object
+// carries: the name when it holds an "@", else the uid_alt when it does,
+// else "".
+func UserPrincipalName(name, uidAlt string) string {
+	switch {
+	case strings.Contains(name, "@"):
+		return name
+	case strings.Contains(uidAlt, "@"):
+		return uidAlt
+	}
+	return ""
+}
+
 // NamesUser reports whether an OCSF user object carries a real name, uid or
 // uid_alt: one that is not empty and not a placeholder. The name is read as
 // UserName reads it, so a "domain\sam" name counts by its sam. An id counts
@@ -62,7 +129,7 @@ func NamesUser(user map[string]any, field func(obj map[string]any, key string) a
 		return true
 	}
 	for _, key := range []string{"uid", "uid_alt"} {
-		if id, _ := field(user, key).(string); strings.TrimSpace(id) != "" && !identity.PlaceholderUserID(strings.TrimSpace(id)) {
+		if userID(field(user, key)) != "" {
 			return true
 		}
 	}

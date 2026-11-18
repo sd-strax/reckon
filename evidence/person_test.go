@@ -533,3 +533,12 @@ func TestAccountIdentity_GroupMembers(t *testing.T) {
 		t.Errorf("seen as = %+v; want the users[] entry that names the account, alone", v.SeenAs)
 	}
 }
+
+// TestSeenUserTrimsAfterSplit (adr/0367): "seen as" reads a user object by
+// the one rule, so the parts of a "domain\sam" name are trimmed after the
+// split.
+func TestSeenUserTrimsAfterSplit(t *testing.T) {
+	if o := seenUser(map[string]any{"name": ` CONTOSO \ jdoe `}); o.login != `CONTOSO\jdoe` {
+		t.Errorf("login = %q; want CONTOSO\\jdoe", o.login)
+	}
+}

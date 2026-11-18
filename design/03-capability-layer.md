@@ -2295,6 +2295,13 @@ repeats, per `account_type` (adr/0324):
   system is a host's source, not a sign-in.
 - Control-plane principals: below, unchanged.
 
+The account type is read by one rule, `ocsf.AccountTypeID` (adr/0367). It is
+`account.type_id` when the record gives one. Otherwise it is the id OCSF gives
+the `account.type` caption, in any letter case. A caption OCSF does not have
+reads as Other. So a caption counts for every type above. When the record
+gives both, the number wins. The event view and the account's "seen as" line
+read a user object by the same rule as the account rule does.
+
 `user_id` is a property, not part of the identity, of an account whose type
 keys on a login; the SID's account carries it and the login's account aliases
 to it from the record that named both. A placeholder login or identifier

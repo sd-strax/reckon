@@ -19,8 +19,6 @@ func TestEnumTablesMatchSchema(t *testing.T) {
 		table map[int]string
 	}{
 		{"userTypes", 6003, "actor.user.type_id", userTypes},
-		{"accountTypes", 6003, "cloud.account.type_id", accountTypes},
-		{"accountTypeIDs", 3002, "user.account.type_id", accountTypeIDs},
 		{"apiActivities", 6003, "activity_id", apiActivities},
 		{"inventoryActivities", 5023, "activity_id", inventoryActivities},
 		{"osTypes", 1007, "device.os.type_id", osTypes},

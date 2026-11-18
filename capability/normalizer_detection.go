@@ -45,7 +45,9 @@ func (*detectionNormalizer) ClassUID() int { return 2004 }
 // and uid, the sighting id from its time and observations, adr/0357
 // 9: an account typed Windows only on a Windows signal, account type 19
 // read as one, adr/0366
-func (*detectionNormalizer) Version() int { return 9 }
+// 10: the account type read by the one rule, a caption for every type and
+// the id over it; a cloud account's type named by OCSF's caption, adr/0367
+func (*detectionNormalizer) Version() int { return 10 }
 
 func (n *detectionNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
