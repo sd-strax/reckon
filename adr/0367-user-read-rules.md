@@ -1,6 +1,6 @@
 # 0367 — One read of an OCSF user object, used by every reader, and an account's key id binds before its name
 
-Issue: #367 · PR: pending · Status: accepted
+Issue: #367 · PR: #408 · Status: accepted
 
 ## Context
 
