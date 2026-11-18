@@ -68,7 +68,8 @@ request_action(
   action_type        string            -- from the ActionDescriptor catalogue (§3)
   targets            list<TargetSpec>  -- the things acted on (04 §3.1, §8.1)
   parameters         object            -- action-type-specific inputs (validated vs §3 input schema)
-  evidence_refs      list<EvidenceRef> -- STIX ids / OcsfEvent ids justifying the action (01)
+  evidence_refs      list<EvidenceRef> -- STIX ids justifying the action (01); an event is cited
+                                          through its observation, and a bare event id is refused (adr/0364)
   rationale          string            -- why this action should happen
   investigation_ref  grouping--<uuid>  -- the owning investigation aggregate
 )

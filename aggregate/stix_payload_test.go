@@ -2,6 +2,8 @@ package aggregate
 
 import (
 	"encoding/json"
+	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -195,13 +197,26 @@ func TestPredictionCitationsAreSplitByForm(t *testing.T) {
 	if _, ok := m["test_result_event_ids"]; ok {
 		t.Errorf("an empty test_result_event_ids was stored: %s", raw)
 	}
+}
 
-	if err := validateCitations("test_result_refs", []string{od, event, note}); err != nil {
+// TestCitationsNameSTIXObjects: a new citation names a STIX object. A bare
+// event id is refused with an EventCitedError naming the field and the event,
+// and any other form is refused plainly (adr/0364).
+func TestCitationsNameSTIXObjects(t *testing.T) {
+	od, note, event := "observed-data--"+uuid.NewString(), NoteSTIXID(uuid.New()), uuid.NewString()
+	if err := validateCitations("test_result_refs", []string{od, note}); err != nil {
 		t.Errorf("valid citations were refused: %v", err)
 	}
+	second := uuid.NewString()
+	err := validateCitations("test_result_refs", []string{event, od, second})
+	var cited *EventCitedError
+	if !errors.As(err, &cited) || cited.Field != "test_result_refs" || !slices.Equal(cited.Refs, []string{event, second}) {
+		t.Errorf("two event ids: err = %v; want an EventCitedError naming test_result_refs and both events", err)
+	}
 	for _, bad := range []string{"WS1", "observed-data--1", "10.0.0.1", uuid.NewString() + "x"} {
-		if err := validateCitations("test_result_refs", []string{bad}); err == nil || !strings.Contains(err.Error(), "neither a STIX id") {
-			t.Errorf("citation %q: err = %v; want it refused", bad, err)
+		err := validateCitations("test_result_refs", []string{bad})
+		if err == nil || !strings.Contains(err.Error(), "not a STIX id") || errors.As(err, &cited) {
+			t.Errorf("citation %q: err = %v; want it refused as not a STIX id", bad, err)
 		}
 	}
 }

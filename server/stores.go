@@ -57,6 +57,7 @@ type evidenceStore interface {
 	Object(ctx context.Context, ref string) (evidence.Object, error)
 	Event(ctx context.Context, id uuid.UUID) (evidence.Event, error)
 	EventDerived(ctx context.Context, eventID uuid.UUID) (evidence.Derived, error)
+	ObservationEvents(ctx context.Context, ref string) ([]string, error)
 	IndicatorNeighbourhood(ctx context.Context, indicator evidence.Object) (evidence.Neighbourhood, error)
 	AliasSet(ctx context.Context, ref string) ([]string, error)
 	EntitySet(ctx context.Context, ref string) ([]string, error)

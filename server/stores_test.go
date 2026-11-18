@@ -158,6 +158,12 @@ type fakeEvidence struct {
 	aliasSets map[string][]string
 	// aliasErr, when set, fails AliasSet alone.
 	aliasErr error
+	// derived answers EventDerived by event id, and sourceEvents answers
+	// ObservationEvents by observation ref (adr/0364).
+	derived      map[uuid.UUID]evidence.Derived
+	sourceEvents map[string][]string
+	// sourceEventsErr, when set, fails ObservationEvents alone.
+	sourceEventsErr error
 }
 
 // identityAct is one assertion or withdrawal the fake recorded.
@@ -230,8 +236,14 @@ func (f *fakeEvidence) Object(_ context.Context, ref string) (evidence.Object, e
 func (f *fakeEvidence) Event(context.Context, uuid.UUID) (evidence.Event, error) {
 	return evidence.Event{}, evidence.ErrNotFound
 }
-func (f *fakeEvidence) EventDerived(context.Context, uuid.UUID) (evidence.Derived, error) {
-	return evidence.Derived{}, f.err
+func (f *fakeEvidence) EventDerived(_ context.Context, id uuid.UUID) (evidence.Derived, error) {
+	return f.derived[id], f.err
+}
+func (f *fakeEvidence) ObservationEvents(_ context.Context, ref string) ([]string, error) {
+	if f.sourceEventsErr != nil {
+		return nil, f.sourceEventsErr
+	}
+	return f.sourceEvents[ref], f.err
 }
 func (f *fakeEvidence) IndicatorNeighbourhood(context.Context, evidence.Object) (evidence.Neighbourhood, error) {
 	return evidence.Neighbourhood{}, f.err

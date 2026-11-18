@@ -9,6 +9,7 @@ import { useState } from "react";
 import { useApp } from "../app";
 import { blockersOf, badgeTone, counted, hypName, isLive, nameOf, predName, rivalsOf, tested, titleOf } from "../derive/hyps";
 import { Badge, RefChip } from "./shared";
+import { citableRefs } from "../../../src/citable";
 import { pinSpec, type PromptExtra, type PromptSpec } from "./PromptCard";
 import type { ArtifactLocation, CommsThread, Hypothesis, PinRow, Prediction } from "../../../src/viewTypes";
 import type { InboundMessage } from "../../../src/protocol";
@@ -134,8 +135,10 @@ function PredictionRow({ p, h, hs, pins }: { p: Prediction; h: Hypothesis; hs: H
                 }}>⚡ Test {p.ordinal ? predName(p) : "this"}</button> : null}
               </>
             ) : trefs.length ? (
+              // The pin cites the prediction and the evidence a new citation
+              // may name: an older result's raw event ids are left out (adr/0364).
               <button className="pincta testbtn predact" disabled={alreadyPinned} title={alreadyPinned ? "Already in the pinned evidence — un-pin there to revise" : "Pin this decided prediction + its test evidence (feeds the verdict gate)"}
-                onClick={() => openPrompt(pinSpec([p.id].concat(trefs), "[" + p.status + "] " + p.statement, (finding) => send({ type: "pin.add", refs: [p.id].concat(trefs), finding })))}>{alreadyPinned ? "📌 pinned" : "📌 Pin"}</button>
+                onClick={() => { const refs = [p.id].concat(citableRefs(trefs)); openPrompt(pinSpec(refs, "[" + p.status + "] " + p.statement, (finding) => send({ type: "pin.add", refs, finding }))); }}>{alreadyPinned ? "📌 pinned" : "📌 Pin"}</button>
             ) : null}
           </div>
         </div>

@@ -140,6 +140,7 @@ function mapEvidence(r: RawEvidence): EvidenceDoc {
     recordedAt: r.recorded_at,
     sourceTool: r.source_tool,
   };
+  if (r.source_event_ids?.length) doc.sourceEventIds = r.source_event_ids;
   if (r.view) doc.view = mapView(r.view);
   if (r.related) {
     doc.related = {

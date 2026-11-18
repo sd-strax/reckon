@@ -264,7 +264,7 @@ type evaluateHypothesisInput struct {
 	HypothesisRef  string   `json:"hypothesis_ref" required:"true" desc:"the reckon-hypothesis id"`
 	Disposition    string   `json:"disposition" required:"true" desc:"support | refutation | inconclusive"`
 	Rationale      string   `json:"rationale" required:"true" desc:"the evidential reasoning"`
-	TestResultRefs []string `json:"test_result_refs" desc:"STIX/OCSF refs of the observed evidence; required for support and refutation"`
+	TestResultRefs []string `json:"test_result_refs" desc:"STIX refs of the observed evidence (observed_data_refs, entity_refs); required for support and refutation"`
 	Abandoned      bool     `json:"abandoned" desc:"on inconclusive: mark ABANDONED instead"`
 	Confidence     string   `json:"confidence" desc:"HIGH | MEDIUM | LOW"`
 }
@@ -273,7 +273,7 @@ type recordPredictionOutcomeInput struct {
 	PredictionRef  string   `json:"prediction_ref" required:"true" desc:"the reckon-prediction id"`
 	Status         string   `json:"status" required:"true" desc:"CONFIRMED | DISCONFIRMED | INCONCLUSIVE"`
 	Rationale      string   `json:"rationale" required:"true" desc:"what was observed"`
-	TestResultRefs []string `json:"test_result_refs" desc:"refs of the observed evidence"`
+	TestResultRefs []string `json:"test_result_refs" desc:"STIX refs of the observed evidence (observed_data_refs, entity_refs)"`
 }
 
 // targetInput is what the model may say about a target. ActionTarget has more
@@ -344,14 +344,14 @@ func intrinsicTools() []tool {
 		defineTool(toolSpec[evaluateHypothesisInput]{
 			Name:        ToolEvaluateHypothesis,
 			Origin:      "80420c3",
-			Revised:     []string{"#357"},
+			Revised:     []string{"#357", "#364"},
 			Description: "Record an evidential outcome for a hypothesis: support, refutation, or inconclusive. Decisive outcomes must cite the observed evidence refs.",
 			Run:         (*Session).evaluateHypothesis,
 		}),
 		defineTool(toolSpec[recordPredictionOutcomeInput]{
 			Name:        ToolRecordPredictionOutcome,
 			Origin:      "80420c3",
-			Revised:     []string{"cebed87", "#357"},
+			Revised:     []string{"cebed87", "#357", "#364"},
 			Description: "Record a prediction's test outcome. CONFIRMED and DISCONFIRMED must cite test_result_refs. A manual prediction (a person tests it) is not yours to record: the engine refuses it; ask the analyst for the result.",
 			Run:         (*Session).recordPredictionOutcome,
 		}),

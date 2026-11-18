@@ -177,6 +177,30 @@ func TestPlannedBinding(t *testing.T) {
 
 // --- request construction + blast-radius escalator ---------------------------
 
+// TestBuildRequestCommand_RefusesAnEvent: evidence names STIX objects. A bare
+// event id in evidence_refs is refused with an EventCitedError, and a ref in
+// neither form is refused too (adr/0364).
+func TestBuildRequestCommand_RefusesAnEvent(t *testing.T) {
+	catalog := defaultActionCatalog(t)
+	now := time.Date(2026, 4, 20, 14, 0, 0, 0, time.UTC)
+	event := uuid.NewString()
+	req := ActionRequest{
+		ActionType:   "host.isolate",
+		Targets:      []aggregate.TargetSpec{target("WIN-A")},
+		EvidenceRefs: []string{"observed-data--0d000000-0000-4000-8000-000000000001", event},
+		Rationale:    "contain",
+	}
+	_, err := BuildRequestCommand(catalog, req, now)
+	var cited *aggregate.EventCitedError
+	if !errors.As(err, &cited) || cited.Field != "evidence_refs" || len(cited.Refs) != 1 || cited.Refs[0] != event {
+		t.Fatalf("an event in evidence_refs: err = %v; want an EventCitedError naming evidence_refs and %s", err, event)
+	}
+	req.EvidenceRefs = []string{"WS1"}
+	if _, err := BuildRequestCommand(catalog, req, now); err == nil || errors.As(err, &cited) {
+		t.Fatalf("evidence_refs %v: err = %v; want it refused as not a STIX id", req.EvidenceRefs, err)
+	}
+}
+
 func TestBuildRequestCommand(t *testing.T) {
 	catalog := defaultActionCatalog(t)
 	now := time.Date(2026, 4, 20, 14, 0, 0, 0, time.UTC)
@@ -184,7 +208,7 @@ func TestBuildRequestCommand(t *testing.T) {
 	cmd, err := BuildRequestCommand(catalog, ActionRequest{
 		ActionType:   "host.isolate",
 		Targets:      []aggregate.TargetSpec{target("WIN-A")},
-		EvidenceRefs: []string{"observed-data--od1"},
+		EvidenceRefs: []string{"observed-data--0d000000-0000-4000-8000-000000000001"},
 		Rationale:    "contain",
 	}, now)
 	if err != nil {
@@ -218,7 +242,7 @@ func TestBlastRadiusEscalator(t *testing.T) {
 	cmd, err := BuildRequestCommand(catalog, ActionRequest{
 		ActionType:   "host.isolate", // T2 by default
 		Targets:      many,
-		EvidenceRefs: []string{"observed-data--od1"},
+		EvidenceRefs: []string{"observed-data--0d000000-0000-4000-8000-000000000001"},
 		Rationale:    "mass containment",
 	}, now)
 	if err != nil {
@@ -244,7 +268,7 @@ func TestBlastRadiusEscalator(t *testing.T) {
 		dupes[i] = target("same-host")
 	}
 	cmd, err = BuildRequestCommand(catalog, ActionRequest{
-		ActionType: "host.isolate", Targets: dupes, EvidenceRefs: []string{"observed-data--od1"}, Rationale: "dup",
+		ActionType: "host.isolate", Targets: dupes, EvidenceRefs: []string{"observed-data--0d000000-0000-4000-8000-000000000001"}, Rationale: "dup",
 	}, now)
 	if err != nil {
 		t.Fatal(err)
@@ -302,10 +326,10 @@ func TestBuildRequestCommandRejections(t *testing.T) {
 	// declared input is an entity accepts empty parameters, and an action with
 	// optional string inputs accepts their absence.
 	for _, ok := range []ActionRequest{
-		{ActionType: "host.isolate", Targets: []aggregate.TargetSpec{target("WIN-A")}, EvidenceRefs: []string{"observed-data--od1"}, Rationale: "r"},
-		{ActionType: "ticket.close", Targets: []aggregate.TargetSpec{target("IT-1")}, EvidenceRefs: []string{"observed-data--od1"}, Rationale: "r"}, // resolution is optional
+		{ActionType: "host.isolate", Targets: []aggregate.TargetSpec{target("WIN-A")}, EvidenceRefs: []string{"observed-data--0d000000-0000-4000-8000-000000000001"}, Rationale: "r"},
+		{ActionType: "ticket.close", Targets: []aggregate.TargetSpec{target("IT-1")}, EvidenceRefs: []string{"observed-data--0d000000-0000-4000-8000-000000000001"}, Rationale: "r"}, // resolution is optional
 		{ActionType: "ticket.create", Targets: []aggregate.TargetSpec{target("IT-OPS")},
-			EvidenceRefs: []string{"observed-data--od1"}, Parameters: []byte(`{"summary":"handoff"}`), Rationale: "r"},
+			EvidenceRefs: []string{"observed-data--0d000000-0000-4000-8000-000000000001"}, Parameters: []byte(`{"summary":"handoff"}`), Rationale: "r"},
 	} {
 		if _, err := BuildRequestCommand(catalog, ok, now); err != nil {
 			t.Errorf("%s: unexpected rejection: %v", ok.ActionType, err)

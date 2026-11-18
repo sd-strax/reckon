@@ -28,7 +28,7 @@ func TestEditAction_Endpoint(t *testing.T) {
 		ActionType: "notify.email", InvestigationRef: invID.String(), Rationale: "tell the CISO",
 		Targets:      []aggregate.TargetSpec{{ResolvedIdentifier: "ciso@contoso.com"}},
 		Parameters:   json.RawMessage(`{"subject":"Breach","body":"draft"}`),
-		EvidenceRefs: []string{"observed-data--od1"},
+		EvidenceRefs: []string{"observed-data--18ef927c-93bc-5470-b729-1b40841d3947"},
 	})
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("request: %d", resp.StatusCode)
@@ -130,7 +130,7 @@ func TestEditAction_EvaluatesAsRequested(t *testing.T) {
 			Targets:          []aggregate.TargetSpec{{EntityRef: "reckon-queue--1", ResolvedIdentifier: "SEC"}},
 			Parameters:       json.RawMessage(`{"summary":"contain WIN-A"}`),
 			Rationale:        "hand off",
-			EvidenceRefs:     []string{"observed-data--od1"},
+			EvidenceRefs:     []string{"observed-data--18ef927c-93bc-5470-b729-1b40841d3947"},
 			InvestigationRef: invID.String(),
 		}, map[string]any{"summary": "contain WIN-A now"})
 		if pe.MatchedPolicyRef == ownTicket {
@@ -149,7 +149,7 @@ func TestEditAction_EvaluatesAsRequested(t *testing.T) {
 			Targets:          []aggregate.TargetSpec{{EntityRef: "email-message--1", ResolvedIdentifier: "<msg@x>"}},
 			Parameters:       json.RawMessage(`{}`),
 			Rationale:        "phish",
-			EvidenceRefs:     []string{"observed-data--od1"},
+			EvidenceRefs:     []string{"observed-data--18ef927c-93bc-5470-b729-1b40841d3947"},
 			InvestigationRef: invID.String(),
 		}, map[string]any{})
 		fired := false

@@ -53,8 +53,11 @@ expressed through VS Code theme variables where noted.
    rejection message is the fallback surface, never the primary UX: whatever the engine will
    refuse, the UI makes the legal path the easy one.
 8. **Every citation opens.** Any evidence ref rendered anywhere — in prose, on an action
-   card, in a pin — is an affordance that opens the cited object (raw OCSF event or STIX
-   node) read-only in one click. A ref the analyst cannot inspect is a claim, not evidence.
+   card, in a pin — is an affordance that opens the cited object (a STIX node) read-only in
+   one click. A ref the analyst cannot inspect is a claim, not evidence. A citation names an
+   observation, never a raw OCSF event (adr/0364). The raw event is reached through the
+   cited observation, whose inspector opens each event it was made from in one click. An
+   older record that cites a raw event still opens it.
 
 ## Seam rules
 

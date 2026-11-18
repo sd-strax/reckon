@@ -26,6 +26,11 @@ type EvidenceView struct {
 	Type    string          `json:"type"` // STIX type, or OCSF class_name
 	Payload json.RawMessage `json:"payload"`
 
+	// SourceEventIDs is set on an `observed-data--` ref: the ids of the raw
+	// events the observation was made from, so a cited observation opens its
+	// telemetry (adr/0364). Empty for every other type.
+	SourceEventIDs []string `json:"source_event_ids,omitempty"`
+
 	// OCSF-only metadata.
 	ClassUID   int        `json:"class_uid,omitempty"`
 	Time       *time.Time `json:"time,omitempty"`
@@ -234,6 +239,15 @@ func (b *Backend) getEvidence(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			v.Related = relatedView(n)
+		}
+		// The path back degrades as the identity view does: a store error
+		// leaves the observation readable without its source events.
+		if obj.Type == "observed-data" {
+			ids, err := b.cfg.Evidence.ObservationEvents(r.Context(), obj.Ref)
+			if err != nil {
+				slog.Warn("observation without its source events", "ref", obj.Ref, "error", err)
+			}
+			v.SourceEventIDs = ids
 		}
 		// The identity view degrades as appearances do: a store error leaves
 		// the object readable without it.

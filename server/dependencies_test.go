@@ -313,8 +313,8 @@ func TestDependencies_Lifecycle(t *testing.T) {
 		dispatched(t, invID, id)
 		return d, id
 	}()
-	humanHandle(t, invID, aggregate.RecordInterpretation{InterpretationID: uuid.New(), InterpretationType: aggregate.InterpretationEvidencePin, InputRefs: []string{"observed-data--x"}, Rationale: "the dropper"})
-	humanHandle(t, invID, aggregate.RecordInterpretation{InterpretationID: uuid.New(), InterpretationType: aggregate.InterpretationVerdict, Verdict: &aggregate.VerdictNode{Disposition: aggregate.VerdictMalicious}, InputRefs: []string{"observed-data--x"}, Rationale: "confirmed"})
+	humanHandle(t, invID, aggregate.RecordInterpretation{InterpretationID: uuid.New(), InterpretationType: aggregate.InterpretationEvidencePin, InputRefs: []string{"observed-data--0d000000-0000-4000-8000-000000000001"}, Rationale: "the dropper"})
+	humanHandle(t, invID, aggregate.RecordInterpretation{InterpretationID: uuid.New(), InterpretationType: aggregate.InterpretationVerdict, Verdict: &aggregate.VerdictNode{Disposition: aggregate.VerdictMalicious}, InputRefs: []string{"observed-data--0d000000-0000-4000-8000-000000000001"}, Rationale: "confirmed"})
 	humanHandle(t, invID, aggregate.ConcludeInvestigation{ReportRef: "report--1", Summary: "Confirmed; one dependency still owed."})
 	if code, body := do("POST", "/api/dependencies/"+lateDep.DependencyID+"/waive", ResolveDependencyBody{Note: "too late"}); code != http.StatusConflict {
 		t.Errorf("waive after conclusion = %d: %s; want 409", code, body)
