@@ -70,7 +70,7 @@ func TestCloudInventory_Snapshot(t *testing.T) {
 	}
 
 	od := res.ObservedData[0]
-	if od.Provenance.Normalizer != "cloud_resources_inventory_info" || od.Provenance.NormalizerVersion != 6 {
+	if od.Provenance.Normalizer != "cloud_resources_inventory_info" || od.Provenance.NormalizerVersion != 7 {
 		t.Errorf("provenance = %+v", od.Provenance)
 	}
 	ext := od.Extensions

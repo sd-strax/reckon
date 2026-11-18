@@ -534,11 +534,62 @@ func TestAccountIdentity_GroupMembers(t *testing.T) {
 	}
 }
 
-// TestSeenUserTrimsAfterSplit (adr/0367): "seen as" reads a user object by
-// the one rule, so the parts of a "domain\sam" name are trimmed after the
-// split.
-func TestSeenUserTrimsAfterSplit(t *testing.T) {
-	if o := seenUser(map[string]any{"name": ` CONTOSO \ jdoe `}); o.login != `CONTOSO\jdoe` {
-		t.Errorf("login = %q; want CONTOSO\\jdoe", o.login)
+// TestAccountSeenAs_LocalAndUnix (adr/0398): a windows-local account and a
+// unix account are stored under the bare name, though their records name a
+// domain. Each lists its record's forms, read from the place the
+// normalizer recorded the account at.
+func TestAccountSeenAs_LocalAndUnix(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	inv := uuid.New()
+	persistNormalized(t, s, inv,
+		ocsfEvent("dc", 3002, 1, map[string]any{
+			"user":         map[string]any{"name": "admin", "domain": "WS1"},
+			"dst_endpoint": map[string]any{"hostname": "WS1", "os": map[string]any{"type_id": 100}},
+		}),
+		ocsfEvent("edr", 1007, 2, map[string]any{
+			"device":  map[string]any{"hostname": "web01", "os": map[string]any{"type_id": 200}},
+			"actor":   map[string]any{"user": map[string]any{"name": "deploy", "domain": "CORP"}},
+			"process": map[string]any{"name": "sh", "pid": float64(7)},
+		}))
+	for _, c := range []struct {
+		name  string
+		ref   identity.STIXID
+		login string
+	}{
+		{"windows-local", testIDs.Account(identity.AccountIdentity{Type: identity.AccountWindowsLocal, Login: "admin",
+			HostRef: testIDs.Host(identity.HostIdentity{Hostname: "WS1"})}), `WS1\admin`},
+		{"unix", testIDs.Account(identity.AccountIdentity{Type: identity.AccountUnix, Login: "deploy",
+			HostRef: testIDs.Host(identity.HostIdentity{Hostname: "web01"})}), `CORP\deploy`},
+	} {
+		v, err := s.AccountIdentity(ctx, string(c.ref))
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if !slices.Equal(v.SeenAs.Logins, []string{c.login}) {
+			t.Errorf("%s: seen as = %+v; want %s", c.name, v.SeenAs, c.login)
+		}
+	}
+}
+
+// TestAccountSeenAs_TwoUsers (adr/0398): an event naming two users lends
+// each account only its own user's forms.
+func TestAccountSeenAs_TwoUsers(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	const jdoe, admin = "S-1-5-21-7-1101", "S-1-5-21-7-500"
+	persistNormalized(t, s, uuid.New(), ocsfEvent("dc", 3002, 1, map[string]any{
+		"user":         map[string]any{"name": "jdoe", "domain": "CONTOSO", "uid": jdoe},
+		"actor":        map[string]any{"user": map[string]any{"name": "admin", "domain": "CONTOSO", "uid": admin}},
+		"dst_endpoint": map[string]any{"hostname": "WIN-DC01", "os": map[string]any{"type_id": 100}},
+	}))
+	for _, c := range []struct{ sid, login string }{{jdoe, `CONTOSO\jdoe`}, {admin, `CONTOSO\admin`}} {
+		v, err := s.AccountIdentity(ctx, string(testIDs.Account(identity.AccountIdentity{Type: identity.AccountWindowsDomain, UserID: c.sid})))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(v.SeenAs.Logins, []string{c.login}) || !slices.Equal(v.SeenAs.IDs, []SourceID{{Tool: "dc", UID: c.sid}}) {
+			t.Errorf("%s: seen as = %+v; want %s and its SID alone", c.sid, v.SeenAs, c.login)
+		}
 	}
 }

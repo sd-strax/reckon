@@ -675,10 +675,23 @@ the `stix` package (adr/0357). A property STIX defines on the type is at the
 top level. A property it does not define is in the type's reckon
 property-extension, such as a file's `path` in `reckon-file`. The provenance
 is the `reckon-provenance` property-extension. An observation's extensions
-below are the fields of its `reckon-observation` property-extension. One of
-them, `person_ref`, is not an OCSF field: it names the person a directory
-record describes, which `object_refs` cannot list (§4.19). A
-property the record does not give is left out, not written empty.
+below are the fields of its `reckon-observation` property-extension. Two of
+them are not OCSF fields. `person_ref` names the person a directory record
+describes, which `object_refs` cannot list (§4.19). `user_accounts` records
+which strong accounts the normalizer minted for each user object, usually
+one (adr/0398).
+- Its keys are the user object's place in the record. A place is the OCSF
+  path with the record's own list indices, such as `actor.user`, `users[1]`
+  or `evidences[0].actor.user`.
+- Its values are lists of the strong accounts, the ones in `object_refs`,
+  usually one. The account the event view shows is first. A lesser account
+  is reached through its `aliases` edge.
+- A user object that mints no account has no entry. Cloud principals are
+  recorded the same way.
+- It is not named `_refs`. STIX keeps that suffix for lists of ids, and this
+  is a map of lists.
+
+A property the record does not give is left out, not written empty.
 
 Device objects (`device`, `src_endpoint`, `dst_endpoint`) are shaped once, by
 the shared host extractor, for every class: OCSF `device.uid` is the device's
@@ -831,8 +844,8 @@ normalizer.
   instead arrive in a field for its type: `reg_string_data`,
   `reg_integer_data`, `reg_binary_data` or `reg_string_list_data`.
 
-Both carry `activity_id`, `actor.process.*`, `device.*` and `time`. Class
-1003 is OCSF's Kernel Activity, not a registry class (adr/0356).
+Both carry `activity_id`, `actor.process.*`, `actor.user.*`, `device.*` and
+`time`. Class 1003 is OCSF's Kernel Activity, not a registry class (adr/0356).
 
 Output:
 
@@ -865,6 +878,8 @@ Output:
   above: a string as it arrives, anything else as its JSON text. The event
   view reads the data by the same rule (adr/0359).
 - `process` SCO for the actor process.
+- `user-account` SCO for the actor's user, shaped by the account rule (§7.2)
+  and recorded in `user_accounts` (adr/0398).
 - `reckon-host` SCO for the device.
 - One `ObservedData` referencing the registry key, actor, and host. The
   `activity_id` (CREATE/MODIFY/DELETE) is preserved in custom extension
@@ -879,9 +894,9 @@ hosts are different entities (§7.2, adr/0341).
 ### 4.7 OCSF scheduled_job_activity (class_uid 1006) → STIX
 
 Input: OCSF scheduled_job_activity with `job.name`, `job.file.path`,
-`job.user.*`, `activity_id`, `device.*` and `time`. The command line is read
-from `job.job_actions[].cmd_line` (1.9.0), else from the deprecated
-`job.cmd_line`.
+`job.user.*`, `actor.user.*`, `activity_id`, `device.*` and `time`. The
+command line is read from `job.job_actions[].cmd_line` (1.9.0), else from
+the deprecated `job.cmd_line`.
 
 Output:
 
@@ -892,6 +907,8 @@ Output:
   shaped by the account rule (§7.2): the record's strongest identifier is in
   `object_refs`; each lesser identifier it carries mints its own account
   outside them, with `aliases` to the strongest. Version 3 (adr/0324).
+- `user-account` SCO for the actor that changed the task, if present, shaped
+  the same way. Both users are recorded in `user_accounts` (adr/0398).
 - `reckon-host` SCO for the device.
 - One `ObservedData` referencing all of the above.
 - Edges as in §4.1.
@@ -1610,8 +1627,13 @@ Output:
   this is the record through which a source's later activity named only by
   its device id joins the host (§7.3, adr/0211).
 - `ipv4-addr` / `ipv6-addr` SCO for `device.ip` if present.
-- One `ObservedData` referencing the host and address, its extensions
-  carrying `os_name`, `owner_name` and `criticality` when present.
+- `user-account` SCO for `device.owner` if present, shaped by the account
+  rule (§7.2) with the device as the machine it acted on, so a host-scoped
+  owner is keyed under that host. It is recorded in `user_accounts` under
+  `device.owner`, and the event view links the owner to it (adr/0398).
+- One `ObservedData` referencing the host, the address and the owner's
+  account, its extensions carrying `os_name`, `owner_name` and `criticality`
+  when present.
 - Edges as in §4.1.
 
 ### 4.18 OCSF cloud_resources_inventory_info (class_uid 5023) → STIX
@@ -1738,6 +1760,9 @@ only SCOs and relationships (adr/0357).
   - Every reader that asks which records are about an entity, or lists an
     observation's entities, reads `person_ref` beside `object_refs`. So an
     investigation seeded on a person finds the person's directory records.
+- The record's one user object is recorded in `user_accounts` under `user`
+  (§4, adr/0398). It lists both strong accounts: the sign-in account first,
+  the one the groups ride on, then the domain account's strongest.
 - Edges as in §4.1.
 
 Version 2, as §4.17: a record stored before the normalizer existed went
@@ -2301,6 +2326,15 @@ the `account.type` caption, in any letter case. A caption OCSF does not have
 reads as Other. So a caption counts for every type above. When the record
 gives both, the number wins. The event view and the account's "seen as" line
 read a user object by the same rule as the account rule does.
+
+Neither of them works out the account again. Each reads the account the
+normalizer recorded in the observation's `user_accounts` (§4, adr/0398).
+- The event view links a user object to the first account recorded at its
+  place that the record holds. A user object with no entry is shown
+  unlinked, by its login.
+- An account's "seen as" line reads the records whose `user_accounts` lists
+  the account or a member of its alias set at some place. For each such
+  place, it lists that user object's login, ids and principal name.
 
 `user_id` is a property, not part of the identity, of an account whose type
 keys on a login; the SID's account carries it and the login's account aliases

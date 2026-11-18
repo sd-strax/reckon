@@ -27,7 +27,9 @@ func (*authNormalizer) ClassUID() int { return 3002 }
 // read as one, adr/0366
 // 9: the account type read by the one rule, a caption for every type and
 // the id over it, adr/0367
-func (*authNormalizer) Version() int { return 9 }
+// 10: the account minted for each user object recorded in user_accounts,
+// adr/0398
+func (*authNormalizer) Version() int { return 10 }
 
 func (n *authNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload

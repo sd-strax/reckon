@@ -35,7 +35,9 @@ func (n *accountNormalizer) ClassUID() int { return n.class }
 // read as one, adr/0366
 // 8: the account type read by the one rule, a caption for every type and
 // the id over it, adr/0367
-func (*accountNormalizer) Version() int { return 8 }
+// 9: the account minted for each user object recorded in user_accounts,
+// adr/0398
+func (*accountNormalizer) Version() int { return 9 }
 
 // name is the OCSF name of the class this instance is registered for.
 func (n *accountNormalizer) name() string {
@@ -98,9 +100,9 @@ func (n *accountNormalizer) targets(b *resultBuilder, host identity.STIXID) []id
 	if n.class != classGroupManagement {
 		return b.oneAccount("user", host)
 	}
-	var members []map[string]any
-	for _, u := range objectsAt(b.evt.Payload, "users") {
-		if ocsf.NamesUser(u, fieldOf) {
+	var members []entry
+	for _, u := range objectEntries(b.evt.Payload, "users") {
+		if ocsf.NamesUser(u.obj, fieldOf) {
 			members = append(members, u)
 		}
 	}
@@ -109,7 +111,7 @@ func (n *accountNormalizer) targets(b *resultBuilder, host identity.STIXID) []id
 	}
 	var out []identity.STIXID
 	for _, u := range members {
-		if id := b.userAccountOf(u, b.top("device"), host); id != "" {
+		if id := b.userAccountOf(u.obj, u.place, b.top("device"), host); id != "" {
 			out = append(out, id)
 		}
 	}

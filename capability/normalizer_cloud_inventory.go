@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/sd-strax/reckon/identity"
+	"github.com/sd-strax/reckon/internal/ocsf"
 	"github.com/sd-strax/reckon/stix"
 )
 
@@ -36,7 +37,9 @@ func (*cloudInventoryNormalizer) ClassUID() int { return 5023 }
 // is_service_account only when known, adr/0357
 // 6: a cloud account's type named by OCSF's caption, an unknown one
 // Other, adr/0367
-func (*cloudInventoryNormalizer) Version() int { return 6 }
+// 7: the account minted for each user object recorded in user_accounts,
+// adr/0398
+func (*cloudInventoryNormalizer) Version() int { return 7 }
 
 func (n *cloudInventoryNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
@@ -53,26 +56,13 @@ func (n *cloudInventoryNormalizer) Normalize(evt OcsfEvent) (NormalizationResult
 		account = b.addAccount(provider, uid, at{}, true)
 	}
 	b.cloudResourcesOf(provider, account)
-	for _, item := range inventoryResources(p) {
-		owner, _ := fieldOf(item, "owner").(map[string]any)
+	for _, item := range objectEntries(p, "resources") {
+		owner, _ := fieldOf(item.obj, "owner").(map[string]any)
 		if id := ownerID(owner); id != "" {
-			b.cloudUser(provider, id, owner, false, "")
+			b.recordAccount(ocsf.PlaceIn(item.place, "owner"), b.cloudUser(provider, id, owner, false, ""))
 		}
 	}
 	return b.finish(inventoryExt(p)), nil
-}
-
-// inventoryResources is the payload's resources[] entries that are objects.
-func inventoryResources(p map[string]any) []map[string]any {
-	v, _ := lookupPath(p, "resources")
-	list, _ := v.([]any)
-	var out []map[string]any
-	for _, item := range list {
-		if m, ok := item.(map[string]any); ok {
-			out = append(out, m)
-		}
-	}
-	return out
 }
 
 // ownerID is a resource owner's durable identifier: its uid, else uid_alt.
@@ -122,7 +112,7 @@ func inventoryExt(p map[string]any) map[string]any {
 	}
 	put("activity", firstNonEmpty(pathStr(p, "activity_name"), inventoryActivities[activityID]))
 	put("region", pathStr(p, "cloud.region"))
-	resources := inventoryResources(p)
+	resources := objectsAt(p, "resources")
 	if v, ok := lookupPath(p, "resources"); ok {
 		list, _ := v.([]any)
 		ext["resource_count"] = len(list)

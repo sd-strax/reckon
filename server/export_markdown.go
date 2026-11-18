@@ -429,8 +429,8 @@ func (rl *refLabeler) resolve(ref string) string {
 	label := e.ClassName
 	// The view renders without entities too (the inspector does the same when
 	// none resolve), so a failed entity read costs the chips, not the view.
-	entities, _ := rl.evidence.EventEntities(rl.ctx, id)
-	v := eventView(e, entities)
+	derived, _ := rl.evidence.EventDerived(rl.ctx, id)
+	v := eventView(e, derived)
 	if len(v.Sentence) > 0 {
 		label = sentenceText(v)
 	}

@@ -1,6 +1,7 @@
 package ocsf
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/sd-strax/reckon/identity"
@@ -134,4 +135,45 @@ func NamesUser(user map[string]any, field func(obj map[string]any, key string) a
 		}
 	}
 	return false
+}
+
+// A user object's place in a record is its OCSF path, with the record's own
+// index after each list, such as users[1] or evidences[0].actor.user. The
+// normalizer records the account it mints for a user object under its place
+// (adr/0398), and the readers find the object by it.
+
+// PlaceIn is the place of path inside the object at place in, or path itself
+// when in is "", the record.
+func PlaceIn(in, path string) string {
+	if in == "" {
+		return path
+	}
+	return in + "." + path
+}
+
+// PlaceAt is the place of entry i of the list at place list.
+func PlaceAt(list string, i int) string { return list + "[" + strconv.Itoa(i) + "]" }
+
+// ObjectAt reads the object at place of m, or nil when there is none.
+func ObjectAt(m map[string]any, place string) map[string]any {
+	var cur any = m
+	for _, seg := range strings.Split(place, ".") {
+		name, index, hasIndex := strings.Cut(seg, "[")
+		obj, ok := cur.(map[string]any)
+		if !ok {
+			return nil
+		}
+		cur = obj[name]
+		if !hasIndex {
+			continue
+		}
+		i, err := strconv.Atoi(strings.TrimSuffix(index, "]"))
+		list, ok := cur.([]any)
+		if err != nil || !ok || i < 0 || i >= len(list) {
+			return nil
+		}
+		cur = list[i]
+	}
+	obj, _ := cur.(map[string]any)
+	return obj
 }

@@ -114,7 +114,7 @@ func TestDecodeCommandLine(t *testing.T) {
 // value; a plain command line has no decoded slot; the scheduled job's
 // command line decodes the same way.
 func TestRender_DecodedBesideTheOriginal(t *testing.T) {
-	v := Render(Event{ClassUID: 1007, Payload: payload(`{"process":{"name":"powershell.exe","pid":1,"cmd_line":"powershell.exe -NoProfile -EncodedCommand ZQBjAGgAbwA="}}`)}, nil)
+	v := Render(Event{ClassUID: 1007, Payload: payload(`{"process":{"name":"powershell.exe","pid":1,"cmd_line":"powershell.exe -NoProfile -EncodedCommand ZQBjAGgAbwA="}}`)}, nil, nil)
 	if v.Decoded == nil || v.Decoded.Field != "process.cmd_line" || v.Decoded.Encoding != EncodingBase64UTF16LE || v.Decoded.Text != "echo" {
 		t.Fatalf("decoded = %+v; want process.cmd_line base64-utf16le echo", v.Decoded)
 	}
@@ -126,17 +126,17 @@ func TestRender_DecodedBesideTheOriginal(t *testing.T) {
 			t.Errorf("group-by key = %q; want the stored value", sv.Identity)
 		}
 	}
-	plain := Render(Event{ClassUID: 1007, Payload: payload(`{"process":{"name":"svchost.exe","cmd_line":"svchost.exe -k netsvcs"}}`)}, nil)
+	plain := Render(Event{ClassUID: 1007, Payload: payload(`{"process":{"name":"svchost.exe","cmd_line":"svchost.exe -k netsvcs"}}`)}, nil, nil)
 	if plain.Decoded != nil {
 		t.Errorf("plain command line decoded: %+v", plain.Decoded)
 	}
-	job := Render(Event{ClassUID: 1006, Payload: payload(`{"job":{"name":"Updater","cmd_line":"pwsh -enc ZQBjAGgAbwA="}}`)}, nil)
+	job := Render(Event{ClassUID: 1006, Payload: payload(`{"job":{"name":"Updater","cmd_line":"pwsh -enc ZQBjAGgAbwA="}}`)}, nil, nil)
 	if job.Decoded == nil || job.Decoded.Field != "job.cmd_line" || job.Decoded.Text != "echo" {
 		t.Errorf("job decoded = %+v; want job.cmd_line echo", job.Decoded)
 	}
 	// From OCSF 1.9.0 the command line is the job's action. The first one is
 	// the one read back.
-	job = Render(Event{ClassUID: 1006, Payload: payload(`{"job":{"name":"Updater","job_actions":[{"cmd_line":"pwsh -enc ZQBjAGgAbwA="},{"cmd_line":"b.exe"}]}}`)}, nil)
+	job = Render(Event{ClassUID: 1006, Payload: payload(`{"job":{"name":"Updater","job_actions":[{"cmd_line":"pwsh -enc ZQBjAGgAbwA="},{"cmd_line":"b.exe"}]}}`)}, nil, nil)
 	if job.Decoded == nil || job.Decoded.Field != "job.job_actions[0].cmd_line" || job.Decoded.Text != "echo" {
 		t.Errorf("job decoded = %+v; want job.job_actions[0].cmd_line echo", job.Decoded)
 	}
@@ -163,13 +163,13 @@ func TestRender_DecodedNamesTheFieldItRead(t *testing.T) {
 	}
 	for _, tt := range tests {
 		p := payload(tt.js)
-		v := Render(Event{ClassUID: tt.class, Payload: p}, nil)
+		v := Render(Event{ClassUID: tt.class, Payload: p}, nil, nil)
 		if v.Decoded == nil || v.Decoded.Field != tt.field || v.Decoded.Stored != enc || v.Decoded.Text != "echo" {
 			t.Errorf("%s: decoded = %+v; want field %s, stored %q", tt.name, v.Decoded, tt.field, enc)
 		}
 	}
 	// The stored value is not on the wire: the view's fields already show it.
-	out, err := json.Marshal(Render(Event{ClassUID: 1007, Payload: payload(tests[0].js)}, nil).Decoded)
+	out, err := json.Marshal(Render(Event{ClassUID: 1007, Payload: payload(tests[0].js)}, nil, nil).Decoded)
 	if err != nil || strings.Contains(string(out), "tored") {
 		t.Errorf("decoded on the wire = %s, %v; want field, encoding and text only", out, err)
 	}

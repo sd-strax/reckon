@@ -32,7 +32,9 @@ func (*apiActivityNormalizer) ClassUID() int { return 6003 }
 // is_service_account only when known, addresses in canonical text, adr/0357
 // 5: a cloud account's type named by OCSF's caption, an unknown one
 // Other, adr/0367
-func (*apiActivityNormalizer) Version() int { return 5 }
+// 6: the account minted for each user object recorded in user_accounts,
+// adr/0398
+func (*apiActivityNormalizer) Version() int { return 6 }
 
 func (n *apiActivityNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
@@ -100,9 +102,13 @@ var userTypes = map[int]string{1: "User", 2: "Admin", 3: "System", 4: "Service",
 //
 // actor is the OCSF actor object the caller is read from: the event's own on
 // an API call, an artifact's on a cloud detection finding (§4.12, adr/0356).
+// The principal is recorded under the place of the actor's user (adr/0398).
 func (b *resultBuilder) cloudPrincipal(provider string, actor at) identity.STIXID {
 	userID, fromSession := durablePrincipalID(provider, actor)
-	return b.cloudUser(provider, userID, objectAt(actor.obj, actor.path+".user"), fromSession, credentialUID(actor))
+	user := at{obj: actor.obj, path: actor.path + ".user", in: actor.in}
+	id := b.cloudUser(provider, userID, objectAt(user.obj, user.path), fromSession, credentialUID(actor))
+	b.recordAccount(user.place(), id)
+	return id
 }
 
 // cloudHome links a cloud principal to its own account, the one
