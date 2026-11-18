@@ -9,6 +9,13 @@ import (
 	"github.com/sd-strax/reckon/capability"
 )
 
+// CapabilitiesResponse is GET /api/capabilities. CaseQueue is the tenant's
+// case queue, sent only when one is configured.
+type CapabilitiesResponse struct {
+	Capabilities []capability.CapabilitySummary `json:"capabilities"`
+	CaseQueue    string                         `json:"case_queue,omitempty"`
+}
+
 // listCapabilities serves GET /api/capabilities. Returns 503 when the capability
 // layer is not configured (no tenant capability YAML); otherwise the verb
 // summaries with their availability. Read requires viewer/analyst/auditor.
@@ -19,11 +26,11 @@ func (b *Backend) listCapabilities(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	summaries := resolver.ListCapabilities(catalog)
-	body := map[string]any{"capabilities": summaries}
 	// The tenant's case queue (14 §4.2) rides the catalog response: it is
 	// the SoR surface's one piece of standing config the picker needs.
-	if q := resolver.PolicyString(capability.PolicyCaseQueue); q != "" {
-		body["case_queue"] = q
+	body := CapabilitiesResponse{
+		Capabilities: summaries,
+		CaseQueue:    resolver.PolicyString(capability.PolicyCaseQueue),
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(body)

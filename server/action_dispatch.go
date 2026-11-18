@@ -17,11 +17,11 @@ import (
 // policy's accountable human, 04 §3.3) and triggers the ActionLifecycle
 // workflow. Returns the resulting status + workflow id. A missing accountable or
 // a trigger failure degrades to PENDING_MANUAL rather than dropping the action.
-func (b *Backend) autoApproveAndDispatch(ctx context.Context, reqEnv aggregate.Envelope, cmd aggregate.RequestAction, decision action.Decision, now time.Time) (status, workflowID string) {
+func (b *Backend) autoApproveAndDispatch(ctx context.Context, reqEnv aggregate.Envelope, cmd aggregate.RequestAction, decision action.Decision, now time.Time) (status ActionRequestStatus, workflowID string) {
 	if decision.PolicyAccountable == "" {
 		log.Printf("action %s: AUTO_POLICY matched %s but no accountable human; leaving for manual approval",
 			cmd.ActionID, decision.MatchedPolicyRef)
-		return "PENDING_MANUAL", ""
+		return RequestPendingManual, ""
 	}
 
 	// The approval is attributed to the policy's accountable human, who is
@@ -48,7 +48,7 @@ func (b *Backend) autoApproveAndDispatch(ctx context.Context, reqEnv aggregate.E
 	})
 	if err != nil {
 		log.Printf("action %s: auto-approve failed: %v", cmd.ActionID, err)
-		return "PENDING_MANUAL", ""
+		return RequestPendingManual, ""
 	}
 	// Trigger the durable dispatch workflow. If the trigger fails, the
 	// action is APPROVED and durable in the event log, and the stranded-action
@@ -64,7 +64,7 @@ func (b *Backend) autoApproveAndDispatch(ctx context.Context, reqEnv aggregate.E
 		Parameters:    cmd.Parameters,
 		ReversalOfRef: cmd.ReversalOfRef,
 	})
-	return "APPROVED", wfID
+	return RequestApproved, wfID
 }
 
 // dispatchSpec is the frozen action content needed to start the durable

@@ -20,6 +20,11 @@ const (
 	StatusUnavailable CapabilityStatus = "unavailable"
 )
 
+// WireValues lists every capability status, in the order declared above.
+func (CapabilityStatus) WireValues() []string {
+	return []string{string(StatusAvailable), string(StatusDegraded), string(StatusUnavailable)}
+}
+
 // ActionAvailability is an action type's current dispatchability in the
 // tenant (design/08-write-side-actions.md §3). It is a type of its own, not
 // CapabilityStatus, because the two can grow apart.
@@ -33,3 +38,8 @@ const (
 	// ActionUnavailable: no binding with a configured, enabled adapter.
 	ActionUnavailable ActionAvailability = "unavailable"
 )
+
+// WireValues lists every action availability, in the order declared above.
+func (ActionAvailability) WireValues() []string {
+	return []string{string(ActionAvailable), string(ActionDegraded), string(ActionUnavailable)}
+}

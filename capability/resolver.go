@@ -25,6 +25,14 @@ const (
 	CoverageFailed               Coverage = "FAILED"                // healthy bindings called, all errored
 )
 
+// WireValues lists every coverage, in the order declared above.
+func (Coverage) WireValues() []string {
+	return []string{
+		string(CoverageComplete), string(CoveragePartial), string(CoverageUnavailableTenant),
+		string(CoverageUnavailableTransient), string(CoverageFailed),
+	}
+}
+
 // TimeWindow is a verb's [from, to] time bound.
 type TimeWindow struct {
 	From time.Time
@@ -363,7 +371,7 @@ func nullObservation(ids *identity.Resolver, verb string, input CallInput, sourc
 		Subject:    input.Entity,
 		Parameters: params,
 		Sources:    append([]string(nil), sources...),
-		Coverage:   string(CoverageComplete),
+		Coverage:   CoverageComplete,
 		ObjectRefs: subjectRefs(ids, input.Entity),
 		ObservedAt: now.UTC(),
 		Provenance: Provenance{

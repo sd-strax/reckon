@@ -36,10 +36,10 @@ type ResolveOutcomeBody struct {
 
 // ActionDecisionResponse reports where an approve/reject left the action.
 type ActionDecisionResponse struct {
-	ActionID   string `json:"action_id"`
-	Status     string `json:"status"`
-	Stage      string `json:"stage,omitempty"`
-	WorkflowID string `json:"workflow_id,omitempty"`
+	ActionID   string                 `json:"action_id"`
+	Status     aggregate.ActionStatus `json:"status"`
+	Stage      aggregate.AuthStage    `json:"stage,omitempty"`
+	WorkflowID string                 `json:"workflow_id,omitempty"`
 }
 
 // approveAction handles POST /api/actions/{id}/approve. It honors the frozen
@@ -105,7 +105,7 @@ func (b *Backend) approveAction(w http.ResponseWriter, r *http.Request, actionID
 		writeCommandError(w, "approve action", err)
 		return
 	}
-	resp := ActionDecisionResponse{ActionID: actionID.String(), Stage: auth.Stage}
+	resp := ActionDecisionResponse{ActionID: actionID.String(), Stage: aggregate.AuthStage(auth.Stage)}
 	if willApprove {
 		resp.Status = aggregate.ActionStatusApproved
 		resp.WorkflowID = b.startActionWorkflow(r.Context(), dispatchSpec{
@@ -286,7 +286,7 @@ func (b *Backend) resolveActionOutcome(w http.ResponseWriter, r *http.Request, a
 	// here (adr/0101). The owner's confirmation stays a separate human act.
 	ac.Status = body.Outcome
 	b.markDependenciesSent(r.Context(), ac)
-	resp := ActionDecisionResponse{ActionID: actionID.String(), Status: body.Outcome}
+	resp := ActionDecisionResponse{ActionID: actionID.String(), Status: aggregate.ActionStatus(body.Outcome)}
 	if ac.ReversalOfRef != uuid.Nil && body.Outcome == aggregate.ActionStatusSucceeded {
 		resp.WorkflowID = b.startActionWorkflow(r.Context(), specFromCurrent(ac))
 	}

@@ -50,6 +50,15 @@ const (
 	StatusRetired   = "retired"
 )
 
+// SOPStatus is a SOP's status as a served shape carries it. The words are the
+// untyped constants above.
+type SOPStatus string
+
+// WireValues lists every SOP status, in the order declared above.
+func (SOPStatus) WireValues() []string {
+	return []string{StatusDraft, StatusInReview, StatusPublished, StatusRetired}
+}
+
 // SOPSource points at the system of origin for imported institutional
 // knowledge (a Confluence page, a wiki doc, a file). URL is the lineage key
 // for re-imports: importing the same URL again revises the SOP in place, the
@@ -70,7 +79,7 @@ type SOP struct {
 	Title          string     `json:"title"`
 	Body           string     `json:"body"`
 	Tags           []string   `json:"tags"`
-	Status         string     `json:"status"`
+	Status         SOPStatus  `json:"status"`
 	Recommendation string     `json:"recommendation,omitempty"`
 	AuthorID       string     `json:"author_id,omitempty"`
 	SignerID       string     `json:"signer_id,omitempty"`
@@ -104,6 +113,11 @@ const (
 	ImportRevised   ImportOutcome = "revised"
 	ImportUnchanged ImportOutcome = "unchanged"
 )
+
+// WireValues lists every import outcome, in the order declared above.
+func (ImportOutcome) WireValues() []string {
+	return []string{string(ImportCreated), string(ImportRevised), string(ImportUnchanged)}
+}
 
 // Store is the SOP corpus, backed by the memory substrate.
 type Store struct {
@@ -485,7 +499,7 @@ func lineageOf(tags []string) (uuid.UUID, bool) {
 }
 
 // sopStatus maps a substrate entry status to the SOP status string.
-func sopStatus(st substrate.Status) string {
+func sopStatus(st substrate.Status) SOPStatus {
 	switch st {
 	case substrate.StatusPublished:
 		return StatusPublished

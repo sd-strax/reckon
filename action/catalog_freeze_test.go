@@ -84,7 +84,7 @@ func TestDefaultActionCatalog_Frozen(t *testing.T) {
 			t.Errorf("frozen action type %q missing from catalog", at)
 			continue
 		}
-		if d.DefaultTier != w.tier {
+		if string(d.DefaultTier) != w.tier {
 			t.Errorf("%s: tier = %q; frozen %q", at, d.DefaultTier, w.tier)
 		}
 		if d.Reversibility != w.reversibility {

@@ -34,12 +34,28 @@ type RequestActionBody struct {
 // RequestActionResponse reports the created reckon-action and how authorization
 // resolved.
 type RequestActionResponse struct {
-	ActionID         string `json:"action_id"`
-	Tier             string `json:"tier"`
-	Status           string `json:"status"` // PENDING_MANUAL | PENDING_TWO_PARTY | APPROVED
-	Mode             string `json:"mode"`
-	MatchedPolicyRef string `json:"matched_policy_ref,omitempty"`
-	WorkflowID       string `json:"workflow_id,omitempty"`
+	ActionID         string              `json:"action_id"`
+	Tier             aggregate.Tier      `json:"tier"`
+	Status           ActionRequestStatus `json:"status"`
+	Mode             aggregate.AuthMode  `json:"mode"`
+	MatchedPolicyRef string              `json:"matched_policy_ref,omitempty"`
+	WorkflowID       string              `json:"workflow_id,omitempty"`
+}
+
+// ActionRequestStatus is where a request left the new action: waiting for a
+// person, waiting for two, or approved by a policy.
+type ActionRequestStatus string
+
+// The statuses a request answers with.
+const (
+	RequestPendingManual   ActionRequestStatus = "PENDING_MANUAL"
+	RequestPendingTwoParty ActionRequestStatus = "PENDING_TWO_PARTY"
+	RequestApproved        ActionRequestStatus = "APPROVED"
+)
+
+// WireValues lists every request status, in the order declared above.
+func (ActionRequestStatus) WireValues() []string {
+	return []string{string(RequestPendingManual), string(RequestPendingTwoParty), string(RequestApproved)}
 }
 
 // ActionView is one row of GET /api/investigations/{id}/actions — the action
@@ -47,11 +63,11 @@ type RequestActionResponse struct {
 // projection's raw lifecycle status (REQUESTED/PENDING_SECONDARY/APPROVED/…);
 // required_mode says what approval the request still needs (MANUAL/TWO_PARTY).
 type ActionView struct {
-	ActionID     string `json:"action_id"`
-	ActionType   string `json:"action_type"`
-	Tier         string `json:"tier"`
-	Status       string `json:"status"`
-	RequiredMode string `json:"required_mode,omitempty"`
+	ActionID     string                 `json:"action_id"`
+	ActionType   string                 `json:"action_type"`
+	Tier         aggregate.Tier         `json:"tier"`
+	Status       aggregate.ActionStatus `json:"status"`
+	RequiredMode aggregate.AuthMode     `json:"required_mode,omitempty"`
 	// Outcome is the recorded final outcome (SUCCEEDED | FAILED | PARTIAL |
 	// TIMEOUT), or a person's resolution of an unknown one. Empty until one
 	// is recorded. Status folds PARTIAL into SUCCEEDED and TIMEOUT into
@@ -68,7 +84,7 @@ type ActionView struct {
 	// two-party card awaiting its second approval leaves them out of the
 	// candidates, since the aggregate requires two distinct humans.
 	PrimaryApproverRef string                 `json:"primary_approver_ref,omitempty"`
-	Mode               string                 `json:"mode,omitempty"`
+	Mode               aggregate.AuthMode     `json:"mode,omitempty"`
 	IsReversal         bool                   `json:"is_reversal,omitempty"`
 	Targets            []aggregate.TargetSpec `json:"targets,omitempty"`
 	EvidenceRefs       []string               `json:"evidence_refs,omitempty"`
@@ -128,6 +144,11 @@ type ActionView struct {
 	ResultRef string `json:"result_ref,omitempty"`
 }
 
+// ActionsResponse is GET /api/investigations/{id}/actions.
+type ActionsResponse struct {
+	Actions []ActionView `json:"actions"`
+}
+
 // listInvestigationActions serves GET /api/investigations/{id}/actions: every
 // reckon-action of the investigation, oldest first. This is how a surface recovers
 // the pending-approval queue after the turn that proposed an action is gone —
@@ -154,7 +175,7 @@ func (b *Backend) listInvestigationActions(w http.ResponseWriter, r *http.Reques
 		v.Outcome = outcomes[a.ActionID]
 		out = append(out, v)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"actions": out})
+	writeJSON(w, http.StatusOK, ActionsResponse{Actions: out})
 }
 
 // EditableInput is one parameter an edit may set (adr/0127).
@@ -170,12 +191,12 @@ func (b *Backend) actionView(a aggregate.ActionCurrent) ActionView {
 	v := ActionView{
 		ActionID:              a.ActionID.String(),
 		ActionType:            a.ActionType,
-		Tier:                  a.Tier,
-		Status:                a.Status,
-		RequiredMode:          a.RequiredMode,
+		Tier:                  aggregate.Tier(a.Tier),
+		Status:                aggregate.ActionStatus(a.Status),
+		RequiredMode:          aggregate.AuthMode(a.RequiredMode),
 		SecondaryApproverPool: a.SecondaryApproverPool,
 		PrimaryApproverRef:    a.PrimaryApprover,
-		Mode:                  a.Mode,
+		Mode:                  aggregate.AuthMode(a.Mode),
 		IsReversal:            a.IsReversal,
 		Targets:               a.Targets,
 		EvidenceRefs:          a.EvidenceRefs,
@@ -214,7 +235,7 @@ func (b *Backend) actionView(a aggregate.ActionCurrent) ActionView {
 	// for the type vs the frozen tier on the action.
 	if b.cfg.ActionCatalog != nil {
 		if d, ok := b.cfg.ActionCatalog.Descriptor(a.ActionType); ok {
-			v.TierEscalated = d.DefaultTier != a.Tier && a.Tier == aggregate.TierT3
+			v.TierEscalated = string(d.DefaultTier) != a.Tier && a.Tier == aggregate.TierT3
 			// The human name and category the surfaces show (#123).
 			v.Name, v.Category = d.Name, d.Category
 			for _, in := range d.Inputs {
@@ -246,6 +267,11 @@ func (b *Backend) actionView(a aggregate.ActionCurrent) ActionView {
 	return v
 }
 
+// ActionTypesResponse is GET /api/action-types.
+type ActionTypesResponse struct {
+	ActionTypes []action.ActionSummary `json:"action_types"`
+}
+
 // listActionTypes serves GET /api/action-types: the write-side catalog with
 // per-type dispatchability (08 §3), the symmetric twin of GET /api/capabilities.
 // This is how the agent learns the real, frozen action vocabulary (host.isolate,
@@ -258,7 +284,7 @@ func (b *Backend) listActionTypes(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	summaries := resolver.ListActionTypes(b.cfg.ActionCatalog)
-	writeJSON(w, http.StatusOK, map[string]any{"action_types": summaries})
+	writeJSON(w, http.StatusOK, ActionTypesResponse{ActionTypes: summaries})
 }
 
 // requestAction handles POST /api/actions: the agent-facing request_action tool
@@ -397,10 +423,10 @@ func (b *Backend) dispatchActionRequest(w http.ResponseWriter, r *http.Request, 
 	}
 	resp := RequestActionResponse{
 		ActionID:         cmd.ActionID.String(),
-		Tier:             cmd.Tier,
-		Mode:             decision.Mode,
+		Tier:             aggregate.Tier(cmd.Tier),
+		Mode:             aggregate.AuthMode(decision.Mode),
 		MatchedPolicyRef: decision.MatchedPolicyRef,
-		Status:           "PENDING_MANUAL",
+		Status:           RequestPendingManual,
 	}
 	// Invisible activate at the action boundary (01 §Extension 2): the first
 	// action of a DRAFT investigation always gets a human — that approval is the
@@ -415,7 +441,7 @@ func (b *Backend) dispatchActionRequest(w http.ResponseWriter, r *http.Request, 
 	switch decision.Mode {
 	case action.ModeAutoPolicy:
 		if draft {
-			resp.Status = "PENDING_MANUAL" // held for the activating human approval
+			resp.Status = RequestPendingManual // held for the activating human approval
 		} else {
 			resp.Status, resp.WorkflowID = b.autoApproveAndDispatch(r.Context(), env, cmd, decision, now)
 		}
@@ -423,7 +449,7 @@ func (b *Backend) dispatchActionRequest(w http.ResponseWriter, r *http.Request, 
 		// Gate 2's REQUIRE_TWO_PARTY demand is frozen on the action: the approve
 		// endpoint honors it (action_approval.go) and the aggregate rejects a solo
 		// approval, so this path only reports the pending status.
-		resp.Status = "PENDING_TWO_PARTY"
+		resp.Status = RequestPendingTwoParty
 	}
 
 	// A pending action gets its durable expiry timer (02 §3: ActionExpired is
@@ -431,7 +457,7 @@ func (b *Backend) dispatchActionRequest(w http.ResponseWriter, r *http.Request, 
 	// invariant (the approve path refuses past it regardless), so a missed
 	// start only delays the stored-status transition — the startup sweep
 	// backstops it.
-	if resp.Status == "PENDING_MANUAL" || resp.Status == "PENDING_TWO_PARTY" {
+	if resp.Status == RequestPendingManual || resp.Status == RequestPendingTwoParty {
 		b.startExpiryTimer(r.Context(), cmd.ActionID, env.AggregateID, env.TenantID, cmd.ExpiresAt)
 	}
 

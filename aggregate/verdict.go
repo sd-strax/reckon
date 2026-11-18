@@ -25,6 +25,14 @@ const (
 	VerdictMalicious  = "MALICIOUS"
 )
 
+// VerdictDisposition is a verdict's disposition as a served view carries it.
+type VerdictDisposition string
+
+// WireValues lists every disposition, in the order declared above.
+func (VerdictDisposition) WireValues() []string {
+	return []string{VerdictBenign, VerdictSuspicious, VerdictMalicious}
+}
+
 // VerdictNode is the verdict payload carried on a RecordInterpretation of
 // type "verdict". The rationale/evidence travel on the interpretation itself
 // (Rationale required as always; InputRefs must be non-empty — no verdict

@@ -354,14 +354,14 @@ func (b *Backend) recordInterpretation(w http.ResponseWriter, r *http.Request) {
 // HypothesisView is one hypothesis with its predictions nested — the shape the
 // reasoning panel renders.
 type HypothesisView struct {
-	ID          string           `json:"id"`
-	Statement   string           `json:"statement"`
-	Handle      string           `json:"handle,omitempty"`
-	Status      string           `json:"status"`
-	ParentRef   string           `json:"parent_ref,omitempty"`
-	RootedAtRef string           `json:"rooted_at_ref,omitempty"`
-	Labels      []string         `json:"labels,omitempty"`
-	Predictions []PredictionView `json:"predictions,omitempty"`
+	ID          string                     `json:"id"`
+	Statement   string                     `json:"statement"`
+	Handle      string                     `json:"handle,omitempty"`
+	Status      aggregate.HypothesisStatus `json:"status"`
+	ParentRef   string                     `json:"parent_ref,omitempty"`
+	RootedAtRef string                     `json:"rooted_at_ref,omitempty"`
+	Labels      []string                   `json:"labels,omitempty"`
+	Predictions []PredictionView           `json:"predictions,omitempty"`
 }
 
 // PredictionView is one prediction row in a HypothesisView. TestQuery is the
@@ -373,9 +373,9 @@ type PredictionView struct {
 	Statement string `json:"statement"`
 	// Title is the short name the record holds (adr/0090); TitleDerived says
 	// the aggregate derived it from the statement. Surfaces show it as is.
-	Title        string `json:"title"`
-	TitleDerived bool   `json:"title_derived,omitempty"`
-	Status       string `json:"status"`
+	Title        string                     `json:"title"`
+	TitleDerived bool                       `json:"title_derived,omitempty"`
+	Status       aggregate.PredictionStatus `json:"status"`
 	// Ordinal is the prediction's short name, P1, P2, … in the order
 	// predictions were recorded across the investigation (adr/0047): what
 	// the tracker, the composer, the agent's reasoning-state block and an
@@ -387,7 +387,7 @@ type PredictionView struct {
 	TestResultRefs []string             `json:"test_result_refs,omitempty"`
 	// TestKind is tool or manual (adr/0054): manual means a person's answer
 	// decides it and the analyst records the result; the agent cannot.
-	TestKind string `json:"test_kind,omitempty"`
+	TestKind aggregate.TestKind `json:"test_kind,omitempty"`
 	// Attestation is the human observation the outcome cites, when it has
 	// one — rendered as "attested by … by phone: …", distinct from telemetry.
 	Attestation *AttestationView `json:"attestation,omitempty"`
@@ -428,6 +428,11 @@ func attestationView(a *aggregate.AttestationRecorded) *AttestationView {
 	return v
 }
 
+// HypothesesResponse is GET /api/investigations/{id}/hypotheses.
+type HypothesesResponse struct {
+	Hypotheses []HypothesisView `json:"hypotheses"`
+}
+
 // listInvestigationHypotheses serves GET /api/investigations/{id}/hypotheses:
 // the investigation's reasoning nodes, predictions nested under the hypothesis
 // they test.
@@ -455,12 +460,12 @@ func (b *Backend) listInvestigationHypotheses(w http.ResponseWriter, r *http.Req
 			Statement:      p.Statement,
 			Title:          p.Title,
 			TitleDerived:   p.TitleDerived,
-			Status:         p.Status,
+			Status:         aggregate.PredictionStatus(p.Status),
 			Ordinal:        i + 1, // ListPredictions is in record order
 			TestQuery:      p.TestQuery,
 			Discriminates:  p.Discriminates,
 			TestResultRefs: p.TestResultRefs,
-			TestKind:       p.TestKind,
+			TestKind:       aggregate.TestKind(p.TestKind),
 			Attestation:    attestationView(p.Attestation),
 		})
 	}
@@ -470,12 +475,12 @@ func (b *Backend) listInvestigationHypotheses(w http.ResponseWriter, r *http.Req
 			ID:          h.ID,
 			Statement:   h.Statement,
 			Handle:      h.Handle,
-			Status:      h.Status,
+			Status:      aggregate.HypothesisStatus(h.Status),
 			ParentRef:   h.ParentRef,
 			RootedAtRef: h.RootedAtRef,
 			Labels:      h.Labels,
 			Predictions: byHypothesis[h.ID],
 		})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"hypotheses": out})
+	writeJSON(w, http.StatusOK, HypothesesResponse{Hypotheses: out})
 }

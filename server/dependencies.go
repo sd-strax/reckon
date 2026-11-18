@@ -42,7 +42,7 @@ type DependencyView struct {
 	Title          string                  `json:"title"`
 	Owner          string                  `json:"owner"`
 	Detail         string                  `json:"detail,omitempty"`
-	Status         string                  `json:"status"`
+	Status         dependency.Status       `json:"status"`
 	NotifyActionID string                  `json:"notify_action_id,omitempty"`
 	ExternalRef    string                  `json:"external_ref,omitempty"`
 	CreatedBy      string                  `json:"created_by"`
@@ -61,7 +61,7 @@ func dependencyView(d dependency.Dependency) DependencyView {
 		Title:          d.Title,
 		Owner:          d.Owner,
 		Detail:         d.Detail,
-		Status:         d.Status,
+		Status:         dependency.Status(d.Status),
 		ExternalRef:    d.ExternalRef,
 		CreatedBy:      d.CreatedBy,
 		CreatedByName:  d.CreatedByName,
@@ -83,6 +83,11 @@ func dependencyView(d dependency.Dependency) DependencyView {
 	return v
 }
 
+// DependenciesResponse is GET /api/investigations/{id}/dependencies.
+type DependenciesResponse struct {
+	Dependencies []DependencyView `json:"dependencies"`
+}
+
 // listInvestigationDependencies serves GET /api/investigations/{id}/dependencies.
 func (b *Backend) listInvestigationDependencies(w http.ResponseWriter, r *http.Request, invID uuid.UUID) {
 	if !b.dependenciesConfigured(w) {
@@ -97,7 +102,7 @@ func (b *Backend) listInvestigationDependencies(w http.ResponseWriter, r *http.R
 	for _, d := range deps {
 		out = append(out, dependencyView(d))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"dependencies": out})
+	writeJSON(w, http.StatusOK, DependenciesResponse{Dependencies: out})
 }
 
 // CreateDependencyBody is POST /api/investigations/{id}/dependencies.

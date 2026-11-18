@@ -8,7 +8,7 @@
   "params_sent": {
     "x": 1
   },
-  "coverage": "x",
+  "coverage": "COMPLETE",
   "bindings_answered": 1,
   "bindings_total": 1,
   "null_observation_ref": "x",

@@ -19,13 +19,19 @@ import (
 
 // AppearanceView is one investigation a ref appears in.
 type AppearanceView struct {
-	InvestigationID string     `json:"investigation_id"`
-	Title           string     `json:"title"`
-	Status          string     `json:"status"`
-	SeedSummary     string     `json:"seed_summary,omitempty"`
-	FirstSeen       *time.Time `json:"first_seen,omitempty"`
-	LastSeen        *time.Time `json:"last_seen,omitempty"`
-	Mentions        int        `json:"mentions"`
+	InvestigationID string                        `json:"investigation_id"`
+	Title           string                        `json:"title"`
+	Status          aggregate.InvestigationStatus `json:"status"`
+	SeedSummary     string                        `json:"seed_summary,omitempty"`
+	FirstSeen       *time.Time                    `json:"first_seen,omitempty"`
+	LastSeen        *time.Time                    `json:"last_seen,omitempty"`
+	Mentions        int                           `json:"mentions"`
+}
+
+// AppearancesResponse is GET /api/entities/{ref}/appearances.
+type AppearancesResponse struct {
+	Appearances []AppearanceView `json:"appearances"`
+	Ref         string           `json:"ref"`
 }
 
 // listRefAppearances serves GET /api/entities/{ref}/appearances: every
@@ -65,7 +71,7 @@ func (b *Backend) listRefAppearances(w http.ResponseWriter, r *http.Request) {
 		v := AppearanceView{
 			InvestigationID: a.AggregateID.String(),
 			Title:           a.Title,
-			Status:          a.Status,
+			Status:          aggregate.InvestigationStatus(a.Status),
 			SeedSummary:     a.SeedSummary,
 			Mentions:        a.Mentions,
 		}
@@ -79,7 +85,7 @@ func (b *Backend) listRefAppearances(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, v)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ref": ref, "appearances": out})
+	writeJSON(w, http.StatusOK, AppearancesResponse{Appearances: out, Ref: ref})
 }
 
 // refAppearances lists the appearances of every ref, one row per
@@ -119,6 +125,15 @@ func (b *Backend) refAppearances(r *http.Request, refs []string) ([]aggregate.Re
 	return out, nil
 }
 
+// TranscriptResponse is GET /api/interpretations/{id}/transcript: the
+// committed turn record behind a thread step.
+type TranscriptResponse struct {
+	Body             string `json:"body"`
+	ContentHash      string `json:"content_hash"`
+	InterpretationID string `json:"interpretation_id"`
+	TurnID           string `json:"turn_id"`
+}
+
 // getInterpretationTranscript serves GET /api/interpretations/{id}/transcript:
 // the full committed turn record behind a thread step (02 §6 Layer B — the
 // content-addressed side store; the event carries the hash, this serves the
@@ -153,10 +168,10 @@ func (b *Backend) getInterpretationTranscript(w http.ResponseWriter, r *http.Req
 		writeInternalError(w, "query transcript", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"interpretation_id": interpID.String(),
-		"turn_id":           rec.TranscriptRef.TurnID,
-		"content_hash":      rec.TranscriptRef.ContentHash,
-		"body":              string(body),
+	writeJSON(w, http.StatusOK, TranscriptResponse{
+		Body:             string(body),
+		ContentHash:      rec.TranscriptRef.ContentHash,
+		InterpretationID: interpID.String(),
+		TurnID:           rec.TranscriptRef.TurnID,
 	})
 }

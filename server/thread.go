@@ -38,15 +38,15 @@ type ThreadActorView struct {
 
 // ThreadEntryView is one reasoning act in the thread.
 type ThreadEntryView struct {
-	SequenceNo         int64           `json:"sequence_no"`
-	OccurredAt         time.Time       `json:"occurred_at"`
-	Actor              ThreadActorView `json:"actor"`
-	InterpretationID   string          `json:"interpretation_id"`
-	InterpretationType string          `json:"interpretation_type"`
-	Summary            string          `json:"summary"`
-	Confidence         string          `json:"confidence,omitempty"`
-	InputRefs          []string        `json:"input_refs,omitempty"`
-	OutputRefs         []string        `json:"output_refs,omitempty"`
+	SequenceNo         int64                `json:"sequence_no"`
+	OccurredAt         time.Time            `json:"occurred_at"`
+	Actor              ThreadActorView      `json:"actor"`
+	InterpretationID   string               `json:"interpretation_id"`
+	InterpretationType string               `json:"interpretation_type"`
+	Summary            string               `json:"summary"`
+	Confidence         aggregate.Confidence `json:"confidence,omitempty"`
+	InputRefs          []string             `json:"input_refs,omitempty"`
+	OutputRefs         []string             `json:"output_refs,omitempty"`
 	// ToolCalls counts the act's recorded tool dispatches; HasTranscript
 	// reports a committed transcript in the side store. Presence indicators —
 	// the bodies stay in their stores (GET .../transcript serves the body).
@@ -61,7 +61,7 @@ type ThreadEntryView struct {
 	// Disposition is a verdict act's disposition (BENIGN | SUSPICIOUS |
 	// MALICIOUS), so the thread can say what a verdict was, and what a
 	// revision changed, without the rationale standing in for it.
-	Disposition string `json:"disposition,omitempty"`
+	Disposition aggregate.VerdictDisposition `json:"disposition,omitempty"`
 
 	// ConsultedSOPs is the act's knowledge-retrieval provenance
 	// (design/ui 02 §2.11 renders the chips).
@@ -69,6 +69,11 @@ type ThreadEntryView struct {
 
 	// ConsultedSimilar is the act's similar-investigation provenance (06 §6).
 	ConsultedSimilar []aggregate.ConsultedSimilarInvestigation `json:"consulted_similar_investigations,omitempty"`
+}
+
+// ThreadResponse is GET /api/investigations/{id}/thread.
+type ThreadResponse struct {
+	Thread []ThreadEntryView `json:"thread"`
 }
 
 // listInvestigationThread serves the thread. Any authenticated reader
@@ -83,7 +88,7 @@ func (b *Backend) listInvestigationThread(w http.ResponseWriter, r *http.Request
 		writeInternalError(w, "load thread", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"thread": out})
+	writeJSON(w, http.StatusOK, ThreadResponse{Thread: out})
 }
 
 // loadThread reassembles the thread views for one investigation — shared by
@@ -107,13 +112,13 @@ func (b *Backend) loadThread(ctx context.Context, invID uuid.UUID) ([]ThreadEntr
 			InterpretationID:   rec.InterpretationID.String(),
 			InterpretationType: rec.InterpretationType,
 			Summary:            rec.Summary,
-			Confidence:         rec.Confidence,
+			Confidence:         aggregate.Confidence(rec.Confidence),
 			InputRefs:          rec.InputRefs,
 			OutputRefs:         rec.OutputRefs,
 			ToolCalls:          len(rec.ToolCallRefs),
 			HasTranscript:      rec.TranscriptRef != nil,
 			Superseded:         a.Superseded,
-			Disposition:        disposition,
+			Disposition:        aggregate.VerdictDisposition(disposition),
 			ConsultedSOPs:      rec.ConsultedSOPs,
 			ConsultedSimilar:   rec.ConsultedSimilar,
 		})

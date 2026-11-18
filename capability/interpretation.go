@@ -23,6 +23,11 @@ const (
 	DerivationInferred DerivationMode = "INFERRED"
 )
 
+// WireValues lists every derivation mode, in the order declared above.
+func (DerivationMode) WireValues() []string {
+	return []string{string(DerivationDirect), string(DerivationInferred)}
+}
+
 // Edge (cross-layer) join types linking interpretation objects to the
 // telemetry OcsfEvent they came from (design/01 two-layer graph).
 const (
@@ -205,7 +210,7 @@ type NullObservation struct {
 	// Sources are the source_tools that answered (every binding that
 	// succeeded); Coverage is always COMPLETE — the condition of minting.
 	Sources  []string `json:"sources"`
-	Coverage string   `json:"coverage"`
+	Coverage Coverage `json:"coverage"`
 	// ObjectRefs links the absence to the subject's SCOs where the subject's
 	// identity is unambiguous from the call input alone (an address, a domain,
 	// a URL, a host); an account is left in Subject until entity shaping is

@@ -12,8 +12,8 @@
     {
       "action_id": "x",
       "action_type": "x",
-      "tier": "x",
-      "status": "x",
+      "tier": "T1",
+      "status": "PENDING_MANUAL",
       "targets": [
         "x"
       ],
