@@ -2,7 +2,7 @@
   "action_tools": [
     {
       "Name": "request_host_isolate",
-      "Description": "Isolate a host. Tier T2, REVERSIBLE. The request goes through authorization policy. You propose it and never approve it, and most requests wait for the analyst's approval. Cite the refs that ground it in evidence_refs; a request with no evidence is refused.",
+      "Description": "Action type: host.isolate. Isolate a host. Tier T2, REVERSIBLE. The request goes through authorization policy. You propose it and never approve it, and most requests wait for the analyst's approval. Cite the refs that ground it in evidence_refs; a request with no evidence is refused.",
       "InputSchema": {
         "properties": {
           "evidence_refs": {
@@ -58,7 +58,7 @@
     },
     {
       "Name": "request_ioc_block",
-      "Description": "Block an indicator. Tier T2, BEST_EFFORT. Unavailable: this action cannot be carried out in this install.",
+      "Description": "Action type: ioc.block. Block an indicator. Tier T2, BEST_EFFORT. Unavailable: this action cannot be carried out in this install.",
       "InputSchema": {
         "properties": {
           "evidence_refs": {
@@ -109,7 +109,7 @@
     },
     {
       "Name": "request_ticket_create",
-      "Description": "Open a ticket. Tier T1, IRREVERSIBLE. Degraded: the tool behind it is not fully healthy, so the request may not dispatch. The request goes through authorization policy. You propose it and never approve it, and most requests wait for the analyst's approval. Cite the refs that ground it in evidence_refs; a request with no evidence is refused.",
+      "Description": "Action type: ticket.create. Open a ticket. Tier T1, IRREVERSIBLE. Degraded: the tool behind it is not fully healthy, so the request may not dispatch. The request goes through authorization policy. You propose it and never approve it, and most requests wait for the analyst's approval. Cite the refs that ground it in evidence_refs; a request with no evidence is refused.",
       "InputSchema": {
         "properties": {
           "evidence_refs": {
