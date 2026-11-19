@@ -562,3 +562,81 @@ func TestIdempotencyKeyDeterministic(t *testing.T) {
 		t.Error("different actions should yield different keys")
 	}
 }
+
+// TestResolve_NotSent (adr/0384): every way the frozen binding can fail before
+// the outbound call is a NotSentError whose reason names what broke, and no
+// adapter is called. An error the adapter itself returns is never one: the
+// call was made.
+func TestResolve_NotSent(t *testing.T) {
+	frozen := aggregate.FrozenBinding{Adapter: "edr", Operation: "contain"}
+	bound := ActionBinding{ActionType: "host.isolate", Adapter: "edr", Operation: "contain", Priority: 100,
+		Params: map[string]any{"device_id": "${target.resolved_identifier}"}}
+	for _, c := range []struct {
+		name     string
+		bindings []ActionBinding
+		enabled  bool
+		scope    string
+		binding  aggregate.FrozenBinding
+		want     string
+	}{
+		{"no frozen binding", []ActionBinding{bound}, true, "", aggregate.FrozenBinding{}, "action host.isolate has no binding frozen at request"},
+		{"binding gone", nil, true, "", frozen, "operation contain on adapter edr is no longer bound to host.isolate"},
+		{"operation gone", []ActionBinding{{ActionType: "host.isolate", Adapter: "edr", Operation: "other", Priority: 100}}, true, "", frozen,
+			"operation contain on adapter edr is no longer bound to host.isolate"},
+		{"adapter not enabled", []ActionBinding{bound}, false, "", frozen, "adapter edr is not configured or not enabled"},
+		{"scope mismatch", []ActionBinding{func() ActionBinding { b := bound; b.Scope = "org-a"; return b }()}, true, "org-b", frozen,
+			`the binding on adapter edr is scoped to "org-a", and this investigation's scope is "org-b"`},
+		{"params no longer render", []ActionBinding{func() ActionBinding {
+			b := bound
+			b.Params = map[string]any{"device_id": "${target.resolved_identifier}", "note": "${parameters.note}"}
+			return b
+		}()}, true, "", frozen, "operation contain on adapter edr no longer renders: missing parameters.note"},
+	} {
+		edr := &stubWriteAdapter{name: "edr", healthy: true, result: okResult()}
+		adapters := map[string]WriteAdapter{}
+		if c.enabled {
+			adapters["edr"] = edr
+		}
+		r := NewActionResolver(map[string][]ActionBinding{"host.isolate": c.bindings}, adapters)
+		_, _, err := r.Resolve(context.Background(), DispatchRequest{
+			ActionID: uuid.New(), ActionType: "host.isolate", Targets: []aggregate.TargetSpec{target("WIN-A")},
+			SourceScope: c.scope, Binding: c.binding,
+		})
+		var ns *NotSentError
+		if !errors.As(err, &ns) || !errors.Is(err, ErrNotSent) {
+			t.Errorf("%s: err = %v; want a NotSentError", c.name, err)
+			continue
+		}
+		if ns.Reason != c.want {
+			t.Errorf("%s: reason = %q; want %q", c.name, ns.Reason, c.want)
+		}
+		if edr.calls != 0 {
+			t.Errorf("%s: the adapter was called %d times; want none", c.name, edr.calls)
+		}
+	}
+
+	// A template that fails to render (a transform refusing the value) is
+	// not sent too, the one reason whose cause is not ErrNoBinding.
+	tmplEdr := &stubWriteAdapter{name: "edr", healthy: true, result: okResult()}
+	badTemplate := bound
+	badTemplate.Params = map[string]any{"device_id": "${target.resolved_identifier | int}"}
+	tr := NewActionResolver(map[string][]ActionBinding{"host.isolate": {badTemplate}}, map[string]WriteAdapter{"edr": tmplEdr})
+	_, _, err := tr.Resolve(context.Background(), DispatchRequest{
+		ActionID: uuid.New(), ActionType: "host.isolate", Targets: []aggregate.TargetSpec{target("WIN-A")}, Binding: frozen,
+	})
+	var ns *NotSentError
+	if !errors.As(err, &ns) || !strings.HasPrefix(ns.Reason, "operation contain on adapter edr no longer renders: transform int") ||
+		errors.Is(err, ErrNoBinding) || tmplEdr.calls != 0 {
+		t.Errorf("template error: err = %v (calls %d); want a NotSentError naming the transform, not ErrNoBinding, nothing sent", err, tmplEdr.calls)
+	}
+
+	// The adapter's own fatal error is not "not sent": the call was made.
+	edr := &stubWriteAdapter{name: "edr", healthy: true, err: writeErrorf(WriteFatal, "boom")}
+	r := NewActionResolver(map[string][]ActionBinding{"host.isolate": {bound}}, map[string]WriteAdapter{"edr": edr})
+	_, _, err = r.Resolve(context.Background(), DispatchRequest{
+		ActionID: uuid.New(), ActionType: "host.isolate", Targets: []aggregate.TargetSpec{target("WIN-A")}, Binding: frozen,
+	})
+	if err == nil || errors.Is(err, ErrNotSent) || edr.calls != 1 {
+		t.Errorf("adapter fatal error: err = %v (calls %d); want the adapter's error, not a NotSentError", err, edr.calls)
+	}
+}

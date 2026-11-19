@@ -163,6 +163,42 @@ func validateBinding(actionType string, b ActionBinding, d ActionDescriptor, kno
 // action type — dispatch cannot proceed.
 var ErrNoBinding = errors.New("no applicable write binding")
 
+// ErrNotSent marks a dispatch that failed before the outbound call
+// (adr/0384): nothing reached the tool, so the tool cannot have acted.
+// Every such failure is a *NotSentError, which errors.Is matches to it.
+var ErrNotSent = errors.New("not sent")
+
+// NotSentError is a dispatch that failed before the outbound call
+// (adr/0384): the frozen binding is missing, no longer configured, not
+// enabled, out of scope, or its params no longer render. Reason says exactly
+// what broke. Cause is the underlying error: ErrNoBinding when no usable
+// binding carries the action, or the template error. A retry cannot help,
+// because the configuration does not change between attempts.
+type NotSentError struct {
+	Reason string
+	Cause  error
+}
+
+// NotSentPrefix opens every not-sent error's text, the error_detail an
+// action's record carries (adr/0384), so a reader sees nothing went out.
+const NotSentPrefix = "not sent: "
+
+// Error implements error: NotSentPrefix and the reason.
+func (e *NotSentError) Error() string { return NotSentPrefix + e.Reason }
+
+// Unwrap lets errors.Is match ErrNotSent and the cause.
+func (e *NotSentError) Unwrap() []error {
+	if e.Cause == nil {
+		return []error{ErrNotSent}
+	}
+	return []error{ErrNotSent, e.Cause}
+}
+
+// notSent builds a NotSentError.
+func notSent(cause error, format string, args ...any) *NotSentError {
+	return &NotSentError{Reason: fmt.Sprintf(format, args...), Cause: cause}
+}
+
 // candidate is a binding that could serve a request in a source scope, with
 // its configured adapter.
 type candidate struct {
@@ -227,14 +263,16 @@ type selection struct {
 }
 
 // frozenSelection finds the binding frozen on the request (adr/0406) and
-// renders its params. It never selects another binding. It fails, wrapping
-// ErrNoBinding, when the action has no frozen binding, when the binding is no
-// longer configured, enabled or in scope, or when its params no longer
-// render; nothing is sent then.
-func (r *ActionResolver) frozenSelection(req DispatchRequest) (selection, error) {
+// renders its params. It never selects another binding. Every way it fails
+// happens before the outbound call, so each is a *NotSentError naming what
+// broke (adr/0384): the action has no frozen binding; the binding is no
+// longer configured; its scope no longer matches the investigation's; its
+// adapter is not enabled; or its params no longer render. Each but a
+// template error also matches ErrNoBinding.
+func (r *ActionResolver) frozenSelection(req DispatchRequest) (selection, *NotSentError) {
 	fb := req.Binding
 	if fb.Adapter == "" || fb.Operation == "" {
-		return selection{}, fmt.Errorf("%w for action_type %q: the action has no binding frozen at request", ErrNoBinding, req.ActionType)
+		return selection{}, notSent(ErrNoBinding, "action %s has no binding frozen at request", req.ActionType)
 	}
 	var (
 		found ActionBinding
@@ -247,45 +285,48 @@ func (r *ActionResolver) frozenSelection(req DispatchRequest) (selection, error)
 		}
 	}
 	if !ok {
-		return selection{}, fmt.Errorf("%w for action_type %q: the binding chosen at request (%s %s) is no longer configured",
-			ErrNoBinding, req.ActionType, fb.Adapter, fb.Operation)
+		return selection{}, notSent(ErrNoBinding, "operation %s on adapter %s is no longer bound to %s", fb.Operation, fb.Adapter, req.ActionType)
 	}
-	adapter, usable := r.usableFor(found, req.SourceScope)
-	if !usable {
-		return selection{binding: found}, fmt.Errorf("%w for action_type %q: the binding chosen at request (%s %s) is no longer enabled or in scope",
-			ErrNoBinding, req.ActionType, fb.Adapter, fb.Operation)
+	if !capability.ScopeApplicable(found.Scope, req.SourceScope) {
+		return selection{binding: found}, notSent(ErrNoBinding, "the binding on adapter %s is scoped to %q, and this investigation's scope is %q", fb.Adapter, found.Scope, req.SourceScope)
+	}
+	adapter, enabled := r.configuredAdapter(found)
+	if !enabled {
+		return selection{binding: found}, notSent(ErrNoBinding, "adapter %s is not configured or not enabled", fb.Adapter)
 	}
 	tctx := dispatchContext(req)
 	params, applicable, err := capability.RenderParams(found.Params, tctx)
 	if err != nil {
-		return selection{binding: found}, fmt.Errorf("action_type %s, adapter %s: template render: %w", req.ActionType, found.Adapter, err)
+		return selection{binding: found}, notSent(err, "operation %s on adapter %s no longer renders: %v", fb.Operation, fb.Adapter, err)
 	}
 	if !applicable {
-		return selection{binding: found}, fmt.Errorf("%w for action_type %q: the params of the binding chosen at request (%s %s) no longer render: missing %s",
-			ErrNoBinding, req.ActionType, fb.Adapter, fb.Operation, strings.Join(missingRefs(found.Params, tctx), ", "))
+		return selection{binding: found}, notSent(ErrNoBinding, "operation %s on adapter %s no longer renders: missing %s",
+			fb.Operation, fb.Adapter, strings.Join(missingRefs(found.Params, tctx), ", "))
 	}
 	return selection{binding: found, adapter: adapter, params: params}, nil
 }
 
-// CheckFrozenParams reports whether the frozen binding of req still renders
-// its params (adr/0406). An edit of a request's parameters calls it with the
-// new parameters, and is refused on an error: the edited action could not be
-// carried out by the binding it was approved for.
-func (r *ActionResolver) CheckFrozenParams(req DispatchRequest) error {
-	_, err := r.frozenSelection(req)
-	return err
+// CheckFrozenParams reports whether the frozen binding of req can still carry
+// it, its params rendered (adr/0406). An edit of a request's parameters calls
+// it with the new parameters, and is refused on a non-nil answer, which names
+// what broke: the edited action could not be carried out by the binding it
+// was approved for.
+func (r *ActionResolver) CheckFrozenParams(req DispatchRequest) *NotSentError {
+	_, ns := r.frozenSelection(req)
+	return ns
 }
 
 // Resolve dispatches the request through its frozen binding (adr/0406): it
 // renders the binding's params against the frozen targets and parameters,
 // injects the action context and idempotency key, and dispatches exactly
 // once. It never selects another binding; when the frozen one cannot be used
-// it fails with nothing sent. It returns the binding used alongside the
-// result.
+// it fails with nothing sent, a *NotSentError (adr/0384). An error the
+// adapter returns is never a NotSentError: the call was made. It returns the
+// binding used alongside the result.
 func (r *ActionResolver) Resolve(ctx context.Context, req DispatchRequest) (WriteResult, ActionBinding, error) {
-	sel, err := r.frozenSelection(req)
-	if err != nil {
-		return WriteResult{}, sel.binding, err
+	sel, ns := r.frozenSelection(req)
+	if ns != nil {
+		return WriteResult{}, sel.binding, ns
 	}
 
 	// From here there is NO fall-through: this is the single outbound path
