@@ -154,8 +154,8 @@ func ActionLifecycle(ctx workflow.Context, in ActionLifecycleInput) (string, err
 	if dispErr != nil {
 		// Exhausted retries or FATAL: the honest residual (08 §6c). No success
 		// is ever inferred for an effect reckon cannot confirm. The audit's
-		// attempt count is real (04 §6.1): a FATAL error is non-retryable, so
-		// exactly one attempt ran; anything else exhausted the 3-attempt budget.
+		// attempt count is real (04 §6.1): a FATAL error carries the attempt it
+		// came on; anything else exhausted the 3-attempt budget.
 		// A NOT_SENT failure happened before the call, so it is recorded as
 		// nothing sent instead (adr/0384).
 		log.Warn("dispatch failed; recording FAILED", "action_id", in.ActionID, "error", dispErr)
@@ -171,6 +171,10 @@ func ActionLifecycle(ctx workflow.Context, in ActionLifecycleInput) (string, err
 			switch appErr.Type() {
 			case fatalErrorType:
 				result.Attempts = 1
+				var n int
+				if appErr.HasDetails() && appErr.Details(&n) == nil && n > 0 {
+					result.Attempts = n
+				}
 			case notSentErrorType:
 				// Nothing left reckon (adr/0384): the tool did not act on any
 				// target, and no call was made. No adapter is named, so the

@@ -282,7 +282,9 @@ func (a *Activities) DoDispatch(ctx context.Context, in DispatchInput) (Dispatch
 		}
 		var we *action.WriteError
 		if errors.As(err, &we) && we.Class == action.WriteFatal {
-			return DispatchOutput{}, sdktemporal.NewApplicationError(err.Error(), fatalErrorType)
+			// The attempt rides the error, so the record counts the calls
+			// made, earlier retryable ones included.
+			return DispatchOutput{}, sdktemporal.NewApplicationError(err.Error(), fatalErrorType, activityAttempt(ctx))
 		}
 		return DispatchOutput{}, err // RETRYABLE (or unclassified) → Temporal retries
 	}
