@@ -1,6 +1,6 @@
 # 0371 — Every email address is parsed and written back in its shortest RFC 5322 form before it is stored
 
-Issue: #371 · PR: pending · Status: proposed · Amends: adr/0357, adr/0095
+Issue: #371 · PR: #430 · Status: accepted · Amends: adr/0357, adr/0095
 
 ## Context
 
