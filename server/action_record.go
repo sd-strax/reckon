@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/sd-strax/reckon/action"
 	"github.com/sd-strax/reckon/aggregate"
 )
 
@@ -90,10 +91,12 @@ type ActionTargetResult struct {
 	Outcome string `json:"outcome"`
 }
 
-// ActionResultView is the terminal outcome of a dispatched action.
+// ActionResultView is the terminal outcome of a dispatched action. Attempts
+// is always written: 0 says no call was made, the record of a dispatch that
+// failed before the outbound call (adr/0384).
 type ActionResultView struct {
 	FinalOutcome   string               `json:"final_outcome"`
-	Attempts       int                  `json:"attempts,omitempty"`
+	Attempts       int                  `json:"attempts"`
 	Adapter        string               `json:"adapter,omitempty"`
 	ErrorDetail    string               `json:"error_detail,omitempty"`
 	RawResponseRef string               `json:"raw_response_ref,omitempty"`
@@ -242,7 +245,7 @@ func (b *Backend) loadActionRecord(ctx context.Context, actionID uuid.UUID) (Act
 			ok := 0
 			for _, k := range keys {
 				res.PerTarget = append(res.PerTarget, ActionTargetResult{Target: k, Outcome: p.PerTargetResults[k]})
-				if p.PerTargetResults[k] == aggregate.ActionStatusSucceeded {
+				if p.PerTargetResults[k] == string(action.TargetOK) {
 					ok++
 				}
 			}
@@ -320,7 +323,7 @@ func approvalLine(a aggregate.Authorization, approver ActionApproverView) string
 func resultLine(p aggregate.ActionResulted, ok, total int) string {
 	line := p.FinalOutcome
 	if total > 0 {
-		line += fmt.Sprintf(" · %d of %d target(s) %s", ok, total, aggregate.ActionStatusSucceeded)
+		line += fmt.Sprintf(" · %d of %d target(s) %s", ok, total, action.TargetOK)
 	}
 	if p.ErrorDetail != "" {
 		line += " · " + p.ErrorDetail

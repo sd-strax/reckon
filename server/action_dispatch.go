@@ -44,6 +44,7 @@ func (b *Backend) autoApproveAndDispatch(ctx context.Context, reqEnv aggregate.E
 			PrimaryApproverRef: decision.PolicyAccountable,
 			PrimaryApprovedAt:  now,
 			PolicyRef:          decision.MatchedPolicyRef,
+			PolicyVersion:      decision.MatchedPolicyVersion,
 		},
 	})
 	if err != nil {

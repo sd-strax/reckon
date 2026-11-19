@@ -296,8 +296,10 @@ Authorization:
   secondary_approver_ref optional Analyst id (for TWO_PARTY, set when
                          stage advances to SECONDARY)
   secondary_approved_at  optional timestamp
-  policy_ref             optional string (policy id that auto-approved)
-  policy_version         optional string (content hash of policy at time of fire)
+  policy_ref             optional string (policy id that auto-approved);
+                         required when mode is AUTO_POLICY
+  policy_version         optional string (content hash of policy at time of
+                         fire); required when mode is AUTO_POLICY
   challenge_response     optional string (the typed confirmation string for T3)
 ```
 
@@ -327,7 +329,8 @@ A policy is a versioned object:
 
 ```text
 policy:
-  id                       policy/<slug>/<semver>
+  id                       policy/<slug>/<semver>; required, and unique
+                           across the loaded policies
   action_match             list of action_type globs (e.g., "host.isolate")
   predicate                CEL expression returning bool
   effect                   AUTO_APPROVE | REQUIRE_TWO_PARTY | DENY
@@ -350,7 +353,12 @@ policy:
   signed_off_by            list of Analyst ids (config-change governance)
   effective_from           timestamp
   effective_until          optional timestamp
-  content_hash             sha256 of canonical form
+  content_hash             sha256 of canonical form: RFC 8785 JSON of the
+                           fields above, with every empty or false field
+                           left out (a set effective_until is always
+                           written). Times are RFC 3339 in UTC with a Z,
+                           and fractional seconds only when non-zero,
+                           trailing zeros trimmed (adr/0378)
 ```
 
 Policies are stored in a versioned repo (git is fine for v0; the path doesn't matter for this thread) and loaded into the backend at startup and on signal. Any change requires a signed config commit. The Go backend evaluates policies in priority order: any matching `DENY` wins; else any matching `REQUIRE_TWO_PARTY`; else any matching `AUTO_APPROVE`; else fall through to the default tier flow.
@@ -597,6 +605,7 @@ Attempt:
 - **Approved, dispatched, adapter returns error:** if `RETRYABLE_ERROR` (rate limit, transient 5xx), retry. If `FATAL_ERROR` (auth, malformed request, target not found): no retry, status `FAILED`.
 - **Approved, dispatched, partial success across targets:** status `SUCCEEDED` but `final_outcome=PARTIAL`. Per-target results recorded. The action is *not* re-dispatched for the failed targets automatically — partial-failure recovery requires a new action request, because re-dispatching silently violates the principle that every action is auditable on its own.
 - **Timeout:** the adapter call exceeded the action-type timeout. Status moves to `FAILED` with `final_outcome=TIMEOUT`. The system explicitly does *not* infer success from timeout. The audit record makes this state visible to the analyst, who decides whether to re-request.
+- **Approved, but the binding can no longer carry it:** the binding frozen at request time (`08 §4`) is gone, its adapter is not configured or not enabled, its scope no longer matches, or its params no longer render. This happens when the configuration changed while the action waited for approval. The same holds when no write resolver is wired at all. Nothing is sent. Status moves to `FAILED`, with `attempts` 0 and every target `FAIL`, because the tool did not act. The reason is the result's `error_detail`, such as `not sent: adapter crowdstrike-falcon is not configured or not enabled` or `not sent: no write resolver configured`. There is no retry, because the configuration does not change between attempts. Only the first attempt is recorded this way. A later attempt that fails before the call is retried and ends `UNKNOWN` like any other failure, because an earlier attempt may have reached the tool. A re-request is safe: it picks its binding against the configuration it finds (adr/0384).
 - **Approval expired before dispatch (rare; should mostly happen for stale T2 prompts):** status `EXPIRED`. New request required.
 - **Approved, but the dispatch workflow never started:** status stays `APPROVED`. Nothing has left reckon (the dispatch is recorded before any call), so starting the workflow again is safe; a sweep at startup and on a periodic tick starts every APPROVED action's workflow, and an approval stands however long it waited.
 - **Dispatched, then the run stopped before recording a result:** status `OUTCOME_UNKNOWN`. The call may have left reckon; nobody knows whether the tool acted, and dispatching again could act twice. The next run of the action's workflow (the same sweep starts it) records the status instead of dispatching. It waits for a person, with no timeout: someone checks the tool and resolves the action to `SUCCEEDED` or `FAILED`, saying what they checked. There is no re-request from `OUTCOME_UNKNOWN`; a rerun is a resolution to `FAILED` followed by a re-request, so nobody reruns blind.
@@ -782,7 +791,7 @@ To make the spec concrete, the path of one T2 action:
 2. Hypothesis status moves from `OPEN` to `SUPPORTED` after the AI agent's reasoning (recorded as a normal `hypothesis` Interpretation).
 3. AI agent calls the `host.isolate` action tool, and the loop sends `request_action(action_type="host.isolate", targets=[{entity_ref: reckon-host--..., resolved_identifier: "WIN-A14"}], evidence_refs=[sighting-1, h-1], rationale="Hypothesis SUPPORTED with STRONG-weight direct evidence; isolation prevents lateral movement.", investigation_ref=grouping-1)`.
 4. Backend creates `reckon-interpretation` of type `action-request` and `reckon-action` in `REQUESTED`. Both get `member-of` edges to the Grouping.
-5. Policy engine evaluates. The "auto-isolate on Cobalt Strike" policy from §4.3 fires: status moves to `APPROVED` with `Authorization.mode=AUTO_POLICY`, `policy_ref=policy/host-isolate-cobalt-strike/1.2.0`, `primary_approver_ref=<the analyst who signed off on this policy>`. An `action-approval` Interpretation is emitted.
+5. Policy engine evaluates. The "auto-isolate on Cobalt Strike" policy from §4.3 fires: status moves to `APPROVED` with `Authorization.mode=AUTO_POLICY`, `policy_ref=policy/host-isolate-cobalt-strike/1.2.0`, `policy_version=<that policy's content hash, as on its evaluation row>`, `primary_approver_ref=<the analyst who signed off on this policy>`. An `action-approval` Interpretation is emitted.
 6. Dispatcher picks up `APPROVED`, calls the EDR via its capability adapter. Status `EXECUTING`, `action-dispatch` Interpretation emitted.
 7. EDR returns success. Status `SUCCEEDED`, `action-result` Interpretation emitted with `confidence=HIGH` (tool confirmed).
 8. Three days later, after investigation conclusion, the analyst un-isolates the host: a new `reckon-action` of type `host.unisolate` with `reversal_of_ref` pointing at the original. Goes through normal T2 flow (one click confirm). On success, original `reckon-action.status` becomes `REVERSED`.

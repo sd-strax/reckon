@@ -371,11 +371,14 @@ send, adapter died mid-call), the per-target result is `UNKNOWN` and the action 
 with `confidence = LOW` and **no success inference** — the analyst re-requests. If the run itself
 stopped after recording the dispatch and before any result, the next run of the workflow finds the
 dispatch with no result and records `OUTCOME_UNKNOWN` instead of calling again; a person checks the
-tool and resolves it (`04 §6.2`). This is the same
-non-inference rule `04 §6.2` already applies to `TIMEOUT`: reckon never pretends to know an effect it
-cannot confirm. Pre-dispatch state reconciliation (a `probe(target)` op that lets the executor skip a
-call when the target is already in the desired state) would shrink this residual but is **not**
-required by this contract — it is noted as a possible per-adapter capability in `§9`.
+tool and resolves it (`04 §6.2`). This is the same non-inference rule `04 §6.2` already applies to
+`TIMEOUT`: reckon never pretends to know an effect it cannot confirm. Pre-dispatch state
+reconciliation (a `probe(target)` op that lets the executor skip a call when the target is already in
+the desired state) would shrink this residual but is **not** required by this contract — it is noted
+as a possible per-adapter capability in `§9`. When the
+first attempt fails before the call, nothing was sent, so the action ends `FAILED` with every target
+`FAIL`, `attempts` 0 and the reason (`04 §6.2`, adr/0384). A later attempt that fails before the call
+is retried as any other failure, because an earlier attempt may have reached the tool.
 
 ---
 

@@ -75,15 +75,16 @@ func (b *Backend) editAction(w http.ResponseWriter, r *http.Request, actionID uu
 		writeJSONError(w, http.StatusServiceUnavailable, "action layer not configured: no write bindings, so the edit cannot be checked against the action's binding")
 		return
 	}
-	if err := resolver.CheckFrozenParams(action.DispatchRequest{
+	if ns := resolver.CheckFrozenParams(action.DispatchRequest{
 		ActionID:    ac.ActionID,
 		ActionType:  ac.ActionType,
 		Targets:     ac.Targets,
 		Parameters:  paramsMap(body.Parameters),
 		SourceScope: b.requestScope(r.Context(), ac.AggregateID),
 		Binding:     ac.Binding,
-	}); err != nil {
-		writeJSONError(w, http.StatusUnprocessableEntity, "edit: "+err.Error())
+	}); ns != nil {
+		// The check runs before any dispatch; an edit names only what broke.
+		writeJSONError(w, http.StatusUnprocessableEntity, editBindingRefusal(ns))
 		return
 	}
 
@@ -143,4 +144,10 @@ func (b *Backend) actionRequester(r *http.Request, ac aggregate.ActionCurrent) (
 		}
 	}
 	return aggregate.Actor{}, fmt.Errorf("action %s has no request event", ac.ActionID)
+}
+
+// editBindingRefusal is the refusal of an edit whose new parameters the
+// binding frozen at request can no longer carry (adr/0406, adr/0384).
+func editBindingRefusal(ns *action.NotSentError) string {
+	return "edit: the binding chosen at request can no longer carry the edited action: " + ns.Reason
 }

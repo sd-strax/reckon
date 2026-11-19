@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -165,5 +166,74 @@ func TestActionRecord_StoreFailureIsNotA404(t *testing.T) {
 	b.getActionRecord(w, httptest.NewRequest(http.MethodGet, "/api/actions/x", nil), uuid.New())
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("status = %d; want 500", w.Code)
+	}
+}
+
+// TestActionRecord_NotSentShowsZeroAttempts (adr/0384): the record of a
+// dispatch that failed before the outbound call writes attempts 0, the field
+// that says no call was made, beside every target FAIL and the reason.
+func TestActionRecord_NotSentShowsZeroAttempts(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	resetInvestigations(t)
+	invID := activeInvestigation(t)
+	b := actionBackend(t)
+	id := approvedAction(t, invID, aggregate.RequestAction{})
+	dispatched(t, invID, id)
+	const reason = "not sent: adapter test_write is not configured or not enabled"
+	systemHandle(t, invID, aggregate.ResultAction{ActionID: id, FinalOutcome: "FAILED", Attempts: 0,
+		PerTargetResults: map[string]string{"0": "FAIL"}, ErrorDetail: reason})
+
+	srv := httptest.NewServer(b.buildRouter(b.verifier))
+	t.Cleanup(srv.Close)
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/actions/"+id.String(), nil)
+	req.Header.Set("Authorization", "Bearer "+mintToken(t, nil))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET record = %d", resp.StatusCode)
+	}
+	var raw struct {
+		Result map[string]json.RawMessage `json:"result"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := raw.Result["attempts"]; !ok || string(got) != "0" {
+		t.Errorf("result attempts = %s (present %v); want 0 written", got, ok)
+	}
+	var detail string
+	_ = json.Unmarshal(raw.Result["error_detail"], &detail)
+	if detail != reason || !strings.Contains(string(raw.Result["per_target"]), `"FAIL"`) {
+		t.Errorf("result = %v; want the reason and every target FAIL", raw.Result)
+	}
+}
+
+// TestActionRecord_ResultLineCountsOKTargets: a target's result is OK, FAIL or
+// UNKNOWN (08 §5), so the history line counts the OK ones; it compared against
+// SUCCEEDED and read "0 of N" on every result.
+func TestActionRecord_ResultLineCountsOKTargets(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	resetInvestigations(t)
+	invID := activeInvestigation(t)
+	b := actionBackend(t)
+	id := approvedAction(t, invID, aggregate.RequestAction{})
+	dispatched(t, invID, id)
+	systemHandle(t, invID, aggregate.ResultAction{ActionID: id, FinalOutcome: "PARTIAL", Attempts: 1,
+		PerTargetResults: map[string]string{"0": "OK", "1": "FAIL"}})
+
+	code, rec := getActionRecord(t, b, mintToken(t, nil), id.String())
+	if code != http.StatusOK {
+		t.Fatalf("GET record = %d", code)
+	}
+	last := rec.History[len(rec.History)-1]
+	if want := "PARTIAL · 1 of 2 target(s) OK"; last.Detail != want {
+		t.Errorf("result line = %q; want %q", last.Detail, want)
 	}
 }

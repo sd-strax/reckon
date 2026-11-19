@@ -2,7 +2,7 @@
 // and Notification thread (a notify.* action + its comms thread: Thread ·
 // Sent message) — 08 §8.6.1. The card is the summary; this is the record.
 import { useApp } from "../../app";
-import { actionStatusBadge } from "../../derive/actions";
+import { actionStatusBadge, attemptsLabel, targetOutcome, targetOutcomeTone } from "../../derive/actions";
 import { Badge, RefChip, fmtDateTime, fmtTime } from "../shared";
 import { Json, KV, Loading, Section, Tabs } from "./primitives";
 import { DEPENDENCY_LABEL, dependencyTone, resolveDependencySpec } from "../Dependencies";
@@ -85,9 +85,10 @@ export function ActionInspector({ actionId }: { actionId: string }) {
         { id: "targets", label: "Targets", body: () => (
           <>
             <Section title="Targets">
-              {a.targets.map((t, i) => (
-                <div key={i} className="irow mono">{t}{rec?.result?.perTarget?.find((p) => p.target === t) ? <> · <Badge tone={rec.result!.perTarget!.find((p) => p.target === t)!.outcome === "SUCCEEDED" ? "ok" : "warn"}>{rec.result!.perTarget!.find((p) => p.target === t)!.outcome}</Badge></> : null}</div>
-              ))}
+              {a.targets.map((t, i) => {
+                const outcome = targetOutcome(rec?.result?.perTarget, i, t);
+                return <div key={i} className="irow mono">{t}{outcome ? <> · <Badge tone={targetOutcomeTone(outcome)}>{outcome}</Badge></> : null}</div>;
+              })}
             </Section>
             {rec?.result ? (
               <Section title="Result">
@@ -95,7 +96,7 @@ export function ActionInspector({ actionId }: { actionId: string }) {
                   { k: "Outcome", v: rec.result.finalOutcome, mono: true },
                   { k: "Via", v: rec.result.adapter || a.adapter, mono: true },
                   { k: "Reference", v: rec.result.rawResponseRef || a.resultRef, mono: true },
-                  { k: "Attempts", v: rec.result.attempts ? String(rec.result.attempts) : undefined, mono: true },
+                  { k: "Attempts", v: attemptsLabel(rec.result.attempts), mono: true },
                   { k: "Error", v: rec.result.errorDetail },
                 ]} />
               </Section>

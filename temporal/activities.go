@@ -24,6 +24,21 @@ import (
 // maps to, so the workflow's retry budget skips it (08 §5, §6).
 const fatalErrorType = "FATAL_ERROR"
 
+// notSentErrorType is the non-retryable ApplicationError type of a dispatch
+// that failed before the outbound call (adr/0384): no write resolver, or the
+// frozen binding can no longer carry the action. Nothing reached the tool,
+// and a retry cannot help, because the configuration does not change between
+// attempts. The workflow records it as FAILED with every target FAIL and
+// attempts 0.
+const notSentErrorType = "NOT_SENT"
+
+// bindingUnusableErrorType is the retryable ApplicationError type of a
+// pre-call failure on a later attempt (adr/0384): the binding can no longer
+// carry the action, but an earlier attempt may have reached the tool, so the
+// dispatch is not "not sent" and the record ends UNKNOWN when the budget
+// runs out.
+const bindingUnusableErrorType = "BINDING_UNUSABLE"
+
 // Non-retryable ApplicationError types for the emit activities. A rejection
 // is the aggregate deciding against the stream, and a malformed id never
 // parses: retrying either only spends the budget before the same failure.
@@ -231,10 +246,19 @@ func (a *Activities) DoDispatch(ctx context.Context, in DispatchInput) (Dispatch
 	if a.resolver != nil {
 		resolver = a.resolver.Load()
 	}
+	// "Not sent" is a claim about the whole dispatch, not this attempt
+	// (adr/0384): it holds only on the first attempt, since an earlier one
+	// may have reached the adapter before a reload took the binding away. A
+	// later attempt's pre-call failure, no resolver included, is retryable as
+	// BINDING_UNUSABLE, so the record ends UNKNOWN with the real attempt count.
+	firstAttempt := activityAttempt(ctx) == 1
 	if resolver == nil {
 		// No write resolver wired (bare worker, or the action layer is off).
-		// Honest: nothing to dispatch to.
-		return DispatchOutput{}, sdktemporal.NewApplicationError("no write resolver configured", fatalErrorType)
+		ns := &action.NotSentError{Reason: "no write resolver configured"}
+		if firstAttempt {
+			return DispatchOutput{}, sdktemporal.NewNonRetryableApplicationError(ns.Error(), notSentErrorType, nil)
+		}
+		return DispatchOutput{}, sdktemporal.NewApplicationError(ns.Reason, bindingUnusableErrorType)
 	}
 	res, binding, err := resolver.Resolve(ctx, action.DispatchRequest{
 		ActionID:    id,
@@ -245,9 +269,22 @@ func (a *Activities) DoDispatch(ctx context.Context, in DispatchInput) (Dispatch
 		Binding:     in.Binding,
 	})
 	if err != nil {
+		// A failure before the outbound call, on the first attempt: nothing
+		// was sent (adr/0384). On a later attempt it is retried as before.
+		var ns *action.NotSentError
+		if errors.As(err, &ns) {
+			if firstAttempt {
+				return DispatchOutput{}, sdktemporal.NewNonRetryableApplicationError(ns.Error(), notSentErrorType, err)
+			}
+			// Retryable, as before, and named without "not sent": an
+			// earlier attempt may have reached the tool.
+			return DispatchOutput{}, sdktemporal.NewApplicationError(ns.Reason, bindingUnusableErrorType, err)
+		}
 		var we *action.WriteError
 		if errors.As(err, &we) && we.Class == action.WriteFatal {
-			return DispatchOutput{}, sdktemporal.NewApplicationError(err.Error(), fatalErrorType)
+			// The attempt rides the error, so the record counts the calls
+			// made, earlier retryable ones included.
+			return DispatchOutput{}, sdktemporal.NewApplicationError(err.Error(), fatalErrorType, activityAttempt(ctx))
 		}
 		return DispatchOutput{}, err // RETRYABLE (or unclassified) → Temporal retries
 	}
@@ -266,10 +303,17 @@ func (a *Activities) DoDispatch(ctx context.Context, in DispatchInput) (Dispatch
 	}, nil
 }
 
+// attemptKey carries an attempt number in a context, for a test that runs an
+// activity outside the Temporal environment.
+type attemptKey struct{}
+
 // activityAttempt reads the current attempt number from activity info,
 // defaulting to 1 outside an activity context (unit tests), where
-// activity.GetInfo panics.
+// activity.GetInfo panics. A context carrying attemptKey answers that number.
 func activityAttempt(ctx context.Context) (n int) {
+	if a, ok := ctx.Value(attemptKey{}).(int); ok && a > 0 {
+		return a
+	}
 	n = 1
 	defer func() { _ = recover() }()
 	if a := int(activity.GetInfo(ctx).Attempt); a > 0 {

@@ -80,7 +80,8 @@ func TestRequestAction_AutoApprove(t *testing.T) {
 		Effect: action.EffectAutoApprove, Predicate: "true", SignedOffBy: []string{"secops-lead"},
 	})
 
-	resp, out := postAction(t, b, mintToken(t, nil), RequestActionBody{
+	token := mintToken(t, nil)
+	resp, out := postAction(t, b, token, RequestActionBody{
 		ActionType:       "host.isolate",
 		Targets:          []aggregate.TargetSpec{{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-A"}},
 		Rationale:        "contain",
@@ -101,6 +102,30 @@ func TestRequestAction_AutoApprove(t *testing.T) {
 	}
 	if ac.Status != aggregate.ActionStatusApproved || ac.PrimaryApprover != "secops-lead" {
 		t.Errorf("projected status=%q approver=%q; want APPROVED / secops-lead", ac.Status, ac.PrimaryApprover)
+	}
+	assertRecordedPolicyVersion(t, b, token, out.ActionID)
+}
+
+// assertRecordedPolicyVersion: the auto-approval names the matched policy, and
+// its Authorization.PolicyVersion equals that policy's would_have_fired
+// evaluation row (adr/0378).
+func assertRecordedPolicyVersion(t *testing.T, b *Backend, token, actionID string) {
+	t.Helper()
+	code, rec := getActionRecord(t, b, token, actionID)
+	if code != http.StatusOK {
+		t.Fatalf("GET record = %d", code)
+	}
+	var row string
+	for _, e := range rec.Authorization.Evaluations {
+		if e.PolicyRef == rec.Authorization.MatchedPolicyRef && e.WouldHaveFired {
+			row = e.PolicyVersion
+		}
+	}
+	if rec.Authorization.PolicyRef == "" || rec.Authorization.PolicyRef != rec.Authorization.MatchedPolicyRef {
+		t.Errorf("policy_ref = %q; want the matched policy %q", rec.Authorization.PolicyRef, rec.Authorization.MatchedPolicyRef)
+	}
+	if rec.Authorization.PolicyVersion == "" || rec.Authorization.PolicyVersion != row {
+		t.Errorf("policy_version = %q; want the fired evaluation row's %q", rec.Authorization.PolicyVersion, row)
 	}
 }
 
@@ -926,6 +951,7 @@ func TestRequestAction_RequesterAccountable(t *testing.T) {
 	if ac.PrimaryApprover != "test-subject" {
 		t.Errorf("approver = %q; want the requester test-subject", ac.PrimaryApprover)
 	}
+	assertRecordedPolicyVersion(t, b, mintToken(t, nil), out.ActionID)
 
 	_, out = postAction(t, b, mintToken(t, map[string]any{"delegate_kind": "claude"}), body)
 	if out.Status != "PENDING_MANUAL" {

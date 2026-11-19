@@ -114,6 +114,16 @@ func (c ApproveAction) Validate(env Envelope) error {
 	if c.Authorization.PrimaryApproverRef == "" {
 		return errors.New("ApproveAction: primary_approver_ref is empty")
 	}
+	// An auto-approval names the policy that fired and the content hash of
+	// its text at the time (04 §3.3, adr/0378).
+	if c.Authorization.Mode == AuthModeAutoPolicy {
+		if c.Authorization.PolicyRef == "" {
+			return errors.New("ApproveAction: mode AUTO_POLICY requires policy_ref")
+		}
+		if c.Authorization.PolicyVersion == "" {
+			return errors.New("ApproveAction: mode AUTO_POLICY requires policy_version")
+		}
+	}
 	return nil
 }
 
