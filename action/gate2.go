@@ -50,6 +50,9 @@ func NewGate2(policies []Policy) (*Gate2, error) {
 			return nil, fmt.Errorf("policy %s: id is used by more than one policy", p.ID)
 		}
 		seen[p.ID] = true
+		if err := validateEffect(p); err != nil {
+			return nil, err
+		}
 		if err := validateAccountable(p); err != nil {
 			return nil, err
 		}
@@ -175,6 +178,21 @@ func accountableHuman(p Policy, input EvalInput) string {
 // AI delegate.
 func humanRequester(input EvalInput) bool {
 	return input.RequestedByKind == aggregate.ActorHuman && input.RequestedByID != ""
+}
+
+// validateEffect refuses a policy whose effect is not one of the three.
+// Evaluate acts only on those three, so any other effect, the empty one
+// included, would fire and drive nothing, and a lower-priority AUTO_APPROVE
+// could approve what the policy was meant to stop.
+func validateEffect(p Policy) error {
+	switch p.Effect {
+	case EffectDeny, EffectRequireTwoParty, EffectAutoApprove:
+		return nil
+	case "":
+		return fmt.Errorf("policy %s: no effect (want %s, %s or %s)", p.ID, EffectAutoApprove, EffectRequireTwoParty, EffectDeny)
+	default:
+		return fmt.Errorf("policy %s: unknown effect %q (want %s, %s or %s)", p.ID, p.Effect, EffectAutoApprove, EffectRequireTwoParty, EffectDeny)
+	}
 }
 
 // validateAccountable refuses an accountable value the engine does not know,

@@ -1,10 +1,13 @@
 package action
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path"
 	"path/filepath"
@@ -194,9 +197,27 @@ func LoadPolicies(dir string) ([]Policy, error) {
 		if err != nil {
 			return nil, fmt.Errorf("read policy %s: %w", name, err)
 		}
+		// Strict keys: a misspelt key would otherwise be dropped and the
+		// field left at its default, so a misspelt effect would load as no
+		// effect and a misspelt shadow as a live policy.
 		var p Policy
-		if err := yaml.Unmarshal(data, &p); err != nil {
+		dec := yaml.NewDecoder(bytes.NewReader(data))
+		dec.KnownFields(true)
+		if err := dec.Decode(&p); err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil, fmt.Errorf("policy %s: empty file", name)
+			}
 			return nil, fmt.Errorf("parse policy %s: %w", name, err)
+		}
+		// One policy per file: a second document would otherwise be dropped,
+		// and a DENY written there would block nothing.
+		var more yaml.Node
+		switch err := dec.Decode(&more); {
+		case errors.Is(err, io.EOF):
+		case err != nil:
+			return nil, fmt.Errorf("parse policy %s: after the first document: %w", name, err)
+		default:
+			return nil, fmt.Errorf("policy %s: more than one YAML document; a file holds one policy", name)
 		}
 		if p.ID == BaselineDenyPolicyID {
 			return nil, fmt.Errorf("policy %s: id %q is reserved for the built-in baseline", name, BaselineDenyPolicyID)
