@@ -1,6 +1,6 @@
 # 0357 — Stored STIX objects are valid STIX 2.1, and reckon's custom types are declared by extension definitions under `reckon-` names
 
-Issue: #357 · PR: — · Status: proposed
+Issue: #357 · PR: — · Status: proposed · Amended by: adr/0371
 
 Related:
 
@@ -297,6 +297,11 @@ rule invents a value.
   - An email address has surrounding white space trimmed. A mailbox with a
     display name, such as `Alice <alice@corp.example>`, keeps its address,
     `alice@corp.example`.
+    *Amended (adr/0371): every address is then written back in its shortest
+    RFC 5322 form. The local part is quoted only when it can't be a
+    dot-atom or would start or end with white space. So
+    `"alice"@corp.example` is `alice@corp.example`, and a local part holding
+    quotes keeps them.*
   - An IPv4 address written as IPv4-mapped IPv6 (`::ffff:10.0.0.5`) is
     stored as the IPv4 address. It is then the same object as that address
     seen anywhere else.

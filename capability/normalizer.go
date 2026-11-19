@@ -662,8 +662,9 @@ func (b *resultBuilder) addDomain(v string) identity.STIXID {
 
 // emailAddr adds an email-addr SCO for an address the record gives, and
 // returns its id and the value it stores. The address is cleaned up first
-// (stix.EmailAddress, adr/0357): surrounding white space is trimmed, and a
-// mailbox with a display name keeps its address. A value that is still not
+// (stix.EmailAddress, adr/0357): surrounding white space is trimmed, a
+// mailbox with a display name keeps its address, and the address is written
+// back in its shortest RFC 5322 form (adr/0371). A value that is still not
 // an RFC 5322 addr-spec is left out, with "" for both. The raw event still
 // holds it.
 func (b *resultBuilder) emailAddr(v string) (identity.STIXID, string) {

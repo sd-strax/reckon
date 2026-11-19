@@ -1,6 +1,6 @@
 # 0371 — Every email address is parsed and written back in its shortest RFC 5322 form before it is stored
 
-Issue: #371 · PR: pending · Status: proposed
+Issue: #371 · PR: pending · Status: proposed · Amends: adr/0357, adr/0095
 
 ## Context
 
@@ -35,14 +35,24 @@ as one address, but they got two ids.
   through `mail.Address.String()` with no name, minus the angle brackets.
   The result is checked with `IsAddrSpec` and stored.
 - **The form written is the shortest one.** The local part is quoted only
-  when it can't be a dot-atom, with the escaping it needs. So
+  when it can't be a dot-atom or would start or end with white space
+  (below), with the escaping it needs. So
   `alice@example.com`, `"alice"@example.com` and
   `Alice <"alice"@example.com>` are all `alice@example.com`, one id.
   `"\"alerts\""@example.com` keeps its quotes and escapes, and stays apart
   from `"alerts"@example.com`, which is `alerts@example.com`.
-- **A quoted local part the old path dropped is kept.** `"a@b"@example.com`
-  decoded to `a@b@example.com`, which isn't an address, so it was dropped.
-  Written back, it is `"a@b"@example.com`.
+- **A local part that would start or end with white space stays quoted.**
+  `String()` counts every non-ASCII character as an ordinary one, so it
+  writes `"\u3000alerts"@example.com` (an ideographic space first) without
+  quotes. That value starts with white space, so it isn't an addr-spec and
+  the sender would be dropped. Letting it through would be worse: the id
+  trims white space, so it would get the id of `alerts@example.com`. Such a
+  local part is wrapped in quotes. It holds no quote or backslash, so it
+  needs no escaping. A local part that ends with white space is quoted the
+  same way, so both ends follow one rule.
+- **A quoted local part the old path dropped is kept.**
+  `Alice <"a@b"@example.com>` decoded to `a@b@example.com`, which isn't an
+  address, so it was dropped. Written back, it is `"a@b"@example.com`.
 - **The domain is written as parsed.** A domain literal such as
   `[192.0.2.1]` stays as it is. The id already folds case (adr/0357).
 
@@ -65,5 +75,10 @@ as one address, but they got two ids.
 - The stored `value` of an address a source quoted when it didn't need to
   is written without the quotes.
 - The event view matches by the same cleanup, so it binds the same ids.
+- The event view folds a sender and recipients by the cleaned-up address,
+  so two spellings of one mailbox fold together.
+- The email normalizer moves to its next version, since the values it
+  stores change.
 - `design/03`'s cleanup sentence for email addresses (§4, the
-  `email-addr` bullet) and adr/0357's rule gain the write-back.
+  `email-addr` bullet) and adr/0357's rule gain the write-back, and
+  adr/0095's slot rule gains the cleaned-up address.
