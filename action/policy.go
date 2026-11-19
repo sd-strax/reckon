@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gowebpki/jcs"
 	"gopkg.in/yaml.v3"
 )
 
@@ -59,22 +60,27 @@ type Policy struct {
 
 // ContentHash is the sha256 of the policy's canonical form (04 §4.1), used as
 // policy_version in the audit trail so a decision pins the exact policy that
-// drove it. NewGate2 computes it once per policy and refuses a policy whose
-// canonical form cannot be encoded.
+// drove it. NewGate2 computes it once per policy.
 func (p Policy) ContentHash() (string, error) {
-	b, err := json.Marshal(p.canonical())
+	raw, err := json.Marshal(p.canonical())
 	if err != nil {
 		return "", fmt.Errorf("policy %s: canonical form: %w", p.ID, err)
 	}
-	sum := sha256.Sum256(b)
+	// RFC 8785 (JCS), as the knowledge substrate hashes its content: sorted
+	// keys, no HTML escaping, a defined string and number form, so the hash
+	// can be recomputed outside Go.
+	canonical, err := jcs.Transform(raw)
+	if err != nil {
+		return "", fmt.Errorf("policy %s: canonicalize (RFC 8785): %w", p.ID, err)
+	}
+	sum := sha256.Sum256(canonical)
 	return hex.EncodeToString(sum[:]), nil
 }
 
-// canonicalPolicy is the form ContentHash covers. It names every field
-// explicitly, so the hash follows the policy, not the Go struct: renaming a
-// struct field changes no hash. Every field is omitempty, so a field added
-// later leaves the hash of every policy that does not set it unchanged.
-// TestCanonicalPolicyCoversEveryField fails when a Policy field is not here.
+// canonicalPolicy is the object ContentHash canonicalizes. Every field is
+// omitempty, so a field added later leaves the hash of every policy that does
+// not set it unchanged. TestCanonicalPolicyCoversEveryField fails when a Policy
+// field does not reach this form.
 type canonicalPolicy struct {
 	ID                    string   `json:"id,omitempty"`
 	ActionMatch           []string `json:"action_match,omitempty"`
@@ -103,17 +109,24 @@ func (p Policy) canonical() canonicalPolicy {
 		EffectiveFrom:         canonicalTime(p.EffectiveFrom),
 	}
 	if p.EffectiveUntil != nil {
-		c.EffectiveUntil = canonicalTime(*p.EffectiveUntil)
+		// Set means set, even to the zero time: such a policy is always
+		// expired, unlike one with no expiry, so the two must hash apart.
+		c.EffectiveUntil = utcTime(*p.EffectiveUntil)
 	}
 	return c
 }
 
-// canonicalTime is a time in UTC at nanosecond precision, or "" for the zero
-// time, so the same instant written in another zone hashes the same.
+// canonicalTime is utcTime, or "" for the zero time (an unset effective_from).
 func canonicalTime(t time.Time) string {
 	if t.IsZero() {
 		return ""
 	}
+	return utcTime(t)
+}
+
+// utcTime is a time in UTC at nanosecond precision, so the same instant
+// written in another zone hashes the same.
+func utcTime(t time.Time) string {
 	return t.UTC().Format(time.RFC3339Nano)
 }
 
@@ -171,6 +184,7 @@ func LoadPolicies(dir string) ([]Policy, error) {
 		return nil, fmt.Errorf("read policy dir %s: %w", dir, err)
 	}
 	var policies []Policy
+	fileOf := map[string]string{} // id → the file that declared it
 	for _, ent := range entries {
 		name := ent.Name()
 		if ent.IsDir() || !strings.HasSuffix(name, ".policy.yaml") {
@@ -187,6 +201,14 @@ func LoadPolicies(dir string) ([]Policy, error) {
 		if p.ID == BaselineDenyPolicyID {
 			return nil, fmt.Errorf("policy %s: id %q is reserved for the built-in baseline", name, BaselineDenyPolicyID)
 		}
+		// NewGate2 refuses these too; here the message can name the files.
+		if p.ID == "" {
+			return nil, fmt.Errorf("policy %s: no id", name)
+		}
+		if first, ok := fileOf[p.ID]; ok {
+			return nil, fmt.Errorf("policies %s and %s: both use id %q", first, name, p.ID)
+		}
+		fileOf[p.ID] = name
 		policies = append(policies, p)
 	}
 	return policies, nil

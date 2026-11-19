@@ -329,7 +329,8 @@ A policy is a versioned object:
 
 ```text
 policy:
-  id                       policy/<slug>/<semver>
+  id                       policy/<slug>/<semver>; required, and unique
+                           across the loaded policies
   action_match             list of action_type globs (e.g., "host.isolate")
   predicate                CEL expression returning bool
   effect                   AUTO_APPROVE | REQUIRE_TWO_PARTY | DENY
@@ -352,7 +353,12 @@ policy:
   signed_off_by            list of Analyst ids (config-change governance)
   effective_from           timestamp
   effective_until          optional timestamp
-  content_hash             sha256 of canonical form
+  content_hash             sha256 of canonical form: RFC 8785 JSON of the
+                           fields above, with every empty or false field
+                           left out (a set effective_until is always
+                           written). Times are RFC 3339 in UTC with a Z,
+                           and fractional seconds only when non-zero,
+                           trailing zeros trimmed (adr/0378)
 ```
 
 Policies are stored in a versioned repo (git is fine for v0; the path doesn't matter for this thread) and loaded into the backend at startup and on signal. Any change requires a signed config commit. The Go backend evaluates policies in priority order: any matching `DENY` wins; else any matching `REQUIRE_TWO_PARTY`; else any matching `AUTO_APPROVE`; else fall through to the default tier flow.

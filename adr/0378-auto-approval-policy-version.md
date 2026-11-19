@@ -29,18 +29,20 @@ lower-priority `AUTO_APPROVE` could approve the action. Two policies could
 also share an id, which leaves a record that names a policy by id
 ambiguous.
 
-The hash itself followed the Go struct, not the policy. It was the sha256 of
-the `Policy` struct marshalled to JSON. Renaming a struct field or adding
-one changed every policy's hash, with no policy edited. The marshal error
-was ignored, so a policy that failed to encode hashed as empty input.
+The hash itself followed the Go struct, not a defined form. It was the
+sha256 of the `Policy` struct marshalled to JSON. Adding a field to the
+struct without `omitempty` changed every policy's hash, with no policy
+edited. The bytes were Go's encoding, which writes `&&` as `\u0026\u0026`,
+so the hash could not be recomputed outside Go. The marshal error was
+ignored, so a policy that failed to encode hashed as empty input.
 
 ## Decision
 
 - **The decision carries the matched policy's hash.** `Decision` gains
   `MatchedPolicyVersion`, set whenever a policy drives the decision (deny,
-  two-party or auto-approve). It is the same `ContentHash()` value written
-  on that policy's evaluation row, from the same evaluation pass, so the
-  two are always equal.
+  two-party or auto-approve). It is the same hash written on that policy's
+  evaluation row. Both read the one value Gate 2 computed for the policy at
+  startup, so the two are always equal.
 - **The auto-approval writes it.** The `AUTO_POLICY` `Authorization` sets
   `policy_version` from the decision, beside `policy_ref`.
 - **The aggregate refuses an `AUTO_POLICY` approval without both.**
@@ -53,10 +55,13 @@ was ignored, so a policy that failed to encode hashed as empty input.
   from code.
 - **The hash covers an explicit canonical form.** `04 §4.1` defines
   `content_hash` as the sha256 of the policy's canonical form. That form now
-  lists each policy field by name, with times in UTC. A field left unset is
-  left out, so a field added later changes no existing policy's hash. Gate 2
-  computes each hash once, when it starts, and refuses a policy whose form
-  cannot be encoded.
+  lists each policy field by name, with times in UTC. A field that is empty
+  or false is left out, so a field added later changes no existing policy's
+  hash. A set `effective_until` is always written, since a policy that
+  expires at the zero time is not one that never expires. The
+  object is encoded as RFC 8785 (JCS) JSON, the form the knowledge substrate
+  already hashes, so the hash can be recomputed outside Go. An encoding error
+  is returned, not ignored. Gate 2 computes each hash once, when it starts.
 
 ## Alternatives rejected
 
@@ -80,7 +85,10 @@ was ignored, so a policy that failed to encode hashed as empty input.
   it, without the evaluation rows.
 - `design/04 §3.3` marks `policy_ref` and `policy_version` as required when
   the mode is `AUTO_POLICY`.
+- `design/04 §4.1` states that a policy id is required and unique, and what
+  the canonical form is.
 - A policy set with a missing or repeated id stops the backend at startup,
   as a predicate that fails to compile already does.
-- Every policy's hash changes once, with the new canonical form. A test
-  pins the form, so a later change to it is deliberate.
+- Every policy's hash changes once, with the new canonical form. Two tests
+  pin the form, one over a policy with every field set and one over the
+  baseline, so a later change to it is deliberate.

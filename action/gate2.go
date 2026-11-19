@@ -44,7 +44,7 @@ func NewGate2(policies []Policy) (*Gate2, error) {
 		// policy by it: an empty id would leave a firing policy unseen, and a
 		// shared one would make the record ambiguous.
 		if p.ID == "" {
-			return nil, fmt.Errorf("a %s policy has no id (predicate %q)", p.Effect, p.Predicate)
+			return nil, fmt.Errorf("a policy has no id (effect %q, predicate %q)", p.Effect, p.Predicate)
 		}
 		if seen[p.ID] {
 			return nil, fmt.Errorf("policy %s: id is used by more than one policy", p.ID)
