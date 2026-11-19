@@ -355,6 +355,9 @@ func TestFold_RecipientsByCleanedAddress(t *testing.T) {
 		}
 	}
 
+	if groups := fold([]string{`Alice <alice@x.example>`, `alice@x.example`}); len(groups) != 1 || groups[0].Key[0].Text != "alice <alice@x.example>" {
+		t.Errorf("header = %v; want the mailbox named twice shown once", groups)
+	}
 	if groups := fold([]string{" Undisclosed recipients:; "}, []string{"Undisclosed recipients:;"}); len(groups) != 1 {
 		t.Errorf("groups = %d; want a padded non-address recipient to fold with the trimmed one", len(groups))
 	}

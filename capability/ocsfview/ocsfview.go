@@ -275,8 +275,8 @@ func (r *renderer) keyExact(name string, s slot) {
 // are case-insensitive (addresses); order never makes two observations
 // differ. A value with a key, an address by its cleaned-up form, is
 // identified by that key, so two spellings of one mailbox fold. A keyed or
-// folded value is counted once, as the normalizer stores each recipient
-// once.
+// folded value is counted and shown once, in the first spelling seen, as the
+// normalizer stores each recipient once.
 func (r *renderer) keyList(name string, slots []slot, fold bool) {
 	vals := make([]string, 0, len(slots))
 	ids := make([]string, 0, len(slots))
@@ -289,7 +289,6 @@ func (r *renderer) keyList(name string, slots []slot, fold bool) {
 		if fold {
 			v = strings.ToLower(strings.TrimSpace(v))
 		}
-		vals = append(vals, v)
 		id := v
 		if s.key != "" {
 			id = s.key
@@ -300,6 +299,7 @@ func (r *renderer) keyList(name string, slots []slot, fold bool) {
 			}
 			seen[id] = true
 		}
+		vals = append(vals, v)
 		ids = append(ids, id)
 	}
 	sort.Strings(vals)
