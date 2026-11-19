@@ -32,7 +32,8 @@ func (*emailNormalizer) ClassUID() int { return 4009 }
 // hashes and names STIX can hold, the thread and envelope recipients stored
 // on the message, addresses cleaned up before they are checked, and a
 // recipient that is not an address kept as text, adr/0357
-func (*emailNormalizer) Version() int { return 5 }
+// 6: every address written back in its shortest RFC 5322 form, adr/0371
+func (*emailNormalizer) Version() int { return 6 }
 
 func (n *emailNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload

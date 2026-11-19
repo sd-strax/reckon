@@ -590,3 +590,64 @@ func TestQuotedLocalPartSenderIsKept(t *testing.T) {
 		}
 	}
 }
+
+// An address is written back in its shortest RFC 5322 form before its id is
+// minted (adr/0371). A crafted sender whose local part holds quotes stays
+// apart from the genuine mailbox the decoded form names, and so do two
+// messages with no Message-ID from each. So does a sender whose local part
+// starts with white space. One mailbox quoted two ways is one email-addr.
+func TestEmailAddressWrittenBackBeforeItsID(t *testing.T) {
+	ids := identity.NewResolver(testNS)
+	crafted, genuine := `Alice <"\"alerts\""@example.com>`, `"alerts"@example.com`
+	msgFrom := func(from string) (SCO, NormalizationResult) {
+		res := normalizeEvent(t, map[string]any{"class_uid": 4009, "email": map[string]any{"from": from, "subject": "s", "to": []any{"jdoe@example.com"}}})
+		msg := scosOf(res, identity.TypeEmailMessage)
+		if len(msg) != 1 {
+			t.Fatalf("%s: messages = %+v; want one", from, msg)
+		}
+		return msg[0], res
+	}
+	cm, cres := msgFrom(crafted)
+	gm, gres := msgFrom(genuine)
+	if want := string(ids.EmailAddr(`"\"alerts\""@example.com`)); cm.Properties["from_ref"] != want {
+		t.Errorf("crafted from_ref = %v; want %s", cm.Properties["from_ref"], want)
+	}
+	if want := string(ids.EmailAddr("alerts@example.com")); gm.Properties["from_ref"] != want {
+		t.Errorf("genuine from_ref = %v; want %s", gm.Properties["from_ref"], want)
+	}
+	if cm.Properties["from_ref"] == gm.Properties["from_ref"] {
+		t.Errorf("the crafted and the genuine sender share an email-addr id: %v", cm.Properties["from_ref"])
+	}
+	if cm.ID == gm.ID {
+		t.Errorf("the crafted and the genuine sender's messages share an id: %s", cm.ID)
+	}
+	if got := values(scosOf(cres, identity.TypeEmailAddr)); !slices.Contains(got, any(`"\"alerts\""@example.com`)) {
+		t.Errorf("crafted email addresses = %v; want the quotes kept", got)
+	}
+	if got := values(scosOf(gres, identity.TypeEmailAddr)); !slices.Contains(got, any("alerts@example.com")) {
+		t.Errorf("genuine email addresses = %v; want alerts@example.com", got)
+	}
+	// A local part that starts with white space keeps its quotes, so the id's
+	// trim can't make it the genuine mailbox.
+	sm, _ := msgFrom("\"\u3000alerts\"@example.com")
+	if want := string(ids.EmailAddr("\"\u3000alerts\"@example.com")); sm.Properties["from_ref"] != want || want == gm.Properties["from_ref"] {
+		t.Errorf("white-space sender from_ref = %v; want %s, apart from the genuine %v", sm.Properties["from_ref"], want, gm.Properties["from_ref"])
+	}
+
+	res := normalizeEvent(t, map[string]any{"class_uid": 4009, "email": map[string]any{
+		"from": `"alice"@example.com`, "to": []any{"alice@example.com"}, "cc": []any{`Alice <"alice"@example.com>`}, "subject": "s",
+	}})
+	if got := values(scosOf(res, identity.TypeEmailAddr)); !slices.Equal(got, []any{"alice@example.com"}) {
+		t.Errorf("email addresses = %v; want one, alice@example.com", got)
+	}
+	want := ids.EmailAddr("alice@example.com")
+	msg := scosOf(res, identity.TypeEmailMessage)
+	if len(msg) != 1 || msg[0].Properties["from_ref"] != string(want) {
+		t.Fatalf("message = %+v; want from_ref %s", msg, want)
+	}
+	for _, key := range []string{"to_refs", "cc_refs"} {
+		if got, _ := msg[0].Properties[key].([]string); !slices.Equal(got, []string{string(want)}) {
+			t.Errorf("%s = %v; want [%s]", key, msg[0].Properties[key], want)
+		}
+	}
+}

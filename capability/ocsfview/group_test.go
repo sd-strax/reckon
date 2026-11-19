@@ -1,6 +1,7 @@
 package ocsfview
 
 import (
+	"encoding/json"
 	"fmt"
 	"slices"
 	"testing"
@@ -312,5 +313,96 @@ func TestFold_UnboundActorsByLogin(t *testing.T) {
 	slices.Sort(shown)
 	if want := []string{`CONTOSO\admin`, `FABRIKAM\admin`}; !slices.Equal(shown, want) {
 		t.Errorf("groups shown as %v; want %v", shown, want)
+	}
+}
+
+// Recipients fold by the address the normalizer stores, so two spellings of
+// one mailbox are one recipient, in one list or across events. A local part
+// holding quotes is another mailbox and stays apart (adr/0371). A recipient
+// that is not an address folds by its trimmed text, named once, as the
+// normalizer keeps it.
+func TestFold_RecipientsByCleanedAddress(t *testing.T) {
+	at := time.Date(2026, 4, 20, 14, 0, 0, 0, time.UTC)
+	fold := func(tos ...[]string) []Group {
+		var items []GroupItem
+		for i, to := range tos {
+			js, _ := json.Marshal(map[string]any{"email": map[string]any{"from": "bob@x.example", "to": to, "subject": "s"}})
+			v := Render(Event{ClassUID: 4009, Payload: payload(string(js))}, nil, nil)
+			items = append(items, GroupItem{ID: fmt.Sprint(i), ClassUID: 4009, Time: at, Slots: v.Slots})
+		}
+		return Fold(items, Keys{4009: {"to"}}, "")
+	}
+
+	groups := fold(
+		[]string{`"alice"@x.example`},
+		[]string{`Alice <ALICE@x.example>`},
+		[]string{` alice@x.example`},
+		[]string{`"\"alice\""@x.example`},
+		[]string{`Alice <alice@x.example>`, `alice@x.example`},
+	)
+	if len(groups) != 2 {
+		t.Fatalf("groups = %d; want 2, one mailbox and the quoted one", len(groups))
+	}
+	for _, g := range groups {
+		want := []string{"0", "1", "2", "4"}
+		if g.Count == 1 {
+			want = []string{"3"}
+		}
+		got := slices.Clone(g.EventIDs)
+		slices.Sort(got)
+		if !slices.Equal(got, want) {
+			t.Errorf("group %v = events %v; want %v", g.Key, got, want)
+		}
+	}
+
+	if groups := fold([]string{`Alice <alice@x.example>`, `alice@x.example`}); len(groups) != 1 || groups[0].Key[0].Text != "alice <alice@x.example>" {
+		t.Errorf("header = %v; want the mailbox named twice shown once", groups)
+	}
+	if groups := fold([]string{" Undisclosed recipients:; "}, []string{"Undisclosed recipients:;"}); len(groups) != 1 {
+		t.Errorf("groups = %d; want a padded non-address recipient to fold with the trimmed one", len(groups))
+	}
+	if groups := fold([]string{"Undisclosed recipients:;", "Undisclosed recipients:;"}, []string{"Undisclosed recipients:;"}); len(groups) != 1 {
+		t.Errorf("groups = %d; want a non-address recipient named twice to fold with it named once", len(groups))
+	}
+}
+
+func TestFold_SenderByCleanedText(t *testing.T) {
+	at := time.Date(2026, 4, 20, 14, 0, 0, 0, time.UTC)
+	fold := func(froms ...string) map[string][]string {
+		var items []GroupItem
+		for i, from := range froms {
+			js, _ := json.Marshal(map[string]any{"email": map[string]any{"from": from, "to": []string{"alice@x.example"}, "subject": "s"}})
+			v := Render(Event{ClassUID: 4009, Payload: payload(string(js))}, nil, nil)
+			items = append(items, GroupItem{ID: fmt.Sprint(i), ClassUID: 4009, Time: at, Slots: v.Slots})
+		}
+		byFirst := map[string][]string{}
+		for _, g := range Fold(items, Keys{4009: {"from"}}, "") {
+			got := slices.Clone(g.EventIDs)
+			slices.Sort(got)
+			byFirst[got[0]] = got
+		}
+		return byFirst
+	}
+
+	got := fold(
+		"Mallory",
+		"Mallory ",
+		"MALLORY",
+		"mallory@x.example",
+		"Bob <bob@x.example>",
+		"bob@x.example",
+	)
+	want := map[string][]string{
+		"0": {"0", "1", "2"},
+		"3": {"3"},
+		"4": {"4", "5"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("groups = %v; want %v", got, want)
+	}
+	for first, ids := range want {
+		if !slices.Equal(got[first], ids) {
+			t.Errorf("group with event %s = events %v; want %v", first, got[first], ids)
+		}
 	}
 }

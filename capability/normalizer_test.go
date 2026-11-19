@@ -569,11 +569,14 @@ func TestHostAliasEmission(t *testing.T) {
 // classes once more, which now mint the actor's account, and inventory_info,
 // which now mints the device owner's, so every user the event view shows is
 // linked.
+//
+// adr/0371 moved the email normalizer, since every address it stores is now
+// written back in its shortest RFC 5322 form.
 func TestNormalizerVersions(t *testing.T) {
 	reg := testRegistry()
 	for _, c := range []struct{ class, version int }{
 		{1007, 9}, {3002, 10}, {4001, 4}, {4003, 3}, {1001, 9}, {201001, 7}, {201002, 7}, {1006, 10}, {1005, 4},
-		{3001, 9}, {3005, 9}, {3006, 9}, {4009, 5}, {4011, 9}, {4012, 9}, {2004, 11}, {2005, 3},
+		{3001, 9}, {3005, 9}, {3006, 9}, {4009, 6}, {4011, 9}, {4012, 9}, {2004, 11}, {2005, 3},
 		{5001, 5}, {6003, 6}, {5023, 7}, {5003, 5}, {0, 2},
 	} {
 		n, ok := reg.byClass[c.class]
