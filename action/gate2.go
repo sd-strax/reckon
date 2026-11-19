@@ -25,6 +25,7 @@ type Gate2 struct {
 type compiledPolicy struct {
 	Policy
 	program cel.Program
+	version string // ContentHash, computed once at construction
 }
 
 // NewGate2 compiles the given tenant policies (prepending the baseline DENY) and
@@ -37,8 +38,26 @@ func NewGate2(policies []Policy) (*Gate2, error) {
 	all := append([]Policy{BaselineDenyPolicy()}, policies...)
 
 	compiled := make([]compiledPolicy, 0, len(all))
+	seen := make(map[string]bool, len(all))
 	for _, p := range all {
+		// Evaluate tells the policies apart by id, and the record names a
+		// policy by it: an empty id would leave a firing policy unseen, and a
+		// shared one would make the record ambiguous.
+		if p.ID == "" {
+			return nil, fmt.Errorf("a policy has no id (effect %q, predicate %q)", p.Effect, p.Predicate)
+		}
+		if seen[p.ID] {
+			return nil, fmt.Errorf("policy %s: id is used by more than one policy", p.ID)
+		}
+		seen[p.ID] = true
+		if err := validateEffect(p); err != nil {
+			return nil, err
+		}
 		if err := validateAccountable(p); err != nil {
+			return nil, err
+		}
+		version, err := p.ContentHash()
+		if err != nil {
 			return nil, err
 		}
 		ast, iss := env.Compile(p.Predicate)
@@ -52,7 +71,7 @@ func NewGate2(policies []Policy) (*Gate2, error) {
 		if err != nil {
 			return nil, fmt.Errorf("policy %s: program: %w", p.ID, err)
 		}
-		compiled = append(compiled, compiledPolicy{Policy: p, program: prg})
+		compiled = append(compiled, compiledPolicy{Policy: p, program: prg, version: version})
 	}
 	return &Gate2{env: env, policies: compiled}, nil
 }
@@ -67,9 +86,12 @@ func (g *Gate2) Evaluate(input EvalInput) (Decision, error) {
 	var (
 		evals           []PolicyEvaluation
 		denyRef         string
+		denyVersion     string
 		twoPartyRef     string
+		twoPartyVersion string
 		twoPartyPool    []string
 		autoRef         string
+		autoVersion     string
 		autoAccountable string
 	)
 	for _, cp := range g.policies {
@@ -96,8 +118,9 @@ func (g *Gate2) Evaluate(input EvalInput) (Decision, error) {
 			fired = false
 		}
 
+		version := cp.version
 		evals = append(evals, PolicyEvaluation{
-			PolicyRef: cp.ID, PolicyVersion: cp.ContentHash(),
+			PolicyRef: cp.ID, PolicyVersion: version,
 			WouldHaveFired: fired, Effect: cp.Effect, Shadow: cp.Shadow,
 		})
 		if !fired || cp.Shadow {
@@ -107,15 +130,18 @@ func (g *Gate2) Evaluate(input EvalInput) (Decision, error) {
 		case EffectDeny:
 			if denyRef == "" {
 				denyRef = cp.ID
+				denyVersion = version
 			}
 		case EffectRequireTwoParty:
 			if twoPartyRef == "" {
 				twoPartyRef = cp.ID
+				twoPartyVersion = version
 				twoPartyPool = cp.SecondaryApproverPool
 			}
 		case EffectAutoApprove:
 			if autoRef == "" {
 				autoRef = cp.ID
+				autoVersion = version
 				autoAccountable = accountableHuman(cp.Policy, input)
 			}
 		}
@@ -125,11 +151,11 @@ func (g *Gate2) Evaluate(input EvalInput) (Decision, error) {
 	case denyRef != "":
 		// DENY drives the action to the manual flow (a human must approve); it
 		// never auto-approves. (04 §4.3 Example 2.)
-		return Decision{Effect: EffectDeny, Mode: ModeManual, MatchedPolicyRef: denyRef, Evaluations: evals}, nil
+		return Decision{Effect: EffectDeny, Mode: ModeManual, MatchedPolicyRef: denyRef, MatchedPolicyVersion: denyVersion, Evaluations: evals}, nil
 	case twoPartyRef != "":
-		return Decision{Effect: EffectRequireTwoParty, Mode: ModeTwoParty, MatchedPolicyRef: twoPartyRef, SecondaryApproverPool: twoPartyPool, Evaluations: evals}, nil
+		return Decision{Effect: EffectRequireTwoParty, Mode: ModeTwoParty, MatchedPolicyRef: twoPartyRef, MatchedPolicyVersion: twoPartyVersion, SecondaryApproverPool: twoPartyPool, Evaluations: evals}, nil
 	case autoRef != "":
-		return Decision{Effect: EffectAutoApprove, Mode: ModeAutoPolicy, MatchedPolicyRef: autoRef, PolicyAccountable: autoAccountable, Evaluations: evals}, nil
+		return Decision{Effect: EffectAutoApprove, Mode: ModeAutoPolicy, MatchedPolicyRef: autoRef, MatchedPolicyVersion: autoVersion, PolicyAccountable: autoAccountable, Evaluations: evals}, nil
 	default:
 		return Decision{Effect: "", Mode: ModeManual, Evaluations: evals}, nil
 	}
@@ -152,6 +178,21 @@ func accountableHuman(p Policy, input EvalInput) string {
 // AI delegate.
 func humanRequester(input EvalInput) bool {
 	return input.RequestedByKind == aggregate.ActorHuman && input.RequestedByID != ""
+}
+
+// validateEffect refuses a policy whose effect is not one of the three.
+// Evaluate acts only on those three, so any other effect, the empty one
+// included, would fire and drive nothing, and a lower-priority AUTO_APPROVE
+// could approve what the policy was meant to stop.
+func validateEffect(p Policy) error {
+	switch p.Effect {
+	case EffectDeny, EffectRequireTwoParty, EffectAutoApprove:
+		return nil
+	case "":
+		return fmt.Errorf("policy %s: no effect (want %s, %s or %s)", p.ID, EffectAutoApprove, EffectRequireTwoParty, EffectDeny)
+	default:
+		return fmt.Errorf("policy %s: unknown effect %q (want %s, %s or %s)", p.ID, p.Effect, EffectAutoApprove, EffectRequireTwoParty, EffectDeny)
+	}
 }
 
 // validateAccountable refuses an accountable value the engine does not know,

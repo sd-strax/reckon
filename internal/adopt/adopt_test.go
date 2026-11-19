@@ -18,7 +18,8 @@ func oktaDescribe() *adapterplugin.DescribeResult {
 			{Verb: "enumerate_logons", Adapter: "okta", Operation: "get_logs", Priority: 100, Params: map[string]any{"q": "${entity.user??}"}},
 		},
 		DefaultWriteBindings: []action.ActionBinding{
-			{ActionType: "account.disable", Adapter: "okta", Operation: "deactivate_user", Priority: 100},
+			{ActionType: "account.disable", Adapter: "okta", Operation: "deactivate_user", Priority: 100,
+				Identifier: map[string]string{"user-account": "${target.entity.account_login}"}},
 		},
 	}
 }
@@ -61,6 +62,14 @@ func TestAdoptRoundTripThroughLoaders(t *testing.T) {
 	}
 	if len(ac.Bindings["account.disable"]) != 1 || ac.Bindings["account.disable"][0].Operation != "deactivate_user" {
 		t.Errorf("account.disable binding = %+v", ac.Bindings["account.disable"])
+	}
+	// The identifier rule is adopted with the binding, so config load
+	// accepts the typed binding (adr/0406).
+	if got := ac.Bindings["account.disable"][0].Identifier["user-account"]; got != "${target.entity.account_login}" {
+		t.Errorf("account.disable identifier = %q; want the describe's rule", got)
+	}
+	if err := action.ValidateActionBindings(ac.Bindings, mustCatalog(t)); err != nil {
+		t.Errorf("adopted bindings refused at config load: %v", err)
 	}
 }
 
@@ -138,4 +147,14 @@ func TestAdoptNoWritesWhenNoneSelected(t *testing.T) {
 	if len(plan.Summary.ActionTypes) != 0 {
 		t.Errorf("summary action types = %v", plan.Summary.ActionTypes)
 	}
+}
+
+// mustCatalog is the default action catalog, or the test fails.
+func mustCatalog(t *testing.T) *action.ActionCatalog {
+	t.Helper()
+	c, err := action.DefaultActionCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
 }

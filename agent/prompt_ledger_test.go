@@ -24,8 +24,8 @@ var pointerRe = regexp.MustCompile(`^(#[1-9][0-9]*|[0-9a-f]{7})$`)
 // the text.
 func TestPrompt_Frozen(t *testing.T) {
 	golden := map[string]string{
-		framingLeadingNull: "b92c244d682b7f12a802102ea39e5376e3287a94b5532337f009e8a10ce494ca",
-		framingLeadingOnly: "69c5282613724dd54a328dbf73831606262b3e7a8576ead021ccc3b36046cd01",
+		framingLeadingNull: "03e2c65aab776385d27a608ce3b81ba96d04af43dfc404de4cbc13ddac0594a1",
+		framingLeadingOnly: "36281d50af94453af8b5ebfb9be0081a09f9fe6b5700430eaf60937584ae5458",
 	}
 	for dial, want := range golden {
 		if got := PromptVersion(dial); got != want {
@@ -85,8 +85,8 @@ var componentGolden = map[string]string{
 	"tools/list_actions":                               "149708b898187a9bf3a486e36bd969630944a5fa234e72a4c40cf1f90a77cbea",
 	"tools/read_result":                                "e8a77530cd8f75be5ce8c3d39c8fbc1a777defb2a5e04b4ee86e2b37e4fb4f3b",
 	"tools/request_ticket_create+catalog":              "e939ebd07bb64a3cf743907f38fc02f46dede53593e3e62d3fe9a64549f69c3f",
-	"tools/request_host_isolate+catalog":               "96ccb195f71fde3c8b15a09aed3bff802ee3cd8df5a0381e909c9b54146164da",
-	"tools/request_ioc_block+catalog":                  "5fd3a89f49a02c2381b9519a23a9294fd55fb2b36ae5eb52893053c9abb838e7",
+	"tools/request_host_isolate+catalog":               "71782c3ca41be76f35e5fc9446d05c2ddd8a003ae5152efd2f76a060039423da",
+	"tools/request_ioc_block+catalog":                  "dc062d3fbf489a52e7fab43b5b8b921efa38a83cad42ec1d77f78668ec9dd60b",
 	"tools/<verb>":                                     "795672a811bcaa201639fa7f3626615ddc873c0aa69c025d072486b773f95bf0",
 	"engine-text/clock":                                "9d82e0ccdff304d70aafa9f32ea959243dd87ef82b25b1919c0ea2ddde472f06",
 	"engine-text/reasoning-state":                      "e1aec4e82563e9898ba2876b6a9fa94d9bf4cc3842a259177a7b5c50cb1fed23",

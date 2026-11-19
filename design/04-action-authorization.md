@@ -219,11 +219,19 @@ The canonical `reckon-action` schema lives in **01-domain-model.md → CUSTOM ST
 
 ```text
 TargetSpec:
-  entity_ref             STIX SCO id (the thing being acted on)
+  entity_ref             STIX SCO id (the thing being acted on); required, and
+                         of a declared type, for an action type that declares
+                         target types (see below)
   resolved_identifier    string (e.g., hostname, mailbox, account UPN —
-                         what the adapter actually sends to the downstream tool)
+                         what the adapter actually sends to the downstream tool);
+                         derived by the engine for a typed action (§8.1),
+                         the requester's destination otherwise
   asset_criticality      optional string (see §10)
 ```
+
+Each action type declares the STIX types it acts on (`target_types` on the descriptor, `08 §3`; adr/0354). Host actions act on `reckon-host`, account actions on `user-account`, email actions on `email-message`, and indicator actions on `ipv4-addr`, `ipv6-addr`, `domain-name`, `url` and `file`. An IP address is not a host. The ticket and notify actions declare none, because their target is a destination (a project, a ticket, a channel, an address), not an entity in the evidence. For a type that declares target types, every target must carry an `entity_ref` whose type (the part before `--`) is declared. Otherwise the request is refused and nothing is recorded. For a type that declares none, `entity_ref` is not read.
+
+A request for a typed action names only the entity. The engine derives `resolved_identifier` from the stored entity and ignores any value the requester sent (§8.1, adr/0406). For a ticket or notify action the requester's `resolved_identifier` is the destination, and it is kept.
 
 Every `reckon-action` has a `produced-by` edge to an Interpretation of type `action-request` (a value in the canonical `interpretation_type` enum — this *is* a kind of reasoning, even though the action itself is not). This piggybacks on the existing produced-by mechanism in the domain model and keeps the reasoning thread intact.
 
@@ -288,8 +296,10 @@ Authorization:
   secondary_approver_ref optional Analyst id (for TWO_PARTY, set when
                          stage advances to SECONDARY)
   secondary_approved_at  optional timestamp
-  policy_ref             optional string (policy id that auto-approved)
-  policy_version         optional string (content hash of policy at time of fire)
+  policy_ref             optional string (policy id that auto-approved);
+                         required when mode is AUTO_POLICY
+  policy_version         optional string (content hash of policy at time of
+                         fire); required when mode is AUTO_POLICY
   challenge_response     optional string (the typed confirmation string for T3)
 ```
 
@@ -319,10 +329,12 @@ A policy is a versioned object:
 
 ```text
 policy:
-  id                       policy/<slug>/<semver>
+  id                       policy/<slug>/<semver>; required, and unique
+                           across the loaded policies
   action_match             list of action_type globs (e.g., "host.isolate")
   predicate                CEL expression returning bool
-  effect                   AUTO_APPROVE | REQUIRE_TWO_PARTY | DENY
+  effect                   AUTO_APPROVE | REQUIRE_TWO_PARTY | DENY;
+                           required
   shadow                   bool, default false (see §4.4 — when true, the
                            policy is evaluated and its decision recorded as
                            would_have_fired in PolicyEvaluated events, but
@@ -342,8 +354,15 @@ policy:
   signed_off_by            list of Analyst ids (config-change governance)
   effective_from           timestamp
   effective_until          optional timestamp
-  content_hash             sha256 of canonical form
+  content_hash             sha256 of canonical form: RFC 8785 JSON of the
+                           fields above, with every empty or false field
+                           left out (a set effective_until is always
+                           written). Times are RFC 3339 in UTC with a Z,
+                           and fractional seconds only when non-zero,
+                           trailing zeros trimmed (adr/0378)
 ```
+
+The backend refuses to start with a policy that has no effect or an unknown one. A policy file holds one policy, and takes only the fields from `id` to `effective_until`; `content_hash` is computed, not written. A file with any other key is refused, since a misspelt key's field would otherwise be left at its default. So is a file with a second YAML document, which would otherwise be dropped (adr/0378).
 
 Policies are stored in a versioned repo (git is fine for v0; the path doesn't matter for this thread) and loaded into the backend at startup and on signal. Any change requires a signed config commit. The Go backend evaluates policies in priority order: any matching `DENY` wins; else any matching `REQUIRE_TWO_PARTY`; else any matching `AUTO_APPROVE`; else fall through to the default tier flow.
 
@@ -589,6 +608,7 @@ Attempt:
 - **Approved, dispatched, adapter returns error:** if `RETRYABLE_ERROR` (rate limit, transient 5xx), retry. If `FATAL_ERROR` (auth, malformed request, target not found): no retry, status `FAILED`.
 - **Approved, dispatched, partial success across targets:** status `SUCCEEDED` but `final_outcome=PARTIAL`. Per-target results recorded. The action is *not* re-dispatched for the failed targets automatically — partial-failure recovery requires a new action request, because re-dispatching silently violates the principle that every action is auditable on its own.
 - **Timeout:** the adapter call exceeded the action-type timeout. Status moves to `FAILED` with `final_outcome=TIMEOUT`. The system explicitly does *not* infer success from timeout. The audit record makes this state visible to the analyst, who decides whether to re-request.
+- **Approved, but the binding can no longer carry it:** the binding frozen at request time (`08 §4`) is gone, its adapter is not configured or not enabled, its scope no longer matches, or its params no longer render. This happens when the configuration changed while the action waited for approval. The same holds when no write resolver is wired at all. Nothing is sent. Status moves to `FAILED`, with `attempts` 0 and every target `FAIL`, because the tool did not act. The reason is the result's `error_detail`, such as `not sent: adapter crowdstrike-falcon is not configured or not enabled` or `not sent: no write resolver configured`. There is no retry, because the configuration does not change between attempts. Only the first attempt is recorded this way. A later attempt that fails before the call is retried and ends `UNKNOWN` like any other failure, because an earlier attempt may have reached the tool. A re-request is safe: it picks its binding against the configuration it finds (adr/0384).
 - **Approval expired before dispatch (rare; should mostly happen for stale T2 prompts):** status `EXPIRED`. New request required.
 - **Approved, but the dispatch workflow never started:** status stays `APPROVED`. Nothing has left reckon (the dispatch is recorded before any call), so starting the workflow again is safe; a sweep at startup and on a periodic tick starts every APPROVED action's workflow, and an approval stands however long it waited.
 - **Dispatched, then the run stopped before recording a result:** status `OUTCOME_UNKNOWN`. The call may have left reckon; nobody knows whether the tool acted, and dispatching again could act twice. The next run of the action's workflow (the same sweep starts it) records the status instead of dispatching. It waits for a person, with no timeout: someone checks the tool and resolves the action to `SUCCEEDED` or `FAILED`, saying what they checked. There is no re-request from `OUTCOME_UNKNOWN`; a rerun is a resolution to `FAILED` followed by a re-request, so nobody reruns blind.
@@ -643,6 +663,7 @@ This is why `ioc.block` ships **linked** to `ioc.unblock` (affordance + forward 
 
 Common to all reversible action types:
 
+- A reversal acts on the original action's targets, as recorded. Targets in the reversal request are not used. The reversal is checked against the target types like any other request (§3.1).
 - Reversal is itself an action and goes through the same authorization flow. Critically, **reversing an action is the same tier as the original, not lower.** Un-isolating a host is also T2; pushing a "retract" detection is also T3 (because retracting a rule has the same blast radius as deploying one — anything that detected on it stops firing).
 - A `PARTIAL`/`FAILED`/`TIMEOUT` reversing dispatch never marks the original `REVERSED`, regardless of reliability — you can't claim an undo that didn't fully take effect (§6.2, honest-state).
 
@@ -676,11 +697,15 @@ The `audit_depth` on the reversing action's `Execution` record is independent �
 
 ### 8.1 Target resolution
 
-Every `TargetSpec` has both an `entity_ref` (STIX id, stable across investigations) and a `resolved_identifier` (what the adapter actually sends to the downstream tool — hostname, UPN, mailbox SMTP, etc.). The resolution happens at request time and is *frozen* into the `reckon-action`. This matters because:
+Every `TargetSpec` has both an `entity_ref` (STIX id, stable across investigations) and a `resolved_identifier` (what the adapter actually sends to the downstream tool — hostname, UPN, mailbox SMTP, etc.). The resolution happens at request time and is *frozen* into the `reckon-action`. The `entity_ref` must be of a type the action declares (§3.1). This matters because:
 
 - The same STIX entity can resolve differently in different environments (a hostname can change FQDN).
 - An attacker watching telemetry shouldn't be able to manipulate resolution between request and execution.
 - The audit record needs to capture exactly what string was sent to the tool.
+
+The engine resolves, not the requester (adr/0406). Tools that carry out one action take different strings for the same entity: one takes a hostname, another its own device id. So the binding that will carry the action out says how its identifier is derived, in its identifier rule (`08 §4`). When an action is requested, the engine loads each target's entity from the evidence. It walks the usable bindings by priority and renders each one's rule for each target. The first binding whose rule and params render is chosen. The rendered string becomes the target's `resolved_identifier`. The chosen binding is frozen on the action with it, and dispatch uses that binding only (`08 §7.1`). So the approver sees the exact string that will be sent, and to which tool.
+
+A request is refused with a 503 when the install has no write bindings, or when a typed action has no evidence store to read its targets from. Nothing is recorded then. A target whose entity is not in the evidence is refused with a 422, and nothing is recorded. So is a target that no usable binding can derive an identifier for, such as a host whose binding needs a field the stored host does not have. The refusal names the reason. A re-request, a retry and a reversal derive afresh; a reversal derives for the inverse type's bindings. An edit changes parameters only, so it keeps the frozen binding. It is refused if that binding's params no longer render with the new parameters. A ticket or notify action keeps the requester's destination, and its binding is frozen too.
 
 ### 8.2 Blast radius and asset criticality
 
@@ -767,9 +792,9 @@ To make the spec concrete, the path of one T2 action:
 
 1. AI agent, investigating an alert seeded from a Cobalt Strike beacon detection, runs queries (T0, no friction) and creates Sightings (T1, no friction) linking telemetry to a hypothesis `h-1: "host WIN-A14 is C2-active"` with `reckon-supports` weight STRONG from a Sighting whose evidence is two `OcsfEvent`s with `derivation_mode: DIRECT`.
 2. Hypothesis status moves from `OPEN` to `SUPPORTED` after the AI agent's reasoning (recorded as a normal `hypothesis` Interpretation).
-3. AI agent calls the `host.isolate` action tool, and the loop sends `request_action(action_type="host.isolate", targets=[{entity_ref: ipv4-addr--..., resolved_identifier: "WIN-A14"}], evidence_refs=[sighting-1, h-1], rationale="Hypothesis SUPPORTED with STRONG-weight direct evidence; isolation prevents lateral movement.", investigation_ref=grouping-1)`.
+3. AI agent calls the `host.isolate` action tool, and the loop sends `request_action(action_type="host.isolate", targets=[{entity_ref: reckon-host--..., resolved_identifier: "WIN-A14"}], evidence_refs=[sighting-1, h-1], rationale="Hypothesis SUPPORTED with STRONG-weight direct evidence; isolation prevents lateral movement.", investigation_ref=grouping-1)`.
 4. Backend creates `reckon-interpretation` of type `action-request` and `reckon-action` in `REQUESTED`. Both get `member-of` edges to the Grouping.
-5. Policy engine evaluates. The "auto-isolate on Cobalt Strike" policy from §4.3 fires: status moves to `APPROVED` with `Authorization.mode=AUTO_POLICY`, `policy_ref=policy/host-isolate-cobalt-strike/1.2.0`, `primary_approver_ref=<the analyst who signed off on this policy>`. An `action-approval` Interpretation is emitted.
+5. Policy engine evaluates. The "auto-isolate on Cobalt Strike" policy from §4.3 fires: status moves to `APPROVED` with `Authorization.mode=AUTO_POLICY`, `policy_ref=policy/host-isolate-cobalt-strike/1.2.0`, `policy_version=<that policy's content hash, as on its evaluation row>`, `primary_approver_ref=<the analyst who signed off on this policy>`. An `action-approval` Interpretation is emitted.
 6. Dispatcher picks up `APPROVED`, calls the EDR via its capability adapter. Status `EXECUTING`, `action-dispatch` Interpretation emitted.
 7. EDR returns success. Status `SUCCEEDED`, `action-result` Interpretation emitted with `confidence=HIGH` (tool confirmed).
 8. Three days later, after investigation conclusion, the analyst un-isolates the host: a new `reckon-action` of type `host.unisolate` with `reversal_of_ref` pointing at the original. Goes through normal T2 flow (one click confirm). On success, original `reckon-action.status` becomes `REVERSED`.

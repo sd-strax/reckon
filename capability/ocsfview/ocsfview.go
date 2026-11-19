@@ -271,24 +271,42 @@ func (r *renderer) keyExact(name string, s slot) {
 
 // keyList registers a multi-valued slot: the texts sorted, joined for reading,
 // and as identity encoded with their boundaries intact, so one value "a,b"
-// never equals two values "a" and "b". fold lowercases values that are
-// case-insensitive (addresses); order never makes two observations differ.
+// never equals two values "a" and "b". fold trims and lowercases values that
+// are case-insensitive (addresses); order never makes two observations
+// differ. A value with a key, an address by its cleaned-up form, is
+// identified by that key, so two spellings of one mailbox fold. A keyed or
+// folded value is counted and shown once, in the first spelling seen, as the
+// normalizer stores each recipient once.
 func (r *renderer) keyList(name string, slots []slot, fold bool) {
 	vals := make([]string, 0, len(slots))
+	ids := make([]string, 0, len(slots))
+	seen := map[string]bool{}
 	for _, s := range slots {
 		if s.text == "" {
 			continue
 		}
+		v := s.text
 		if fold {
-			vals = append(vals, strings.ToLower(s.text))
-		} else {
-			vals = append(vals, s.text)
+			v = strings.ToLower(strings.TrimSpace(v))
 		}
+		id := v
+		if s.key != "" {
+			id = s.key
+		}
+		if fold || s.key != "" {
+			if seen[id] {
+				continue
+			}
+			seen[id] = true
+		}
+		vals = append(vals, v)
+		ids = append(ids, id)
 	}
 	sort.Strings(vals)
+	sort.Strings(ids)
 	var id string
-	if len(vals) > 0 { // no values is no value, which never folds
-		enc, _ := json.Marshal(vals) // strings always marshal
+	if len(ids) > 0 { // no values is no value, which never folds
+		enc, _ := json.Marshal(ids) // strings always marshal
 		id = string(enc)
 	}
 	r.slots = append(r.slots, SlotValue{Name: name, Text: strings.Join(vals, ", "), Identity: id})
@@ -348,8 +366,10 @@ func (r *renderer) keyRefs(name string, slots []slot, fold bool) {
 type slot struct {
 	text string
 	ref  string
-	// key, when set, is what an unbound slot keys by in place of its text:
-	// a user shown by its id alone (userOf).
+	// key, when set, is what a slot keys by in place of its text: a user
+	// shown by its id alone (userOf), or an address by its cleaned-up form,
+	// lowercased as its id is (emailAddr). A bound slot still folds by its
+	// ref (keyIdentity).
 	key string
 	// uid is a user's uid folded as accountIDKey folds it, for sameUser.
 	uid string
@@ -597,15 +617,18 @@ func (r *renderer) url(v string) slot {
 
 // emailAddr shows an address as the record gives it, and binds it through
 // the cleanup the normalizer stored it with (stix.EmailAddress, adr/0357).
+// It folds by that cleaned-up value, so two spellings of one mailbox are one
+// recipient (adr/0371). A value that isn't an address folds by its trimmed
+// text, ignoring case.
 func (r *renderer) emailAddr(v string) slot {
-	if v == "" {
+	if strings.TrimSpace(v) == "" {
 		return slot{}
 	}
 	value, ok := stix.EmailAddress(v)
 	if !ok {
-		return slot{text: v}
+		return slot{text: v, key: strings.ToLower(strings.TrimSpace(v))}
 	}
-	return slot{text: v, ref: r.bind(identity.TypeEmailAddr, func(p map[string]any) bool { return propEquals(p, "value", value) })}
+	return slot{text: v, key: strings.ToLower(value), ref: r.bind(identity.TypeEmailAddr, func(p map[string]any) bool { return propEquals(p, "value", value) })}
 }
 
 // file binds an OCSF file object at prefix to its file by name, hash or path.

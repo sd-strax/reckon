@@ -26,9 +26,13 @@ type PolicyEvaluation struct {
 // fell through to the manual flow); Mode is the authorization mode the endpoint
 // records on approval. Evaluations is the full audit list for PolicyEvaluated.
 type Decision struct {
-	Effect                PolicyEffect
-	Mode                  string // AUTO_POLICY | TWO_PARTY | MANUAL
-	MatchedPolicyRef      string // "" when manual
+	Effect           PolicyEffect
+	Mode             string // AUTO_POLICY | TWO_PARTY | MANUAL
+	MatchedPolicyRef string // "" when manual
+	// MatchedPolicyVersion is the matched policy's content hash, the same value
+	// as the policy_version on its evaluation row (adr/0378). Set beside
+	// MatchedPolicyRef; "" when no policy drove the decision.
+	MatchedPolicyVersion  string
 	SecondaryApproverPool []string
 	// PolicyAccountable is the human an AUTO_POLICY approval is attributed to:
 	// the requester under a requester-accountable policy (adr/0374), else the

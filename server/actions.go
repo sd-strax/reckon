@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -103,24 +102,11 @@ func (b *Backend) actionView(a aggregate.ActionCurrent) ActionView {
 			}
 		}
 	}
-	// Pre-approval preview: which adapter WOULD dispatch this if approved now
-	// (superseded by the actual Adapter once dispatched). SourceScope is v0
-	// unscoped; a scoped preview reads the Seed scope (03 §3.5) in v1.
+	// Pre-approval preview: the adapter of the binding frozen at request
+	// time (adr/0406), the one dispatch will use (superseded by the actual
+	// Adapter once dispatched).
 	if a.Adapter == "" {
-		if resolver := b.actionResolver(); resolver != nil {
-			var params map[string]any
-			if len(a.Parameters) > 0 {
-				_ = json.Unmarshal(a.Parameters, &params)
-			}
-			if binding, ok := resolver.PlannedBinding(action.DispatchRequest{
-				ActionID:   a.ActionID,
-				ActionType: a.ActionType,
-				Targets:    a.Targets,
-				Parameters: params,
-			}); ok {
-				v.PlannedAdapter = binding.Adapter
-			}
-		}
+		v.PlannedAdapter = a.Binding.Adapter
 	}
 	return v
 }
@@ -213,6 +199,10 @@ func (b *Backend) dispatchActionRequest(w http.ResponseWriter, r *http.Request, 
 			return
 		}
 		originalTier = orig.Tier
+		// A reversal acts on the original's targets, as recorded (adr/0354).
+		// The body's targets are not used: the workbench's Reverse sends the
+		// names only, and the original's targets are the only valid answer.
+		body.Targets = orig.Targets
 	}
 
 	// An action type with no usable binding for this investigation cannot be
@@ -221,7 +211,8 @@ func (b *Backend) dispatchActionRequest(w http.ResponseWriter, r *http.Request, 
 	// approval and fail only at dispatch (adr/0380). The check covers a fresh
 	// request, a re-request and a reversal, whose action_type is the inverse
 	// type. A degraded type is accepted.
-	if b.actionTypeUnavailable(body.ActionType, b.requestScope(r.Context(), investigationID)) {
+	scope := b.requestScope(r.Context(), investigationID)
+	if b.actionTypeUnavailable(body.ActionType, scope) {
 		writeJSONError(w, http.StatusUnprocessableEntity, unavailableActionMessage(body.ActionType))
 		return
 	}
@@ -257,6 +248,16 @@ func (b *Backend) dispatchActionRequest(w http.ResponseWriter, r *http.Request, 
 	// tier parity before Gate 2 evaluates, so policies see the true tier.
 	if originalTier != "" {
 		cmd.Tier = action.MaxTier(cmd.Tier, originalTier)
+	}
+
+	// Pick the binding and derive each target's identifier from the stored
+	// entity (adr/0406), before Gate 2, so policies and the approver see the
+	// string that will be sent. A refusal records nothing. A re-request,
+	// retry and reversal come through here too, so each derives afresh; a
+	// reversal derives for the inverse type's bindings.
+	if status, msg := b.planAction(r.Context(), &cmd, scope); status != 0 {
+		writeJSONError(w, status, msg)
+		return
 	}
 
 	// Gate 2: evaluate policies over the (post-escalator) request.

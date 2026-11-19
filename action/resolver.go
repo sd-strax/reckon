@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -28,6 +30,13 @@ type ActionBinding struct {
 	Priority                          int            `yaml:"priority" json:"priority"`
 	Params                            map[string]any `yaml:"params" json:"params"`
 	ExternalApprovalSubstitutesReckon bool           `yaml:"external_approval_substitutes_reckon" json:"external_approval_substitutes_reckon"`
+	// Identifier is the binding's identifier rule (adr/0406): for each STIX
+	// type the action acts on, a template over the stored target entity,
+	// under the root target.entity. The engine renders it at request time
+	// and freezes the result as the target's resolved_identifier. Required
+	// for an action type with target types; absent for one with none
+	// (ticket, notify), whose target is a destination the requester names.
+	Identifier map[string]string `yaml:"identifier" json:"identifier,omitempty"`
 	// Scope is the source scope inherited from the adapter instance (03 §3.5),
 	// set from the ActionAdapterSpec at build time — never read from binding YAML
 	// (scope lives on the instance). A scope mismatch makes the binding
@@ -49,6 +58,9 @@ type DispatchRequest struct {
 	// Seed so the resolver dispatches only to the matching organization's
 	// instance. Empty for single-organization investigations.
 	SourceScope string
+	// Binding is the binding frozen at request time (adr/0406). Dispatch
+	// uses it and no other.
+	Binding aggregate.FrozenBinding
 }
 
 // ActionResolver selects the write binding for an action and dispatches it
@@ -68,13 +80,80 @@ func NewActionResolver(bindings map[string][]ActionBinding, adapters map[string]
 }
 
 // ValidateActionBindings compiles every binding template up front (08 §4,
-// mirrors 03 §3.3.4).
-func ValidateActionBindings(bindings map[string][]ActionBinding) error {
+// mirrors 03 §3.3.4) and checks each binding's identifier rule against the
+// catalog (adr/0406). A binding for an action type with target types must
+// declare an identifier, keyed only by those types. A binding for a type with
+// none (ticket, notify) must not. The root target.entity is valid only inside
+// identifier, and an identifier reads nothing else, so dispatch never reads
+// the entity. Each binding names an adapter and an operation, and no two
+// bindings of one action type name the same pair: that triple is the
+// identity a request freezes and dispatch finds the binding by. Everything
+// dispatch would refuse for a static reason is refused here, never after
+// approval. A binding for a type the catalog does not hold has its templates
+// compiled and its identity checked, and no more.
+func ValidateActionBindings(bindings map[string][]ActionBinding, catalog *ActionCatalog) error {
 	for at, bs := range bindings {
-		for _, b := range bs {
-			if err := capability.ValidateParamTemplates(b.Params); err != nil {
+		var (
+			d     ActionDescriptor
+			known bool
+		)
+		if catalog != nil {
+			d, known = catalog.Descriptor(at)
+		}
+		// The binding a request freezes is found again by its identity, the
+		// action type, adapter and operation (frozenSelection), so that
+		// identity is a unique key of the binding table, enforced here.
+		seen := map[aggregate.FrozenBinding]int{}
+		for i, b := range bs {
+			if b.Adapter == "" || b.Operation == "" {
+				return fmt.Errorf("action_type %s, binding %d: adapter and operation are required; a binding is identified by its action type, adapter and operation", at, i)
+			}
+			key := aggregate.FrozenBinding{Adapter: b.Adapter, Operation: b.Operation}
+			if j, dup := seen[key]; dup {
+				return fmt.Errorf("action_type %s: bindings %d (priority %d) and %d (priority %d) both name adapter %s operation %s; a binding is identified by its action type, adapter and operation, so no two may share them",
+					at, j, bs[j].Priority, i, b.Priority, b.Adapter, b.Operation)
+			}
+			seen[key] = i
+			if err := validateBinding(at, b, d, known); err != nil {
 				return fmt.Errorf("action_type %s, adapter %s: %w", at, b.Adapter, err)
 			}
+		}
+	}
+	return nil
+}
+
+// validateBinding is ValidateActionBindings for one binding.
+func validateBinding(actionType string, b ActionBinding, d ActionDescriptor, known bool) error {
+	if err := capability.ValidateParamTemplates(b.Params); err != nil {
+		return err
+	}
+	if p, ok := paramsReadTargetEntity(b.Params); ok {
+		return fmt.Errorf("params reference %s; %s is valid only inside identifier, so dispatch never reads the entity", p, targetEntityRoot)
+	}
+	for typ, tmpl := range b.Identifier {
+		if err := capability.ValidateParamTemplates(map[string]any{typ: tmpl}); err != nil {
+			return fmt.Errorf("identifier for %s: %w", typ, err)
+		}
+		if err := checkIdentifierRule(tmpl); err != nil {
+			return fmt.Errorf("identifier for %s %w", typ, err)
+		}
+	}
+	if !known {
+		return nil
+	}
+	if len(d.TargetTypes) == 0 {
+		if len(b.Identifier) > 0 {
+			return fmt.Errorf("%s targets a destination the requester names, so its binding takes no identifier", actionType)
+		}
+		return nil
+	}
+	if len(b.Identifier) == 0 {
+		return fmt.Errorf("identifier required: %s acts on %s, and the binding must say how each target's identifier is derived from the stored entity",
+			actionType, strings.Join(d.TargetTypes, ", "))
+	}
+	for typ := range b.Identifier {
+		if !slices.Contains(d.TargetTypes, typ) {
+			return fmt.Errorf("identifier key %s is not a type %s acts on (acts on: %s)", typ, actionType, strings.Join(d.TargetTypes, ", "))
 		}
 	}
 	return nil
@@ -84,41 +163,63 @@ func ValidateActionBindings(bindings map[string][]ActionBinding) error {
 // action type — dispatch cannot proceed.
 var ErrNoBinding = errors.New("no applicable write binding")
 
-// selection is one chosen binding with its configured adapter and rendered
-// params — the SINGLE selection implementation behind both Resolve (dispatch)
-// and PlannedBinding (the pre-approval preview), so what a surface promises is
-// structurally what dispatch picks.
-type selection struct {
-	binding ActionBinding
-	adapter WriteAdapter
-	params  map[string]any
+// ErrNotSent marks a dispatch that failed before the outbound call
+// (adr/0384): nothing reached the tool, so the tool cannot have acted.
+// Every such failure is a *NotSentError, which errors.Is matches to it.
+var ErrNotSent = errors.New("not sent")
+
+// NotSentError is a dispatch that failed before the outbound call
+// (adr/0384): the frozen binding is missing, no longer configured, not
+// enabled, out of scope, or its params no longer render. Reason says exactly
+// what broke. Cause is the underlying error: ErrNoBinding when no usable
+// binding carries the action, or the template error. A retry cannot help,
+// because the configuration does not change between attempts.
+type NotSentError struct {
+	Reason string
+	Cause  error
 }
 
-// selectBinding walks the action type's bindings by priority and returns the
-// first applicable one (scope match, adapter configured, required params
-// render). ok=false when nothing applies. A template-render error is returned
-// with the offending binding — Resolve fails hard on it; a preview treats it
-// as not-applicable.
-func (r *ActionResolver) selectBinding(req DispatchRequest) (selection, bool, error) {
-	tctx := dispatchContext(req)
-	for _, b := range sortedActionBindings(r.bindings[req.ActionType]) {
-		// §3.5: a wrong organization's instance is not applicable, and an
-		// adapter not configured or enabled cannot carry it: try a
-		// lower-priority binding.
-		adapter, ok := r.usableFor(b, req.SourceScope)
-		if !ok {
-			continue
-		}
-		params, applicable, err := capability.RenderParams(b.Params, tctx)
-		if err != nil {
-			return selection{binding: b}, false, fmt.Errorf("action_type %s, adapter %s: template render: %w", req.ActionType, b.Adapter, err)
-		}
-		if !applicable {
-			continue // required input missing — not this binding
-		}
-		return selection{binding: b, adapter: adapter, params: params}, true, nil
+// NotSentPrefix opens every not-sent error's text, the error_detail an
+// action's record carries (adr/0384), so a reader sees nothing went out.
+const NotSentPrefix = "not sent: "
+
+// Error implements error: NotSentPrefix and the reason.
+func (e *NotSentError) Error() string { return NotSentPrefix + e.Reason }
+
+// Unwrap lets errors.Is match ErrNotSent and the cause.
+func (e *NotSentError) Unwrap() []error {
+	if e.Cause == nil {
+		return []error{ErrNotSent}
 	}
-	return selection{}, false, nil
+	return []error{ErrNotSent, e.Cause}
+}
+
+// notSent builds a NotSentError.
+func notSent(cause error, format string, args ...any) *NotSentError {
+	return &NotSentError{Reason: fmt.Sprintf(format, args...), Cause: cause}
+}
+
+// candidate is a binding that could serve a request in a source scope, with
+// its configured adapter.
+type candidate struct {
+	binding ActionBinding
+	adapter WriteAdapter
+}
+
+// candidates walks the action type's bindings by priority and returns the
+// usable ones: scope match and adapter configured and enabled (03 §3.5,
+// adr/0380). It is the walk the request-time planner selects from; health is
+// not checked.
+func (r *ActionResolver) candidates(actionType, sourceScope string) []candidate {
+	var out []candidate
+	for _, b := range sortedActionBindings(r.bindings[actionType]) {
+		// §3.5: a wrong organization's instance is not applicable, and an
+		// adapter not configured or enabled cannot carry it.
+		if adapter, ok := r.usableFor(b, sourceScope); ok {
+			out = append(out, candidate{binding: b, adapter: adapter})
+		}
+	}
+	return out
 }
 
 // configuredAdapter returns the binding's adapter when that adapter is
@@ -153,22 +254,83 @@ func (r *ActionResolver) HasUsableBinding(actionType, sourceScope string) bool {
 	return false
 }
 
-// Resolve picks the highest-priority applicable binding for the request,
-// renders its params against the frozen targets/parameters, injects the action
-// context + idempotency key, and dispatches exactly once. It returns the binding
-// used (so the caller records the adapter/idempotency context) alongside the
-// result.
-func (r *ActionResolver) Resolve(ctx context.Context, req DispatchRequest) (WriteResult, ActionBinding, error) {
-	sel, ok, err := r.selectBinding(req)
-	if err != nil {
-		return WriteResult{}, sel.binding, err
+// selection is the frozen binding with its configured adapter and its params
+// rendered against the frozen targets and parameters.
+type selection struct {
+	binding ActionBinding
+	adapter WriteAdapter
+	params  map[string]any
+}
+
+// frozenSelection finds the binding frozen on the request (adr/0406) and
+// renders its params. It never selects another binding. Every way it fails
+// happens before the outbound call, so each is a *NotSentError naming what
+// broke (adr/0384): the action has no frozen binding; the binding is no
+// longer configured; its scope no longer matches the investigation's; its
+// adapter is not enabled; or its params no longer render. Each but a
+// template error also matches ErrNoBinding.
+func (r *ActionResolver) frozenSelection(req DispatchRequest) (selection, *NotSentError) {
+	fb := req.Binding
+	if fb.Adapter == "" || fb.Operation == "" {
+		return selection{}, notSent(ErrNoBinding, "action %s has no binding frozen at request", req.ActionType)
+	}
+	var (
+		found ActionBinding
+		ok    bool
+	)
+	for _, b := range sortedActionBindings(r.bindings[req.ActionType]) {
+		if b.Adapter == fb.Adapter && b.Operation == fb.Operation {
+			found, ok = b, true
+			break
+		}
 	}
 	if !ok {
-		return WriteResult{}, ActionBinding{}, fmt.Errorf("%w for action_type %q", ErrNoBinding, req.ActionType)
+		return selection{}, notSent(ErrNoBinding, "operation %s on adapter %s is no longer bound to %s", fb.Operation, fb.Adapter, req.ActionType)
+	}
+	if !capability.ScopeApplicable(found.Scope, req.SourceScope) {
+		return selection{binding: found}, notSent(ErrNoBinding, "the binding on adapter %s is scoped to %q, and this investigation's scope is %q", fb.Adapter, found.Scope, req.SourceScope)
+	}
+	adapter, enabled := r.configuredAdapter(found)
+	if !enabled {
+		return selection{binding: found}, notSent(ErrNoBinding, "adapter %s is not configured or not enabled", fb.Adapter)
+	}
+	tctx := dispatchContext(req)
+	params, applicable, err := capability.RenderParams(found.Params, tctx)
+	if err != nil {
+		return selection{binding: found}, notSent(err, "operation %s on adapter %s no longer renders: %v", fb.Operation, fb.Adapter, err)
+	}
+	if !applicable {
+		return selection{binding: found}, notSent(ErrNoBinding, "operation %s on adapter %s no longer renders: missing %s",
+			fb.Operation, fb.Adapter, strings.Join(missingRefs(found.Params, tctx), ", "))
+	}
+	return selection{binding: found, adapter: adapter, params: params}, nil
+}
+
+// CheckFrozenParams reports whether the frozen binding of req can still carry
+// it, its params rendered (adr/0406). An edit of a request's parameters calls
+// it with the new parameters, and is refused on a non-nil answer, which names
+// what broke: the edited action could not be carried out by the binding it
+// was approved for.
+func (r *ActionResolver) CheckFrozenParams(req DispatchRequest) *NotSentError {
+	_, ns := r.frozenSelection(req)
+	return ns
+}
+
+// Resolve dispatches the request through its frozen binding (adr/0406): it
+// renders the binding's params against the frozen targets and parameters,
+// injects the action context and idempotency key, and dispatches exactly
+// once. It never selects another binding; when the frozen one cannot be used
+// it fails with nothing sent, a *NotSentError (adr/0384). An error the
+// adapter returns is never a NotSentError: the call was made. It returns the
+// binding used alongside the result.
+func (r *ActionResolver) Resolve(ctx context.Context, req DispatchRequest) (WriteResult, ActionBinding, error) {
+	sel, ns := r.frozenSelection(req)
+	if ns != nil {
+		return WriteResult{}, sel.binding, ns
 	}
 
-	// Binding chosen. From here there is NO fall-through: this is the single
-	// outbound path for the action.
+	// From here there is NO fall-through: this is the single outbound path
+	// for the action.
 	sel.params[ParamActionType] = req.ActionType
 	if len(req.Targets) > 0 {
 		sel.params[ParamResolvedIdentifier] = req.Targets[0].ResolvedIdentifier
@@ -180,20 +342,6 @@ func (r *ActionResolver) Resolve(ctx context.Context, req DispatchRequest) (Writ
 		return WriteResult{}, sel.binding, err // classified WriteError; caller applies the retry budget
 	}
 	return result, sel.binding, nil
-}
-
-// PlannedBinding returns the binding Resolve WOULD select for req, without
-// dispatching — the "which tool will act" preview an approval surface shows
-// BEFORE a human approves (08 §4). It IS Resolve's selection (selectBinding),
-// so what the card promises is structurally what dispatch will pick. ok is
-// false when nothing applies (no binding, wrong scope, adapter disabled,
-// required inputs missing, or a binding whose template fails to render).
-func (r *ActionResolver) PlannedBinding(req DispatchRequest) (ActionBinding, bool) {
-	sel, ok, err := r.selectBinding(req)
-	if err != nil || !ok {
-		return ActionBinding{}, false
-	}
-	return sel.binding, true
 }
 
 // dispatchContext assembles the template roots for action bindings: the target

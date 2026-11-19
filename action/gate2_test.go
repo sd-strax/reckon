@@ -204,10 +204,10 @@ func TestCELParametersAvailable(t *testing.T) {
 // TestBadPredicateRejectedAtBuild: a predicate that doesn't compile / isn't bool
 // is a config error at NewGate2.
 func TestBadPredicateRejectedAtBuild(t *testing.T) {
-	if _, err := NewGate2([]Policy{{ID: "p/bad/1", ActionMatch: []string{"*"}, Predicate: "ctx.action.tier +"}}); err == nil {
+	if _, err := NewGate2([]Policy{{ID: "p/bad/1", ActionMatch: []string{"*"}, Effect: EffectDeny, Predicate: "ctx.action.tier +"}}); err == nil {
 		t.Error("malformed predicate accepted")
 	}
-	if _, err := NewGate2([]Policy{{ID: "p/nonbool/1", ActionMatch: []string{"*"}, Predicate: `ctx.action.type`}}); err == nil {
+	if _, err := NewGate2([]Policy{{ID: "p/nonbool/1", ActionMatch: []string{"*"}, Effect: EffectDeny, Predicate: `ctx.action.type`}}); err == nil {
 		t.Error("non-bool predicate accepted")
 	}
 }
@@ -286,5 +286,116 @@ func TestRequesterAccountable_Validation(t *testing.T) {
 	}
 	if _, err := NewGate2([]Policy{{ID: "p/x/1", ActionMatch: []string{"*"}, Effect: EffectAutoApprove, Predicate: "true", Accountable: AccountableAuthor}}); err != nil {
 		t.Errorf("explicit author: %v", err)
+	}
+}
+
+// TestMatchedPolicyVersion: the decision carries the content hash of the policy
+// that drove it, equal to that policy's evaluation row (adr/0378), for each
+// effect; with no match it is empty.
+func TestMatchedPolicyVersion(t *testing.T) {
+	auto := Policy{ID: "p/auto/1", ActionMatch: []string{"*"}, Effect: EffectAutoApprove, Predicate: "true"}
+	twoParty := Policy{ID: "p/2p/1", ActionMatch: []string{"*"}, Effect: EffectRequireTwoParty, Predicate: "true", SecondaryApproverPool: []string{"bob"}}
+	deny := Policy{ID: "p/deny/1", ActionMatch: []string{"*"}, Effect: EffectDeny, Predicate: "true"}
+	// A second policy of each effect, with a different predicate so its
+	// content hash differs.
+	autoLater := Policy{ID: "p/auto/2", ActionMatch: []string{"*"}, Effect: EffectAutoApprove, Predicate: "1 == 1"}
+	twoPartyLater := Policy{ID: "p/2p/2", ActionMatch: []string{"*"}, Effect: EffectRequireTwoParty, Predicate: "1 == 1", SecondaryApproverPool: []string{"bob"}}
+	denyLater := Policy{ID: "p/deny/2", ActionMatch: []string{"*"}, Effect: EffectDeny, Predicate: "1 == 1"}
+
+	for _, tc := range []struct {
+		name     string
+		policies []Policy
+		wantRef  string
+	}{
+		{"auto-approve", []Policy{auto}, "p/auto/1"},
+		{"two-party", []Policy{auto, twoParty}, "p/2p/1"},
+		{"deny", []Policy{auto, twoParty, deny}, "p/deny/1"},
+		// Two policies of the same effect fire: the first one matched supplies
+		// both the ref and the version.
+		{"first of two auto-approve", []Policy{auto, autoLater}, "p/auto/1"},
+		{"first of two two-party", []Policy{twoParty, twoPartyLater}, "p/2p/1"},
+		{"first of two deny", []Policy{deny, denyLater}, "p/deny/1"},
+	} {
+		d, err := mustGate2(t, tc.policies...).Evaluate(baseInput())
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if d.MatchedPolicyRef != tc.wantRef {
+			t.Fatalf("%s: matched = %q; want %q", tc.name, d.MatchedPolicyRef, tc.wantRef)
+		}
+		var row string
+		fired := map[string]bool{}
+		for _, e := range d.Evaluations {
+			fired[e.PolicyRef] = e.WouldHaveFired
+			if e.PolicyRef == tc.wantRef {
+				row = e.PolicyVersion
+			}
+		}
+		for _, p := range tc.policies {
+			if !fired[p.ID] {
+				t.Fatalf("%s: policy %s did not fire; the case needs every policy firing", tc.name, p.ID)
+			}
+		}
+		if d.MatchedPolicyVersion == "" || d.MatchedPolicyVersion != row {
+			t.Errorf("%s: matched version = %q; want the evaluation row's %q", tc.name, d.MatchedPolicyVersion, row)
+		}
+	}
+
+	d, _ := mustGate2(t).Evaluate(baseInput())
+	if d.MatchedPolicyVersion != "" {
+		t.Errorf("no match: matched version = %q; want empty", d.MatchedPolicyVersion)
+	}
+}
+
+// TestNewGate2_RefusesEmptyID: a policy with no id is refused. Evaluate tells
+// firing policies apart by id, so a DENY with no id would fire unseen and let a
+// lower-priority AUTO_APPROVE approve.
+func TestNewGate2_RefusesEmptyID(t *testing.T) {
+	_, err := NewGate2([]Policy{
+		{ActionMatch: []string{"*"}, Effect: EffectDeny, Predicate: "true"},
+		{ID: "p/auto/1", ActionMatch: []string{"*"}, Effect: EffectAutoApprove, Predicate: "true"},
+	})
+	if err == nil {
+		t.Fatal("NewGate2 accepted a policy with no id")
+	}
+}
+
+// TestNewGate2_RefusesDuplicateID: two policies may not share an id, and no
+// policy may take the baseline's, however it is built.
+func TestNewGate2_RefusesDuplicateID(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		policies []Policy
+	}{
+		{"two tenant policies", []Policy{
+			{ID: "p/x/1", ActionMatch: []string{"*"}, Effect: EffectDeny, Predicate: "true"},
+			{ID: "p/x/1", ActionMatch: []string{"*"}, Effect: EffectAutoApprove, Predicate: "true"},
+		}},
+		{"the baseline's id", []Policy{
+			{ID: BaselineDenyPolicyID, ActionMatch: []string{"*"}, Effect: EffectAutoApprove, Predicate: "true"},
+		}},
+	} {
+		if _, err := NewGate2(tc.policies); err == nil {
+			t.Errorf("%s: NewGate2 accepted a duplicate id", tc.name)
+		}
+	}
+}
+
+// TestNewGate2_RefusesUnknownEffect: a policy's effect must be one of the
+// three. Evaluate acts on no other, so a DENY written with the effect missing,
+// misspelt or in the wrong case would fire and block nothing, and the
+// AUTO_APPROVE beside it would approve.
+func TestNewGate2_RefusesUnknownEffect(t *testing.T) {
+	auto := Policy{ID: "p/auto/1", ActionMatch: []string{"*"}, Effect: EffectAutoApprove, Predicate: "true"}
+	for _, effect := range []PolicyEffect{"", "deny", "DENNY"} {
+		meantAsDeny := Policy{ID: "p/deny/1", ActionMatch: []string{"*"}, Effect: effect, Predicate: "true"}
+		if _, err := NewGate2([]Policy{meantAsDeny, auto}); err == nil {
+			t.Errorf("effect %q: NewGate2 accepted it", effect)
+		}
+	}
+	for _, effect := range []PolicyEffect{EffectDeny, EffectRequireTwoParty, EffectAutoApprove} {
+		if _, err := NewGate2([]Policy{{ID: "p/x/1", ActionMatch: []string{"*"}, Effect: effect, Predicate: "true", SecondaryApproverPool: []string{"bob"}}}); err != nil {
+			t.Errorf("effect %s: %v", effect, err)
+		}
 	}
 }

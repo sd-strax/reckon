@@ -86,24 +86,38 @@ func IsAddrSpec(s string) bool {
 
 // EmailAddress cleans up an email address read from telemetry and reports
 // whether the result is an addr-spec (IsAddrSpec). Surrounding white space is
-// trimmed. A mailbox with a display name, such as "Alice
-// <alice@corp.example>", keeps its address, alice@corp.example. Both are the
-// same address, so the cleanup invents nothing (adr/0357). Every reader that
-// writes an email-addr, or matches a raw address against one, cleans it up
-// here, so they agree on the value.
+// trimmed. The value is parsed with net/mail and its address written back in
+// the shortest RFC 5322 form (adr/0371). The local part is quoted only when it
+// cannot be a dot-atom or would start or end with white space, with the
+// escaping it needs. A mailbox with a display name, such as "Alice
+// <alice@corp.example>", keeps its address, alice@corp.example, and
+// "alice"@corp.example is alice@corp.example too. Each is the same address,
+// so the cleanup invents nothing (adr/0357). A local part that holds quote
+// characters keeps them, so it stays apart from the unquoted one. Every
+// reader that writes an email-addr, or matches a raw address against one,
+// cleans it up here, so they agree on the value.
 func EmailAddress(s string) (string, bool) {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return "", false
 	}
-	if IsAddrSpec(s) {
-		return s, true
-	}
 	a, err := mail.ParseAddress(s)
-	if err != nil || !IsAddrSpec(a.Address) {
+	if err != nil {
 		return "", false
 	}
-	return a.Address, true
+	// With no name, String writes only "<addr-spec>", quoted as needed.
+	v := strings.TrimSuffix(strings.TrimPrefix((&mail.Address{Address: a.Address}).String(), "<"), ">")
+	// String counts every non-ASCII rune as atext, so a local part that
+	// starts or ends with non-ASCII white space comes back unquoted. Trimmed,
+	// it would name another mailbox, so it is quoted. An unquoted local part
+	// holds no quote or backslash, so it needs no escaping.
+	if at := strings.LastIndex(v, "@"); at > 0 && v[0] != '"' && strings.TrimSpace(v[:at]) != v[:at] {
+		v = `"` + v[:at] + `"` + v[at:]
+	}
+	if !IsAddrSpec(v) {
+		return "", false
+	}
+	return v, true
 }
 
 // ldhLabel is a host name label (RFC 1034 §3.5, with RFC 1123 §2.1 allowing a

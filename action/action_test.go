@@ -133,45 +133,42 @@ func (a *countingHealthAdapter) Health() capability.HealthStatus {
 	return capability.HealthStatus{Healthy: false}
 }
 
-// TestPlannedBinding: the pre-approval preview picks the same binding Resolve
-// would — highest priority whose adapter is configured — without dispatching.
-func TestPlannedBinding(t *testing.T) {
-	r := NewActionResolver(
-		map[string][]ActionBinding{
-			// The real SoR outranks the demo fixture (mirrors servicenow@200 vs
-			// fixture_write@100).
-			"ticket.create": {
-				{ActionType: "ticket.create", Adapter: "servicenow", Operation: "create_incident", Priority: 200},
-				{ActionType: "ticket.create", Adapter: "fixture_write", Operation: "dispatch", Priority: 100},
-			},
-		},
-		map[string]WriteAdapter{
-			"servicenow":    &stubWriteAdapter{name: "servicenow", healthy: true},
-			"fixture_write": &stubWriteAdapter{name: "fixture_write", healthy: true},
-		},
-	)
-
-	b, ok := r.PlannedBinding(DispatchRequest{ActionType: "ticket.create", Targets: []aggregate.TargetSpec{target("Service Desk")}})
-	if !ok || b.Adapter != "servicenow" {
-		t.Fatalf("planned = %q (ok=%v); want servicenow (higher priority)", b.Adapter, ok)
-	}
-
-	// With servicenow not configured, the preview falls to the next binding —
-	// exactly what dispatch would do (no false promise of a disabled tool).
-	r2 := NewActionResolver(
-		map[string][]ActionBinding{"ticket.create": {
+// TestPlan_DestinationType: for a type with no target types the planner
+// keeps the requester's destination and freezes the highest-priority usable
+// binding; a binding whose adapter is not configured gives way to the next;
+// a type with no binding is refused (adr/0406).
+func TestPlan_DestinationType(t *testing.T) {
+	bindings := map[string][]ActionBinding{
+		// The real SoR outranks the demo fixture (mirrors servicenow@200 vs
+		// fixture_write@100).
+		"ticket.create": {
 			{ActionType: "ticket.create", Adapter: "servicenow", Operation: "create_incident", Priority: 200},
 			{ActionType: "ticket.create", Adapter: "fixture_write", Operation: "dispatch", Priority: 100},
-		}},
-		map[string]WriteAdapter{"fixture_write": &stubWriteAdapter{name: "fixture_write", healthy: true}},
-	)
-	if b, ok := r2.PlannedBinding(DispatchRequest{ActionType: "ticket.create", Targets: []aggregate.TargetSpec{target("Service Desk")}}); !ok || b.Adapter != "fixture_write" {
-		t.Errorf("planned with servicenow disabled = %q (ok=%v); want fixture_write", b.Adapter, ok)
+		},
+	}
+	r := NewActionResolver(bindings, map[string]WriteAdapter{
+		"servicenow":    &stubWriteAdapter{name: "servicenow", healthy: true},
+		"fixture_write": &stubWriteAdapter{name: "fixture_write", healthy: true},
+	})
+	desk := aggregate.TargetSpec{ResolvedIdentifier: "Service Desk"}
+	plan, err := r.Plan(PlanInput{ActionType: "ticket.create", Targets: []aggregate.TargetSpec{desk}})
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	if plan.Binding != (aggregate.FrozenBinding{Adapter: "servicenow", Operation: "create_incident"}) {
+		t.Errorf("frozen binding = %+v; want servicenow create_incident (higher priority)", plan.Binding)
+	}
+	if len(plan.Targets) != 1 || plan.Targets[0].ResolvedIdentifier != "Service Desk" {
+		t.Errorf("targets = %+v; want the requester's destination kept", plan.Targets)
 	}
 
-	// No binding for the type → no preview.
-	if _, ok := r.PlannedBinding(DispatchRequest{ActionType: "email.purge"}); ok {
-		t.Error("email.purge has no binding; want ok=false")
+	r2 := NewActionResolver(bindings, map[string]WriteAdapter{"fixture_write": &stubWriteAdapter{name: "fixture_write", healthy: true}})
+	if plan, err := r2.Plan(PlanInput{ActionType: "ticket.create", Targets: []aggregate.TargetSpec{desk}}); err != nil || plan.Binding.Adapter != "fixture_write" {
+		t.Errorf("planned with servicenow disabled = %+v (err %v); want fixture_write", plan.Binding, err)
+	}
+
+	if _, err := r.Plan(PlanInput{ActionType: "email.purge", Targets: []aggregate.TargetSpec{desk}}); !IsPlanRefusal(err) {
+		t.Errorf("email.purge has no binding: err = %v; want a refusal", err)
 	}
 }
 
@@ -231,6 +228,26 @@ func TestBuildRequestCommand(t *testing.T) {
 	}
 }
 
+// TestBuildRequestCommand_TypedTargetNamesTheEntity (adr/0406): a typed
+// action's target needs only its entity_ref, and a resolved_identifier the
+// requester sent is dropped, so only the planner's derived value can be
+// recorded.
+func TestBuildRequestCommand_TypedTargetNamesTheEntity(t *testing.T) {
+	catalog := defaultActionCatalog(t)
+	cmd, err := BuildRequestCommand(catalog, ActionRequest{
+		ActionType:   "host.isolate",
+		Targets:      []aggregate.TargetSpec{{EntityRef: "reckon-host--1", ResolvedIdentifier: "SOMEWHERE-ELSE"}},
+		EvidenceRefs: []string{"observed-data--0d000000-0000-4000-8000-000000000001"},
+		Rationale:    "contain",
+	}, time.Now())
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if cmd.Targets[0].EntityRef != "reckon-host--1" || cmd.Targets[0].ResolvedIdentifier != "" {
+		t.Errorf("targets = %+v; want the entity with no requester identifier", cmd.Targets)
+	}
+}
+
 func TestBlastRadiusEscalator(t *testing.T) {
 	catalog := defaultActionCatalog(t)
 	now := time.Now()
@@ -282,10 +299,13 @@ func TestBuildRequestCommandRejections(t *testing.T) {
 	catalog := defaultActionCatalog(t)
 	now := time.Now()
 	cases := map[string]ActionRequest{
-		"unknown type":   {ActionType: "nope", Targets: []aggregate.TargetSpec{target("x")}, Rationale: "r"},
-		"no targets":     {ActionType: "host.isolate", Rationale: "r"},
-		"no rationale":   {ActionType: "host.isolate", Targets: []aggregate.TargetSpec{target("x")}},
-		"unresolved tgt": {ActionType: "host.isolate", Targets: []aggregate.TargetSpec{{EntityRef: "reckon-host--1"}}, Rationale: "r"},
+		"unknown type": {ActionType: "nope", Targets: []aggregate.TargetSpec{target("x")}, Rationale: "r"},
+		"no targets":   {ActionType: "host.isolate", Rationale: "r"},
+		"no rationale": {ActionType: "host.isolate", Targets: []aggregate.TargetSpec{target("x")}},
+		// A destination type needs the requester's identifier; a typed
+		// one does not (adr/0406).
+		"unresolved destination": {ActionType: "ticket.close", Targets: []aggregate.TargetSpec{{EntityRef: "x"}},
+			EvidenceRefs: []string{"observed-data--0d000000-0000-4000-8000-000000000001"}, Rationale: "r"},
 		// Grounding is enforced (09 §3): a forward action with no evidence_refs is
 		// rejected — the ungrounded containment a live opus run produced 1-in-3.
 		"no evidence_refs": {ActionType: "host.isolate", Targets: []aggregate.TargetSpec{target("x")}, Rationale: "r"},
@@ -372,6 +392,7 @@ func TestActionResolverDispatches(t *testing.T) {
 	)
 	res, binding, err := r.Resolve(context.Background(), DispatchRequest{
 		ActionID: uuid.New(), ActionType: "host.isolate", Targets: []aggregate.TargetSpec{target("WIN-A14")},
+		Binding: aggregate.FrozenBinding{Adapter: "edr", Operation: "op"},
 	})
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
@@ -396,6 +417,7 @@ func TestActionResolverNoFallThrough(t *testing.T) {
 	)
 	_, _, err := r.Resolve(context.Background(), DispatchRequest{
 		ActionID: uuid.New(), ActionType: "host.isolate", Targets: []aggregate.TargetSpec{target("WIN-A")},
+		Binding: aggregate.FrozenBinding{Adapter: "primary", Operation: "op"},
 	})
 	if err == nil {
 		t.Fatal("expected the primary dispatch error to propagate")
@@ -408,25 +430,50 @@ func TestActionResolverNoFallThrough(t *testing.T) {
 	}
 }
 
-// A binding whose adapter is absent IS skipped (selection fall-through, distinct
-// from dispatch fall-through) — the next applicable binding runs.
-func TestActionResolverSkipsAbsentAdapter(t *testing.T) {
-	backup := &stubWriteAdapter{name: "backup", healthy: true, result: okResult()}
+// TestResolve_UsesTheFrozenBinding (adr/0406): dispatch uses the binding
+// frozen at request time, even when a higher-priority one was added since,
+// and fails with nothing sent when the frozen one was removed or its adapter
+// is no longer enabled.
+func TestResolve_UsesTheFrozenBinding(t *testing.T) {
+	frozen := &stubWriteAdapter{name: "frozen", healthy: true, result: okResult()}
+	newer := &stubWriteAdapter{name: "newer", healthy: true, result: okResult()}
+	req := DispatchRequest{
+		ActionID: uuid.New(), ActionType: "host.isolate", Targets: []aggregate.TargetSpec{target("WIN-A")},
+		Binding: aggregate.FrozenBinding{Adapter: "frozen", Operation: "op"},
+	}
 	r := NewActionResolver(
 		map[string][]ActionBinding{"host.isolate": {
-			{ActionType: "host.isolate", Adapter: "missing", Operation: "op", Priority: 100},
-			{ActionType: "host.isolate", Adapter: "backup", Operation: "op", Priority: 50},
+			{ActionType: "host.isolate", Adapter: "newer", Operation: "op", Priority: 500},
+			{ActionType: "host.isolate", Adapter: "frozen", Operation: "op", Priority: 100},
 		}},
-		map[string]WriteAdapter{"backup": backup},
+		map[string]WriteAdapter{"frozen": frozen, "newer": newer},
 	)
-	_, binding, err := r.Resolve(context.Background(), DispatchRequest{
-		ActionID: uuid.New(), ActionType: "host.isolate", Targets: []aggregate.TargetSpec{target("WIN-A")},
-	})
+	_, binding, err := r.Resolve(context.Background(), req)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-	if binding.Adapter != "backup" || backup.calls != 1 {
-		t.Errorf("absent adapter not skipped to backup: binding=%s calls=%d", binding.Adapter, backup.calls)
+	if binding.Adapter != "frozen" || frozen.calls != 1 || newer.calls != 0 {
+		t.Errorf("dispatched via %s (frozen=%d newer=%d); want the frozen binding only", binding.Adapter, frozen.calls, newer.calls)
+	}
+
+	for name, r := range map[string]*ActionResolver{
+		"binding removed": NewActionResolver(
+			map[string][]ActionBinding{"host.isolate": {{ActionType: "host.isolate", Adapter: "newer", Operation: "op", Priority: 500}}},
+			map[string]WriteAdapter{"frozen": frozen, "newer": newer}),
+		"adapter disabled": NewActionResolver(
+			map[string][]ActionBinding{"host.isolate": {
+				{ActionType: "host.isolate", Adapter: "newer", Operation: "op", Priority: 500},
+				{ActionType: "host.isolate", Adapter: "frozen", Operation: "op", Priority: 100},
+			}},
+			map[string]WriteAdapter{"newer": newer}),
+	} {
+		frozen.calls, newer.calls = 0, 0
+		if _, _, err := r.Resolve(context.Background(), req); !errors.Is(err, ErrNoBinding) {
+			t.Errorf("%s: err = %v; want ErrNoBinding", name, err)
+		}
+		if frozen.calls != 0 || newer.calls != 0 {
+			t.Errorf("%s: something was sent (frozen=%d newer=%d); want nothing", name, frozen.calls, newer.calls)
+		}
 	}
 }
 
@@ -513,5 +560,83 @@ func TestIdempotencyKeyDeterministic(t *testing.T) {
 	}
 	if IdempotencyKey(id, "WIN-A") == IdempotencyKey(uuid.New(), "WIN-A") {
 		t.Error("different actions should yield different keys")
+	}
+}
+
+// TestResolve_NotSent (adr/0384): every way the frozen binding can fail before
+// the outbound call is a NotSentError whose reason names what broke, and no
+// adapter is called. An error the adapter itself returns is never one: the
+// call was made.
+func TestResolve_NotSent(t *testing.T) {
+	frozen := aggregate.FrozenBinding{Adapter: "edr", Operation: "contain"}
+	bound := ActionBinding{ActionType: "host.isolate", Adapter: "edr", Operation: "contain", Priority: 100,
+		Params: map[string]any{"device_id": "${target.resolved_identifier}"}}
+	for _, c := range []struct {
+		name     string
+		bindings []ActionBinding
+		enabled  bool
+		scope    string
+		binding  aggregate.FrozenBinding
+		want     string
+	}{
+		{"no frozen binding", []ActionBinding{bound}, true, "", aggregate.FrozenBinding{}, "action host.isolate has no binding frozen at request"},
+		{"binding gone", nil, true, "", frozen, "operation contain on adapter edr is no longer bound to host.isolate"},
+		{"operation gone", []ActionBinding{{ActionType: "host.isolate", Adapter: "edr", Operation: "other", Priority: 100}}, true, "", frozen,
+			"operation contain on adapter edr is no longer bound to host.isolate"},
+		{"adapter not enabled", []ActionBinding{bound}, false, "", frozen, "adapter edr is not configured or not enabled"},
+		{"scope mismatch", []ActionBinding{func() ActionBinding { b := bound; b.Scope = "org-a"; return b }()}, true, "org-b", frozen,
+			`the binding on adapter edr is scoped to "org-a", and this investigation's scope is "org-b"`},
+		{"params no longer render", []ActionBinding{func() ActionBinding {
+			b := bound
+			b.Params = map[string]any{"device_id": "${target.resolved_identifier}", "note": "${parameters.note}"}
+			return b
+		}()}, true, "", frozen, "operation contain on adapter edr no longer renders: missing parameters.note"},
+	} {
+		edr := &stubWriteAdapter{name: "edr", healthy: true, result: okResult()}
+		adapters := map[string]WriteAdapter{}
+		if c.enabled {
+			adapters["edr"] = edr
+		}
+		r := NewActionResolver(map[string][]ActionBinding{"host.isolate": c.bindings}, adapters)
+		_, _, err := r.Resolve(context.Background(), DispatchRequest{
+			ActionID: uuid.New(), ActionType: "host.isolate", Targets: []aggregate.TargetSpec{target("WIN-A")},
+			SourceScope: c.scope, Binding: c.binding,
+		})
+		var ns *NotSentError
+		if !errors.As(err, &ns) || !errors.Is(err, ErrNotSent) {
+			t.Errorf("%s: err = %v; want a NotSentError", c.name, err)
+			continue
+		}
+		if ns.Reason != c.want {
+			t.Errorf("%s: reason = %q; want %q", c.name, ns.Reason, c.want)
+		}
+		if edr.calls != 0 {
+			t.Errorf("%s: the adapter was called %d times; want none", c.name, edr.calls)
+		}
+	}
+
+	// A template that fails to render (a transform refusing the value) is
+	// not sent too, the one reason whose cause is not ErrNoBinding.
+	tmplEdr := &stubWriteAdapter{name: "edr", healthy: true, result: okResult()}
+	badTemplate := bound
+	badTemplate.Params = map[string]any{"device_id": "${target.resolved_identifier | int}"}
+	tr := NewActionResolver(map[string][]ActionBinding{"host.isolate": {badTemplate}}, map[string]WriteAdapter{"edr": tmplEdr})
+	_, _, err := tr.Resolve(context.Background(), DispatchRequest{
+		ActionID: uuid.New(), ActionType: "host.isolate", Targets: []aggregate.TargetSpec{target("WIN-A")}, Binding: frozen,
+	})
+	var ns *NotSentError
+	if !errors.As(err, &ns) || !strings.HasPrefix(ns.Reason, "operation contain on adapter edr no longer renders: transform int") ||
+		errors.Is(err, ErrNoBinding) || tmplEdr.calls != 0 {
+		t.Errorf("template error: err = %v (calls %d); want a NotSentError naming the transform, not ErrNoBinding, nothing sent", err, tmplEdr.calls)
+	}
+
+	// The adapter's own fatal error is not "not sent": the call was made.
+	edr := &stubWriteAdapter{name: "edr", healthy: true, err: writeErrorf(WriteFatal, "boom")}
+	r := NewActionResolver(map[string][]ActionBinding{"host.isolate": {bound}}, map[string]WriteAdapter{"edr": edr})
+	_, _, err = r.Resolve(context.Background(), DispatchRequest{
+		ActionID: uuid.New(), ActionType: "host.isolate", Targets: []aggregate.TargetSpec{target("WIN-A")}, Binding: frozen,
+	})
+	if err == nil || errors.Is(err, ErrNotSent) || edr.calls != 1 {
+		t.Errorf("adapter fatal error: err = %v (calls %d); want the adapter's error, not a NotSentError", err, edr.calls)
 	}
 }

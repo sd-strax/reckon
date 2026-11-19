@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,8 +30,10 @@ func activeInvestigation(t *testing.T) uuid.UUID {
 	return id
 }
 
-// actionBackend wires a backend with Gate 2 (the given policies) + the default
-// action catalog. No Temporal client (auto-approve returns APPROVED, no wf id).
+// actionBackend wires a backend with Gate 2 (the given policies), the default
+// action catalog, a binding for every type (testActionResolver) and a fake
+// evidence store for target entities (fakeTargetStore). No Temporal client
+// (auto-approve returns APPROVED, no wf id).
 func actionBackend(t *testing.T, policies ...action.Policy) *Backend {
 	t.Helper()
 	b := newTestBackend(t)
@@ -40,6 +43,8 @@ func actionBackend(t *testing.T, policies ...action.Policy) *Backend {
 	}
 	b.cfg.Gate2 = g
 	b.cfg.ActionCatalog = defaultActionCatalog(t)
+	b.cfg.ActionResolver = testActionResolver(t, b.cfg.ActionCatalog)
+	b.targetEntities = newFakeTargetStore()
 	return b
 }
 
@@ -75,7 +80,8 @@ func TestRequestAction_AutoApprove(t *testing.T) {
 		Effect: action.EffectAutoApprove, Predicate: "true", SignedOffBy: []string{"secops-lead"},
 	})
 
-	resp, out := postAction(t, b, mintToken(t, nil), RequestActionBody{
+	token := mintToken(t, nil)
+	resp, out := postAction(t, b, token, RequestActionBody{
 		ActionType:       "host.isolate",
 		Targets:          []aggregate.TargetSpec{{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-A"}},
 		Rationale:        "contain",
@@ -96,6 +102,85 @@ func TestRequestAction_AutoApprove(t *testing.T) {
 	}
 	if ac.Status != aggregate.ActionStatusApproved || ac.PrimaryApprover != "secops-lead" {
 		t.Errorf("projected status=%q approver=%q; want APPROVED / secops-lead", ac.Status, ac.PrimaryApprover)
+	}
+	assertRecordedPolicyVersion(t, b, token, out.ActionID)
+}
+
+// assertRecordedPolicyVersion: the auto-approval names the matched policy, and
+// its Authorization.PolicyVersion equals that policy's would_have_fired
+// evaluation row (adr/0378).
+func assertRecordedPolicyVersion(t *testing.T, b *Backend, token, actionID string) {
+	t.Helper()
+	code, rec := getActionRecord(t, b, token, actionID)
+	if code != http.StatusOK {
+		t.Fatalf("GET record = %d", code)
+	}
+	var row string
+	for _, e := range rec.Authorization.Evaluations {
+		if e.PolicyRef == rec.Authorization.MatchedPolicyRef && e.WouldHaveFired {
+			row = e.PolicyVersion
+		}
+	}
+	if rec.Authorization.PolicyRef == "" || rec.Authorization.PolicyRef != rec.Authorization.MatchedPolicyRef {
+		t.Errorf("policy_ref = %q; want the matched policy %q", rec.Authorization.PolicyRef, rec.Authorization.MatchedPolicyRef)
+	}
+	if rec.Authorization.PolicyVersion == "" || rec.Authorization.PolicyVersion != row {
+		t.Errorf("policy_version = %q; want the fired evaluation row's %q", rec.Authorization.PolicyVersion, row)
+	}
+}
+
+// TestRequestAction_DerivesTheIdentifier (adr/0406): the engine derives a
+// typed target's identifier from the stored entity, whatever the requester
+// sent, and freezes the binding; a target the evidence does not hold, or one
+// no binding can derive an identifier for, is refused with 422 and nothing
+// is recorded.
+func TestRequestAction_DerivesTheIdentifier(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	resetInvestigations(t)
+	invID := activeInvestigation(t)
+	b := actionBackend(t)
+	store := b.targetEntities.(*fakeTargetStore)
+
+	resp, out := postAction(t, b, mintToken(t, nil), RequestActionBody{
+		ActionType:       "host.isolate",
+		Targets:          []aggregate.TargetSpec{{EntityRef: "reckon-host--1", ResolvedIdentifier: "SOMEWHERE-ELSE"}},
+		Rationale:        "contain",
+		EvidenceRefs:     []string{"observed-data--18ef927c-93bc-5470-b729-1b40841d3947"},
+		InvestigationRef: invID.String(),
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status = %d; want 201", resp.StatusCode)
+	}
+	ac, err := testHandler.Reads().LoadActionCurrent(context.Background(), uuid.MustParse(out.ActionID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ac.Targets[0].ResolvedIdentifier != "WIN-FILE01" || ac.Binding != (aggregate.FrozenBinding{Adapter: "test_write", Operation: "op"}) {
+		t.Errorf("recorded %+v via %+v; want WIN-FILE01 via test_write op", ac.Targets, ac.Binding)
+	}
+
+	store.missing["reckon-host--gone"] = true
+	store.set("reckon-host--weak", map[string]any{"mac": "00:11:22:33:44:55"}) // no name: the rule does not render
+	for ref, want := range map[string]string{
+		"reckon-host--gone": "not an entity in the evidence",
+		"reckon-host--weak": "the entity has no name",
+	} {
+		status, body := postRaw(t, b, "/api/actions", RequestActionBody{
+			ActionType: "host.isolate", Targets: []aggregate.TargetSpec{{EntityRef: ref}}, Rationale: "contain",
+			EvidenceRefs: []string{"observed-data--18ef927c-93bc-5470-b729-1b40841d3947"}, InvestigationRef: invID.String(),
+		})
+		if status != http.StatusUnprocessableEntity || !strings.Contains(body, want) {
+			t.Errorf("%s: %d %s; want 422 naming %q", ref, status, body, want)
+		}
+	}
+	acts, err := testHandler.Reads().ListActionCurrents(context.Background(), invID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(acts) != 1 {
+		t.Errorf("%d actions recorded; want only the one that planned", len(acts))
 	}
 }
 
@@ -361,6 +446,10 @@ func TestRerequestAction(t *testing.T) {
 		t.Fatalf("expire: %v", err)
 	}
 
+	// The host's stored name changed since: a re-request derives its
+	// identifier afresh (adr/0406).
+	b.targetEntities.(*fakeTargetStore).set("reckon-host--9", map[string]any{"name": "WIN-9-RENAMED"})
+
 	// Now re-request: a NEW action, PENDING_MANUAL, with retry_of lineage and
 	// the frozen fields carried faithfully.
 	resp, out := rerequest(orig.ActionID, "still warranted — host still shows the beacon")
@@ -381,8 +470,9 @@ func TestRerequestAction(t *testing.T) {
 	if nc.RetryOf != origID {
 		t.Errorf("retry_of = %s; want the original %s", nc.RetryOf, origID)
 	}
-	if nc.ActionType != "host.isolate" || len(nc.Targets) != 1 || nc.Targets[0].ResolvedIdentifier != "WIN-9" {
-		t.Errorf("frozen fields not carried: %+v", nc)
+	if nc.ActionType != "host.isolate" || len(nc.Targets) != 1 || nc.Targets[0].EntityRef != "reckon-host--9" ||
+		nc.Targets[0].ResolvedIdentifier != "WIN-9-RENAMED" {
+		t.Errorf("frozen fields not carried, or the identifier not derived afresh: %+v", nc)
 	}
 	if len(nc.EvidenceRefs) != 1 || nc.EvidenceRefs[0] != "observed-data--dd9aa908-46a3-5066-b469-9cb0dd5ebfa2" {
 		t.Errorf("evidence not carried: %v", nc.EvidenceRefs)
@@ -583,6 +673,19 @@ func TestRequestAction_ReversalValidation(t *testing.T) {
 	}
 	if out.Tier != aggregate.TierT2 || out.Status != "PENDING_MANUAL" {
 		t.Errorf("valid reversal: tier=%q status=%q; want T2/PENDING_MANUAL", out.Tier, out.Status)
+	}
+	// The reversal derives its identifier afresh from the stored entity, for
+	// the inverse type's bindings, not the original's recorded WIN-A
+	// (adr/0406), and freezes its own binding.
+	rev, err := testHandler.Reads().LoadActionCurrent(context.Background(), uuid.MustParse(out.ActionID))
+	if err != nil {
+		t.Fatalf("load reversal: %v", err)
+	}
+	if len(rev.Targets) != 1 || rev.Targets[0].ResolvedIdentifier != "WIN-FILE01" {
+		t.Errorf("reversal targets = %+v; want WIN-FILE01 derived from the stored host", rev.Targets)
+	}
+	if rev.Binding != (aggregate.FrozenBinding{Adapter: "test_write", Operation: "op"}) {
+		t.Errorf("reversal binding = %+v; want test_write op", rev.Binding)
 	}
 
 	// A second reversal while the first is pending → 422 (adr/0152: one live
@@ -848,6 +951,7 @@ func TestRequestAction_RequesterAccountable(t *testing.T) {
 	if ac.PrimaryApprover != "test-subject" {
 		t.Errorf("approver = %q; want the requester test-subject", ac.PrimaryApprover)
 	}
+	assertRecordedPolicyVersion(t, b, mintToken(t, nil), out.ActionID)
 
 	_, out = postAction(t, b, mintToken(t, map[string]any{"delegate_kind": "claude"}), body)
 	if out.Status != "PENDING_MANUAL" {

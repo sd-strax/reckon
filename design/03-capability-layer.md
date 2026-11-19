@@ -999,7 +999,12 @@ Output:
 - `email-addr` SCO for each address (sender, recipients, cc, bcc, and the
   envelope recipients). Each address is cleaned up first: surrounding white
   space is trimmed, and a mailbox with a display name, such as
-  `Alice <alice@corp.example>`, keeps its address (adr/0357).
+  `Alice <alice@corp.example>`, keeps its address (adr/0357). The address is
+  then written back in its shortest RFC 5322 form: the local part is quoted
+  only when it can't be a dot-atom or would start or end with white space,
+  with the escaping it needs. So
+  `"alice"@corp.example` is `alice@corp.example`, and a local part holding
+  quotes keeps them (adr/0371).
 - `reckon-email-message` property-extension on the message, with
   `thread_uid` from `email.uid`, `envelope_to_refs`, the envelope
   recipients, and `unparsed_recipients`. That last one holds, as sorted
@@ -1326,8 +1331,9 @@ for every normalizer.
   label is kept (§7). One trailing dot, RFC 1034's form of an absolute name,
   is allowed.
 - A URL that is not an absolute RFC 3986 URI gets no `url`.
-- An email address that is not an RFC 5322 addr-spec, such as one with a
-  display name, gets no `email-addr`, and the message has no ref to it.
+- An email address that is still not an RFC 5322 addr-spec once cleaned up
+  (§4.10), such as an empty group or a list of addresses, gets no
+  `email-addr`, and the message has no ref to it.
 - A value the record does not give is left out, never written as 0 or
   false. An optional number, such as a port, a pid or a size, is present
   only when it parses as a whole number in its range. Text, a fraction or a
@@ -1909,6 +1915,26 @@ end-to-end without a real orchestrator.
 The OCSF-shaping responsibility lives in the adapter regardless of class. That's
 the invariant that makes the layer transport-neutral: by the time data crosses
 the adapter boundary, it's OCSF, full stop.
+
+### 5.5 Source labels
+
+Every event an adapter returns carries a source label, its `source_tool`. The
+label keys what a source said about an entity: an entity's `source_ids`, and
+the agent and device ids a host's identity view collects by source.
+
+A source label is `<vendor>:<tool>`, or a bare `<vendor>` for a source with one
+tool (adr/0406). The in-tree adapters follow it: `falcon:<tool>`,
+`okta:<tool>`, `greynoise:<tool>`, `servicenow`, and `fixture:<scenario>` for
+the fixture layer. The vendor is the label up to the first `:`.
+
+The vendor part is load-bearing on the write side. A write binding that needs a
+vendor's own id, such as a Falcon device id, names it by vendor
+(`target.entity.vendor_ids.falcon`, `08 §4`), and the engine finds it under
+every label of that vendor. So every adapter of one vendor uses the same
+prefix, whichever tool it reads. A new read adapter must label its sources this
+way, or a write binding cannot name its ids. The AWS adapters label their
+sources `aws-security-lake` and `aws-config`, which read as two vendors under
+this contract; they are left as they are.
 
 ---
 

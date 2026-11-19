@@ -24,6 +24,21 @@ import (
 // maps to, so the workflow's retry budget skips it (08 §5, §6).
 const fatalErrorType = "FATAL_ERROR"
 
+// notSentErrorType is the non-retryable ApplicationError type of a dispatch
+// that failed before the outbound call (adr/0384): no write resolver, or the
+// frozen binding can no longer carry the action. Nothing reached the tool,
+// and a retry cannot help, because the configuration does not change between
+// attempts. The workflow records it as FAILED with every target FAIL and
+// attempts 0.
+const notSentErrorType = "NOT_SENT"
+
+// bindingUnusableErrorType is the retryable ApplicationError type of a
+// pre-call failure on a later attempt (adr/0384): the binding can no longer
+// carry the action, but an earlier attempt may have reached the tool, so the
+// dispatch is not "not sent" and the record ends UNKNOWN when the budget
+// runs out.
+const bindingUnusableErrorType = "BINDING_UNUSABLE"
+
 // Non-retryable ApplicationError types for the emit activities. A rejection
 // is the aggregate deciding against the stream, and a malformed id never
 // parses: retrying either only spends the budget before the same failure.
@@ -153,30 +168,24 @@ func (a *Activities) EmitOutcomeUnknown(ctx context.Context, in EmitOutcomeUnkno
 }
 
 // EmitDispatchedInput carries what EmitDispatched needs to record the ledger
-// entry. ApproverID is the human principal the workflow carries (05 §6.2). The
-// resolution fields (ActionType/Targets/Parameters/SourceScope) let EmitDispatched
-// compute WHICH adapter will handle this action, so the dispatched event — and
-// thus the ledger's "via <adapter>" and the chronicle's "dispatched via …" —
-// records the real tool instead of an empty string (the binding is only
-// resolved inside DoDispatch, which runs AFTER this).
+// entry. ApproverID is the human principal the workflow carries (05 §6.2).
+// Binding is the binding frozen at request time (adr/0406): the dispatched
+// event names its adapter, so the ledger's "via <adapter>" and the
+// chronicle's "dispatched via …" record the tool DoDispatch will call.
 type EmitDispatchedInput struct {
 	ActionID         string
 	AggregateID      string
 	TenantID         string
 	ApproverID       string
-	ActionType       string
-	Targets          []aggregate.TargetSpec
-	Parameters       map[string]any
-	SourceScope      string
+	Binding          aggregate.FrozenBinding
 	AdapterRequestID string
 }
 
 // EmitDispatched records ActionDispatched (the ledger entry, 08 §6b) BEFORE the
-// outbound call, so a crash-and-retrigger sees it via CheckDispatched. It stamps
-// the resolved adapter (via PlannedBinding — the same selection DoDispatch will
-// make) so the write-side provenance is captured at dispatch time. An empty
-// adapter (no applicable binding) is not fatal here: DoDispatch surfaces the
-// no-binding error authoritatively.
+// outbound call, so a crash-and-retrigger sees it via CheckDispatched. It
+// stamps the frozen binding's adapter (adr/0406), the one DoDispatch uses, so
+// the write-side provenance is captured at dispatch time. Whether that binding
+// is still usable is DoDispatch's to find: it fails with nothing sent.
 func (a *Activities) EmitDispatched(ctx context.Context, in EmitDispatchedInput) error {
 	env, err := systemEnvelope(ctx, in.AggregateID, in.TenantID, in.ApproverID)
 	if err != nil {
@@ -186,35 +195,23 @@ func (a *Activities) EmitDispatched(ctx context.Context, in EmitDispatchedInput)
 	if err != nil {
 		return badInput(err)
 	}
-	adapter := ""
-	if a.resolver != nil {
-		if r := a.resolver.Load(); r != nil {
-			if b, ok := r.PlannedBinding(action.DispatchRequest{
-				ActionID:    id,
-				ActionType:  in.ActionType,
-				Targets:     in.Targets,
-				Parameters:  in.Parameters,
-				SourceScope: in.SourceScope,
-			}); ok {
-				adapter = b.Adapter
-			}
-		}
-	}
 	_, err = a.handler.Handle(ctx, env, aggregate.DispatchAction{
 		ActionID:         id,
-		Adapter:          adapter,
+		Adapter:          in.Binding.Adapter,
 		AdapterRequestID: in.AdapterRequestID,
 	})
 	return emitErr(err)
 }
 
-// DispatchInput is the frozen action content the resolver dispatches.
+// DispatchInput is the frozen action content the resolver dispatches,
+// through the binding frozen at request time (adr/0406).
 type DispatchInput struct {
 	ActionID    string
 	ActionType  string
 	Targets     []aggregate.TargetSpec
 	Parameters  map[string]any
 	SourceScope string
+	Binding     aggregate.FrozenBinding
 }
 
 // DispatchOutput is the classified outcome the workflow records. Attempts is
@@ -249,10 +246,19 @@ func (a *Activities) DoDispatch(ctx context.Context, in DispatchInput) (Dispatch
 	if a.resolver != nil {
 		resolver = a.resolver.Load()
 	}
+	// "Not sent" is a claim about the whole dispatch, not this attempt
+	// (adr/0384): it holds only on the first attempt, since an earlier one
+	// may have reached the adapter before a reload took the binding away. A
+	// later attempt's pre-call failure, no resolver included, is retryable as
+	// BINDING_UNUSABLE, so the record ends UNKNOWN with the real attempt count.
+	firstAttempt := activityAttempt(ctx) == 1
 	if resolver == nil {
 		// No write resolver wired (bare worker, or the action layer is off).
-		// Honest: nothing to dispatch to.
-		return DispatchOutput{}, sdktemporal.NewApplicationError("no write resolver configured", fatalErrorType)
+		ns := &action.NotSentError{Reason: "no write resolver configured"}
+		if firstAttempt {
+			return DispatchOutput{}, sdktemporal.NewNonRetryableApplicationError(ns.Error(), notSentErrorType, nil)
+		}
+		return DispatchOutput{}, sdktemporal.NewApplicationError(ns.Reason, bindingUnusableErrorType)
 	}
 	res, binding, err := resolver.Resolve(ctx, action.DispatchRequest{
 		ActionID:    id,
@@ -260,11 +266,25 @@ func (a *Activities) DoDispatch(ctx context.Context, in DispatchInput) (Dispatch
 		Targets:     in.Targets,
 		Parameters:  in.Parameters,
 		SourceScope: in.SourceScope,
+		Binding:     in.Binding,
 	})
 	if err != nil {
+		// A failure before the outbound call, on the first attempt: nothing
+		// was sent (adr/0384). On a later attempt it is retried as before.
+		var ns *action.NotSentError
+		if errors.As(err, &ns) {
+			if firstAttempt {
+				return DispatchOutput{}, sdktemporal.NewNonRetryableApplicationError(ns.Error(), notSentErrorType, err)
+			}
+			// Retryable, as before, and named without "not sent": an
+			// earlier attempt may have reached the tool.
+			return DispatchOutput{}, sdktemporal.NewApplicationError(ns.Reason, bindingUnusableErrorType, err)
+		}
 		var we *action.WriteError
 		if errors.As(err, &we) && we.Class == action.WriteFatal {
-			return DispatchOutput{}, sdktemporal.NewApplicationError(err.Error(), fatalErrorType)
+			// The attempt rides the error, so the record counts the calls
+			// made, earlier retryable ones included.
+			return DispatchOutput{}, sdktemporal.NewApplicationError(err.Error(), fatalErrorType, activityAttempt(ctx))
 		}
 		return DispatchOutput{}, err // RETRYABLE (or unclassified) → Temporal retries
 	}
@@ -283,10 +303,17 @@ func (a *Activities) DoDispatch(ctx context.Context, in DispatchInput) (Dispatch
 	}, nil
 }
 
+// attemptKey carries an attempt number in a context, for a test that runs an
+// activity outside the Temporal environment.
+type attemptKey struct{}
+
 // activityAttempt reads the current attempt number from activity info,
 // defaulting to 1 outside an activity context (unit tests), where
-// activity.GetInfo panics.
+// activity.GetInfo panics. A context carrying attemptKey answers that number.
 func activityAttempt(ctx context.Context) (n int) {
+	if a, ok := ctx.Value(attemptKey{}).(int); ok && a > 0 {
+		return a
+	}
 	n = 1
 	defer func() { _ = recover() }()
 	if a := int(activity.GetInfo(ctx).Attempt); a > 0 {
@@ -306,11 +333,11 @@ type EmitResultedInput struct {
 	Attempts         int
 	ErrorDetail      string
 	RawResponseRef   string
-	// Adapter is the tool the dispatch ACTUALLY used (from the resolver's chosen
-	// binding). The dispatched event recorded the PLANNED adapter before the
-	// outbound call; this corrects the record if the live selection differed
-	// (e.g. a hot reload between the two activities). Empty when the dispatch
-	// never chose a binding (resolve failure) — the planned value then stands.
+	// Adapter is the adapter of the binding the dispatch called. Dispatch uses
+	// only the binding frozen at request time (adr/0406), so it is the adapter
+	// the dispatched event already recorded. Empty when the dispatch failed
+	// before it reached the binding (the frozen binding no longer usable); the
+	// dispatched record's adapter then stands.
 	Adapter string
 }
 

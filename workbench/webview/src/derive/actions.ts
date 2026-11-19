@@ -12,6 +12,29 @@ export function outcomeStatus(a: Pick<ActionRow, "status" | "outcome">): string 
   return a.status;
 }
 
+/** The attempts a result records, as the action record shows them. 0 says
+ * nothing was sent (adr/0384): the dispatch failed before the call, so the
+ * tool did not act. A count is compared, never tested by truthiness, so 0 is
+ * shown. */
+export function attemptsLabel(attempts: number): string {
+  return attempts === 0 ? "0 (not sent)" : String(attempts);
+}
+
+/** One target's recorded outcome. A result is keyed by the target's index
+ * (08 §5); some adapters key it by the identifier sent, so either matches. */
+export function targetOutcome(perTarget: { target: string; outcome: string }[] | undefined, index: number, identifier: string): string | undefined {
+  return perTarget?.find((p) => p.target === String(index) || p.target === identifier)?.outcome;
+}
+
+/** The tone of one target's recorded outcome (08 §5): OK, FAIL or UNKNOWN. */
+export function targetOutcomeTone(outcome: string): string {
+  switch (outcome) {
+    case "OK": return "ok";
+    case "FAIL": return "bad";
+    default: return "warn";
+  }
+}
+
 /** The status badge for a settled or in-flight action: label + tone. Pending
  * rows keep their approval vocabulary; the rest map what happened (the
  * lifecycle status, with the recorded outcome where it says more) to an

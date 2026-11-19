@@ -70,8 +70,9 @@ func BuildActionResolver(cfg TenantActionConfig, fixtureRoot string, demo bool) 
 // a tenant config. fixtureRoot is where write-fixture scenarios live. plugins
 // supplies the already-constructed out-of-process write facades keyed by
 // instance name (11 §2) — the fixture class is built here, every other class is
-// looked up there. Only enabled adapters are wired; binding templates are
-// validated up front (08 §4).
+// looked up there. Only enabled adapters are wired; binding templates and
+// identifier rules are validated up front against the catalog (08 §4,
+// adr/0406).
 //
 // demo gates the FIXTURE adapter class (the write-side twin of the read guard,
 // capability.BuildResolverWithAdapters): a ClassFixture binding on a non-demo
@@ -97,7 +98,11 @@ func BuildActionResolverWithAdapters(cfg TenantActionConfig, fixtureRoot string,
 			adapters[name] = p
 		}
 	}
-	if err := ValidateActionBindings(cfg.Bindings); err != nil {
+	catalog, err := DefaultActionCatalog()
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := ValidateActionBindings(cfg.Bindings, catalog); err != nil {
 		return nil, nil, err
 	}
 	// Each binding inherits its instance's source scope (03 §3.5): scope lives on
@@ -111,10 +116,6 @@ func BuildActionResolverWithAdapters(cfg TenantActionConfig, fixtureRoot string,
 			scoped[i] = b
 		}
 		bindings[at] = scoped
-	}
-	catalog, err := DefaultActionCatalog()
-	if err != nil {
-		return nil, nil, err
 	}
 	// A binding that references an undeclared input is silently never-applicable
 	// (it falls through to a lower-priority binding at dispatch); surface it

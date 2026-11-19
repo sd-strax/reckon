@@ -105,6 +105,7 @@ func (b *Backend) approveAction(w http.ResponseWriter, r *http.Request, actionID
 			Targets:       ac.Targets,
 			Parameters:    ac.Parameters,
 			ReversalOfRef: ac.ReversalOfRef,
+			Binding:       ac.Binding,
 		})
 	} else {
 		resp.Status = aggregate.ActionStatusPendingSecondary

@@ -17,6 +17,15 @@ import (
 // (adr/0278).
 type TargetSpec = agentapi.TargetSpec
 
+// FrozenBinding names the write binding chosen for an action at request time
+// (adr/0406): its adapter instance and operation. Together with the action
+// type it identifies the binding; priority is not part of it. Dispatch uses
+// this binding only and never selects again.
+type FrozenBinding struct {
+	Adapter   string `json:"adapter"`
+	Operation string `json:"operation"`
+}
+
 // Authorization is the auth sub-record recorded on ActionApproved (04 §3.3).
 type Authorization struct {
 	Mode                 string     `json:"mode"`
@@ -77,6 +86,11 @@ type ActionRequested struct {
 	// aggregate boundary; the pool bounds who may be the secondary approver.
 	RequiredMode          string   `json:"required_mode,omitempty"`
 	SecondaryApproverPool []string `json:"secondary_approver_pool,omitempty"`
+
+	// Binding is the write binding chosen when the request was made, frozen
+	// with the targets' resolved identifiers (adr/0406). Dispatch uses it and
+	// no other.
+	Binding FrozenBinding `json:"binding"`
 }
 
 // ActionApproved advances an action to APPROVED (or PENDING_SECONDARY for a
@@ -125,10 +139,11 @@ type ActionResulted struct {
 	// (08 §6c) — what the analyst reads to know WHY a FAILED action failed.
 	// Empty on SUCCEEDED.
 	ErrorDetail string `json:"error_detail,omitempty"`
-	// Adapter is the tool the dispatch ACTUALLY used. ActionDispatched recorded
-	// the planned selection before the outbound call (08 §6b); a non-empty value
-	// here corrects the record to the live choice. Empty when the dispatch never
-	// chose a binding.
+	// Adapter is the adapter of the binding the dispatch called. Dispatch uses
+	// only the binding frozen at request time (adr/0406), so it is the adapter
+	// ActionDispatched already recorded. Empty when the dispatch failed before
+	// it reached the binding, for instance when the frozen binding was no
+	// longer usable; the dispatched record's adapter then stands.
 	Adapter                string    `json:"adapter,omitempty"`
 	ResultInterpretationID uuid.UUID `json:"result_interpretation_id"`
 }

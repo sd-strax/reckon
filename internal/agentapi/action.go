@@ -58,6 +58,11 @@ type ActionDescriptor struct {
 	// notification | case_record (a write to the system of record, never
 	// containment) (#123).
 	Category string `json:"category"`
+	// TargetTypes are the STIX object types this action acts on (adr/0354).
+	// Every target of a request must carry an entity_ref of one of these
+	// types. Empty for an action whose target is a destination (a ticket, a
+	// channel, an address), whose entity_ref is not read.
+	TargetTypes []string `json:"target_types,omitempty"`
 }
 
 // ReliablyReversible reports whether a fully-successful dispatch of this

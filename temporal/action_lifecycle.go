@@ -31,6 +31,10 @@ type ActionLifecycleInput struct {
 	// from the investigation's immutable Seed when the workflow is started;
 	// empty in single-organization tenants.
 	SourceScope string `json:"source_scope,omitempty"`
+	// Binding is the write binding frozen at request time (adr/0406). The
+	// dispatched record names its adapter, and dispatch uses it and no
+	// other.
+	Binding aggregate.FrozenBinding `json:"binding"`
 }
 
 // ActionLifecycle is the durable dispatch of an APPROVED action (05 §6.2,
@@ -51,9 +55,10 @@ type ActionLifecycleInput struct {
 //     (08 §6c): FAILED with per-target UNKNOWN — never a success inference.
 //
 // v0 scope: the workflow is started for an already-APPROVED action. The
-// approval-wait (signal-on-approve / expiry-timer, 05 §6.2 step 1) and the
-// adapter name on the ledger entry (needs binding selection split from dispatch)
-// are v1 refinements; the idempotency core is complete.
+// approval-wait (signal-on-approve / expiry-timer, 05 §6.2 step 1) is a v1
+// refinement; the idempotency core is complete. The binding is the one frozen
+// at request time (adr/0406): the ledger entry names its adapter, and
+// dispatch uses it and no other.
 func ActionLifecycle(ctx workflow.Context, in ActionLifecycleInput) (string, error) {
 	log := workflow.GetLogger(ctx)
 	// Ledger/emit activities: bounded retries (a DB restart survives; a
@@ -112,10 +117,7 @@ func ActionLifecycle(ctx workflow.Context, in ActionLifecycleInput) (string, err
 		AggregateID:      in.AggregateID,
 		TenantID:         in.TenantID,
 		ApproverID:       in.ApproverID,
-		ActionType:       in.ActionType,
-		Targets:          in.Targets,
-		Parameters:       in.Parameters,
-		SourceScope:      in.SourceScope,
+		Binding:          in.Binding,
 		AdapterRequestID: requestID,
 	}).Get(ctx, nil); err != nil {
 		return "", err
@@ -129,7 +131,7 @@ func ActionLifecycle(ctx workflow.Context, in ActionLifecycleInput) (string, err
 			BackoffCoefficient:     4, // 2s, 8s, 30s(capped)
 			MaximumInterval:        30 * time.Second,
 			MaximumAttempts:        3,
-			NonRetryableErrorTypes: []string{fatalErrorType},
+			NonRetryableErrorTypes: []string{fatalErrorType, notSentErrorType},
 		},
 	})
 	var out DispatchOutput
@@ -139,6 +141,7 @@ func ActionLifecycle(ctx workflow.Context, in ActionLifecycleInput) (string, err
 		Targets:     in.Targets,
 		Parameters:  in.Parameters,
 		SourceScope: in.SourceScope,
+		Binding:     in.Binding,
 	}).Get(dispatchCtx, &out)
 
 	// 4. Record the outcome.
@@ -151,11 +154,13 @@ func ActionLifecycle(ctx workflow.Context, in ActionLifecycleInput) (string, err
 	if dispErr != nil {
 		// Exhausted retries or FATAL: the honest residual (08 §6c). No success
 		// is ever inferred for an effect reckon cannot confirm. The audit's
-		// attempt count is real (04 §6.1): a FATAL error is non-retryable, so
-		// exactly one attempt ran; anything else exhausted the 3-attempt budget.
-		log.Warn("dispatch failed; recording FAILED with UNKNOWN targets", "action_id", in.ActionID, "error", dispErr)
+		// attempt count is real (04 §6.1): a FATAL error carries the attempt it
+		// came on; anything else exhausted the 3-attempt budget.
+		// A NOT_SENT failure happened before the call, so it is recorded as
+		// nothing sent instead (adr/0384).
+		log.Warn("dispatch failed; recording FAILED", "action_id", in.ActionID, "error", dispErr)
 		result.FinalOutcome = "FAILED"
-		result.PerTargetResults = unknownTargets(in.Targets)
+		result.PerTargetResults = everyTarget(in.Targets, "UNKNOWN")
 		result.Attempts = 3
 		result.ErrorDetail = dispErr.Error() // the honest reason the analyst sees
 		var appErr *sdktemporal.ApplicationError
@@ -163,8 +168,19 @@ func ActionLifecycle(ctx workflow.Context, in ActionLifecycleInput) (string, err
 			// The activity's own reason, without the workflow engine's wrapper
 			// (activity type, event ids, worker identity) the analyst cannot use.
 			result.ErrorDetail = appErr.Message()
-			if appErr.Type() == fatalErrorType {
+			switch appErr.Type() {
+			case fatalErrorType:
 				result.Attempts = 1
+				var n int
+				if appErr.HasDetails() && appErr.Details(&n) == nil && n > 0 {
+					result.Attempts = n
+				}
+			case notSentErrorType:
+				// Nothing left reckon (adr/0384): the tool did not act on any
+				// target, and no call was made. No adapter is named, so the
+				// one action.dispatched recorded stands.
+				result.PerTargetResults = everyTarget(in.Targets, "FAIL")
+				result.Attempts = 0
 			}
 		}
 	} else {
@@ -183,14 +199,16 @@ func ActionLifecycle(ctx workflow.Context, in ActionLifecycleInput) (string, err
 	return result.FinalOutcome, nil
 }
 
-// unknownTargets marks every target UNKNOWN — the residual outcome when a
-// dispatch left reckon without a confirmable per-target result (08 §6c).
-// (strconv is deterministic and fine in workflow code — the determinism
-// constraint covers time/rand/goroutines/IO, not pure computation.)
-func unknownTargets(targets []aggregate.TargetSpec) map[string]string {
+// everyTarget gives every target one per-target outcome: UNKNOWN, the
+// residual when a dispatch left reckon without a confirmable per-target
+// result (08 §6c), or FAIL, when a dispatch failed before the outbound call
+// and the tool did not act (adr/0384). (strconv is deterministic and fine in
+// workflow code — the determinism constraint covers time/rand/goroutines/IO,
+// not pure computation.)
+func everyTarget(targets []aggregate.TargetSpec, outcome string) map[string]string {
 	out := make(map[string]string, len(targets))
 	for i := range targets {
-		out[strconv.Itoa(i)] = "UNKNOWN"
+		out[strconv.Itoa(i)] = outcome
 	}
 	return out
 }

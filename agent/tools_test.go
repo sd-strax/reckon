@@ -368,3 +368,38 @@ func TestVerbToolDef_InputShapes(t *testing.T) {
 		t.Errorf("required = %v; want [query_text] — the optional entity must not be required", required)
 	}
 }
+
+// TestListActions_CarriesErrorDetail (adr/0384): list_actions shows why a
+// FAILED action failed, so the model can tell the analyst whether it never
+// went out or failed at the tool.
+func TestListActions_CarriesErrorDetail(t *testing.T) {
+	const reason = "not sent: adapter crowdstrike-falcon is not configured or not enabled"
+	f := newFakeBackend(t)
+	f.actions = []agentapi.ActionView{
+		{ActionID: "a14352b1-4924-4e6d-a448-94005141264a", ActionType: "host.isolate", Status: "FAILED", ErrorDetail: reason},
+		{ActionID: "a24352b1-4924-4e6d-a448-94005141264a", ActionType: "ticket.create", Status: "SUCCEEDED"},
+	}
+	s, err := NewSession(context.Background(), Config{Backend: f.client(), LLM: &scriptedLLM{}, InvestigationID: "inv-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := s.listActions(context.Background(), struct{}{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var listed struct {
+		Actions []map[string]any `json:"actions"`
+	}
+	if err := json.Unmarshal(res.Content, &listed); err != nil {
+		t.Fatalf("list_actions result: %v: %s", err, res.Content)
+	}
+	if len(listed.Actions) != 2 {
+		t.Fatalf("listed %d actions; want 2", len(listed.Actions))
+	}
+	if got := listed.Actions[0]["error_detail"]; got != reason {
+		t.Errorf("failed action error_detail = %v; want %q", got, reason)
+	}
+	if _, ok := listed.Actions[1]["error_detail"]; ok {
+		t.Errorf("succeeded action carries error_detail: %v", listed.Actions[1])
+	}
+}

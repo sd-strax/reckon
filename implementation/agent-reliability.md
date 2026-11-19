@@ -190,15 +190,17 @@ same read path), but never design as if instruction guarantees use.
 When several adapters can serve an action type, the analyst must see the
 tool at both edges of the decision:
 
-- **Before approval**: the card shows `will dispatch via <adapter>` from
-  `ActionResolver.PlannedBinding`. Preview and dispatch share one selection
-  function (`selectBinding`, `action/resolver.go`) so "what the card promises
-  is what dispatch picks" is enforced *structurally*, not by a comment.
-- **After dispatch**: `action.dispatched` records the planned adapter;
-  `action.resulted` carries the adapter *actually* used, the failure reason
+- **Before approval**: the card shows `will dispatch via <adapter>` from the
+  binding frozen on the action. The engine picks the binding when the action
+  is requested (`ActionResolver.Plan`, `action/plan.go`) and records it on
+  `action.requested`, and dispatch uses that binding and no other
+  (`ActionResolver.Resolve`, adr/0406). So "what the card promises is what
+  dispatch picks" is enforced *structurally*, not by a comment. If the
+  frozen binding can no longer be used, dispatch fails with nothing sent.
+- **After dispatch**: `action.dispatched` records the frozen binding's
+  adapter; `action.resulted` carries the same adapter, the failure reason
   (`error_detail`), and the operational reference the tool returned
-  (`raw_response_ref`, e.g. the created incident number). The projection
-  converges planned→actual (`aggregate/action_current.go`) — the honest-record
+  (`raw_response_ref`, e.g. the created incident number) — the honest-record
   rule of `design/08 §6c`.
 
 **Field save**: the pre-approval preview exposed a silent misroute — tickets

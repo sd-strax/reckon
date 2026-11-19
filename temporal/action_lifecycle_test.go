@@ -1,6 +1,7 @@
 package temporal
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/mock"
@@ -19,20 +20,28 @@ func lifecycleInput() ActionLifecycleInput {
 		ApproverID:  "alice",
 		ActionType:  "host.isolate",
 		Targets:     []aggregate.TargetSpec{{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-A"}},
+		Binding:     aggregate.FrozenBinding{Adapter: "edr", Operation: "contain"},
 	}
 }
 
 // TestActionLifecycle_HappyPath: guard clear → dispatched → SUCCEEDED result.
+// The workflow hands the binding frozen at request to both the dispatched
+// record and the dispatch (adr/0406).
 func TestActionLifecycle_HappyPath(t *testing.T) {
 	ts := &testsuite.WorkflowTestSuite{}
 	env := ts.NewTestWorkflowEnvironment()
 	var a *Activities
+	frozen := lifecycleInput().Binding
 
 	env.OnActivity(a.ActionDispatchState, mock.Anything, mock.Anything).Return(DispatchState{Status: aggregate.ActionStatusApproved}, nil)
-	env.OnActivity(a.EmitDispatched, mock.Anything, mock.Anything).Return(nil)
+	env.OnActivity(a.EmitDispatched, mock.Anything, mock.MatchedBy(func(in EmitDispatchedInput) bool {
+		return in.Binding == frozen
+	})).Return(nil)
 	// The dispatch succeeded on its 2nd attempt: the audit record must carry the
 	// REAL attempt number, never a fabricated 1.
-	env.OnActivity(a.DoDispatch, mock.Anything, mock.Anything).Return(
+	env.OnActivity(a.DoDispatch, mock.Anything, mock.MatchedBy(func(in DispatchInput) bool {
+		return in.Binding == frozen
+	})).Return(
 		DispatchOutput{FinalOutcome: "SUCCEEDED", PerTargetResults: map[string]string{"0": "OK"}, Attempts: 2}, nil)
 	env.OnActivity(a.EmitResulted, mock.Anything, mock.MatchedBy(func(in EmitResultedInput) bool {
 		return in.FinalOutcome == "SUCCEEDED" && in.Attempts == 2
@@ -171,6 +180,40 @@ func TestActionLifecycle_FatalDispatch(t *testing.T) {
 	env.AssertNumberOfCalls(t, "DoDispatch", 1)
 }
 
+// TestActionLifecycle_FatalAfterARetry: a FATAL error on a later attempt
+// records the attempt it came on, so the record counts every call made.
+func TestActionLifecycle_FatalAfterARetry(t *testing.T) {
+	ts := &testsuite.WorkflowTestSuite{}
+	env := ts.NewTestWorkflowEnvironment()
+	var a *Activities
+
+	env.OnActivity(a.ActionDispatchState, mock.Anything, mock.Anything).Return(DispatchState{Status: aggregate.ActionStatusApproved}, nil)
+	env.OnActivity(a.EmitDispatched, mock.Anything, mock.Anything).Return(nil)
+	calls := 0
+	env.OnActivity(a.DoDispatch, mock.Anything, mock.Anything).Return(func(context.Context, DispatchInput) (DispatchOutput, error) {
+		calls++
+		if calls == 1 {
+			return DispatchOutput{}, sdktemporal.NewApplicationError("rate limited", "RETRYABLE_ERROR")
+		}
+		return DispatchOutput{}, sdktemporal.NewApplicationError("the tool refused", fatalErrorType, calls)
+	})
+	var got EmitResultedInput
+	env.OnActivity(a.EmitResulted, mock.Anything, mock.Anything).Return(func(_ context.Context, in EmitResultedInput) error {
+		got = in
+		return nil
+	})
+
+	env.ExecuteWorkflow(ActionLifecycle, lifecycleInput())
+
+	if !env.IsWorkflowCompleted() || env.GetWorkflowError() != nil {
+		t.Fatalf("workflow not clean: err=%v", env.GetWorkflowError())
+	}
+	if got.FinalOutcome != "FAILED" || got.PerTargetResults["0"] != "UNKNOWN" || got.Attempts != 2 {
+		t.Errorf("result = %+v; want FAILED, UNKNOWN, attempts 2", got)
+	}
+	env.AssertNumberOfCalls(t, "DoDispatch", 2)
+}
+
 // TestActionLifecycle_RetryExhausted: a RETRYABLE dispatch is retried up to the
 // budget, then closes FAILED/UNKNOWN.
 func TestActionLifecycle_RetryExhausted(t *testing.T) {
@@ -183,8 +226,9 @@ func TestActionLifecycle_RetryExhausted(t *testing.T) {
 	// Plain (retryable) error every attempt.
 	env.OnActivity(a.DoDispatch, mock.Anything, mock.Anything).Return(
 		DispatchOutput{}, sdktemporal.NewApplicationError("rate limited", "RETRYABLE_ERROR"))
+	// A call may have left reckon, so the targets stay UNKNOWN (adr/0384).
 	env.OnActivity(a.EmitResulted, mock.Anything, mock.MatchedBy(func(in EmitResultedInput) bool {
-		return in.FinalOutcome == "FAILED"
+		return in.FinalOutcome == "FAILED" && in.PerTargetResults["0"] == "UNKNOWN" && in.Attempts == 3
 	})).Return(nil)
 
 	env.ExecuteWorkflow(ActionLifecycle, lifecycleInput())
@@ -194,4 +238,73 @@ func TestActionLifecycle_RetryExhausted(t *testing.T) {
 	}
 	// Retried up to the budget (3 attempts).
 	env.AssertNumberOfCalls(t, "DoDispatch", 3)
+	env.AssertExpectations(t)
+}
+
+// TestActionLifecycle_NotSent (adr/0384): a dispatch that failed before the
+// outbound call runs once and records FAILED with every target FAIL,
+// attempts 0, the reason, and no adapter, so the one action.dispatched
+// recorded stands.
+func TestActionLifecycle_NotSent(t *testing.T) {
+	ts := &testsuite.WorkflowTestSuite{}
+	env := ts.NewTestWorkflowEnvironment()
+	var a *Activities
+	const reason = "not sent: adapter edr is not configured or not enabled"
+
+	in := lifecycleInput()
+	in.Targets = append(in.Targets, aggregate.TargetSpec{EntityRef: "reckon-host--2", ResolvedIdentifier: "WIN-B"})
+	env.OnActivity(a.ActionDispatchState, mock.Anything, mock.Anything).Return(DispatchState{Status: aggregate.ActionStatusApproved}, nil)
+	env.OnActivity(a.EmitDispatched, mock.Anything, mock.Anything).Return(nil)
+	env.OnActivity(a.DoDispatch, mock.Anything, mock.Anything).Return(
+		DispatchOutput{}, sdktemporal.NewNonRetryableApplicationError(reason, notSentErrorType, nil))
+	var got EmitResultedInput
+	env.OnActivity(a.EmitResulted, mock.Anything, mock.MatchedBy(func(r EmitResultedInput) bool {
+		got = r
+		return true
+	})).Return(nil)
+
+	env.ExecuteWorkflow(ActionLifecycle, in)
+
+	if !env.IsWorkflowCompleted() || env.GetWorkflowError() != nil {
+		t.Fatalf("workflow not clean: err=%v", env.GetWorkflowError())
+	}
+	env.AssertNumberOfCalls(t, "DoDispatch", 1)
+	want := map[string]string{"0": "FAIL", "1": "FAIL"}
+	if got.FinalOutcome != "FAILED" || got.Attempts != 0 || got.ErrorDetail != reason || got.Adapter != "" ||
+		len(got.PerTargetResults) != 2 || got.PerTargetResults["0"] != want["0"] || got.PerTargetResults["1"] != want["1"] {
+		t.Errorf("not-sent result = %+v; want FAILED, attempts 0, every target FAIL, the reason, no adapter", got)
+	}
+}
+
+// TestActionLifecycle_UnusableAfterAnAttempt (adr/0384): when the first
+// attempt reached the tool and failed retryably, and a reload then took the
+// binding away, the later attempts fail before the call but the dispatch is
+// not "not sent": the record ends FAILED with every target UNKNOWN after the
+// whole budget.
+func TestActionLifecycle_UnusableAfterAnAttempt(t *testing.T) {
+	ts := &testsuite.WorkflowTestSuite{}
+	env := ts.NewTestWorkflowEnvironment()
+	var a *Activities
+
+	env.OnActivity(a.ActionDispatchState, mock.Anything, mock.Anything).Return(DispatchState{Status: aggregate.ActionStatusApproved}, nil)
+	env.OnActivity(a.EmitDispatched, mock.Anything, mock.Anything).Return(nil)
+	env.OnActivity(a.DoDispatch, mock.Anything, mock.Anything).Return(
+		DispatchOutput{}, sdktemporal.NewApplicationError("rate limited", "RETRYABLE_ERROR")).Once()
+	env.OnActivity(a.DoDispatch, mock.Anything, mock.Anything).Return(
+		DispatchOutput{}, sdktemporal.NewApplicationError("adapter edr is not configured or not enabled", bindingUnusableErrorType))
+	var got EmitResultedInput
+	env.OnActivity(a.EmitResulted, mock.Anything, mock.MatchedBy(func(r EmitResultedInput) bool {
+		got = r
+		return true
+	})).Return(nil)
+
+	env.ExecuteWorkflow(ActionLifecycle, lifecycleInput())
+
+	if !env.IsWorkflowCompleted() || env.GetWorkflowError() != nil {
+		t.Fatalf("workflow not clean: err=%v", env.GetWorkflowError())
+	}
+	env.AssertNumberOfCalls(t, "DoDispatch", 3)
+	if got.FinalOutcome != "FAILED" || got.PerTargetResults["0"] != "UNKNOWN" || got.Attempts != 3 {
+		t.Errorf("result = %+v; want FAILED with UNKNOWN targets and attempts 3", got)
+	}
 }

@@ -277,12 +277,21 @@ type recordPredictionOutcomeInput struct {
 	TestResultRefs []string `json:"test_result_refs" desc:"STIX refs of the observed evidence (observed_data_refs, entity_refs)"`
 }
 
-// targetInput is what the model may say about a target. agentapi.TargetSpec
-// has more (asset_criticality reaches Gate 2 policy), and none of it is the
-// model's to declare, so the decoder never reads it.
+// targetInput is what the model may say about a destination target: the
+// target of an action type with no target types (a ticket, a channel, an
+// address), which only the requester can name. agentapi.TargetSpec has more
+// (asset_criticality reaches Gate 2 policy), and none of it is the model's to
+// declare, so the decoder never reads it.
 type targetInput struct {
 	EntityRef          string `json:"entity_ref" required:"true" desc:"STIX id of the target entity"`
 	ResolvedIdentifier string `json:"resolved_identifier" required:"true" desc:"the concrete identifier the tool acts on (hostname, account id)"`
+}
+
+// entityTargetInput is what the model may say about the target of an action
+// type with target types: the entity only. The engine derives the string the
+// tool receives from the stored entity (adr/0406).
+type entityTargetInput struct {
+	EntityRef string `json:"entity_ref" required:"true" desc:"STIX id of the target entity"`
 }
 
 type readResultInput struct {
@@ -666,6 +675,9 @@ type actionRow struct {
 	ExpiresAt    *time.Time            `json:"expires_at,omitempty"`
 	EvidenceRefs []string              `json:"evidence_refs,omitempty"`
 	Expired      bool                  `json:"expired"`
+	// ErrorDetail is why a FAILED action failed, so the model can tell the
+	// analyst whether it never went out or failed at the tool (adr/0384).
+	ErrorDetail string `json:"error_detail,omitempty"`
 }
 
 func (s *Session) listActions(ctx context.Context, _ struct{}) (toolResult, error) {
@@ -687,6 +699,7 @@ func (s *Session) listActions(ctx context.Context, _ struct{}) (toolResult, erro
 			ActionID: a.ActionID, ActionType: a.ActionType, Tier: a.Tier, Status: a.Status,
 			RequiredMode: a.RequiredMode, IsReversal: a.IsReversal, Targets: a.Targets,
 			ExpiresAt: a.ExpiresAt, EvidenceRefs: a.EvidenceRefs, Expired: a.ApprovalLapsed(now),
+			ErrorDetail: a.ErrorDetail,
 		})
 	}
 	return contentOf(json.Marshal(map[string]any{

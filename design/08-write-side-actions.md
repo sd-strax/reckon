@@ -40,10 +40,11 @@ Temporal workflow (`05 §6.2`) rather than a synchronous request:
 
 ```
 request_action (LLM/analyst)            <- §2
+  -> pick the binding, derive identifiers, freeze both   <- §4 (adr/0406)
   -> reckon-action REQUESTED                 (04 §3.2; authorization in 04)
   -> ... APPROVED ...                   (04 §5)
   -> ActionLifecycle workflow           (05 §6.2)
-       resolve action binding           <- §4
+       use the frozen action binding    <- §4, §7.1
        build idempotency key            <- §6
        dispatch-ledger guard            <- §6
        adapter.dispatch(op, params, idempotency_key) -> WriteResult   <- §5, §5-envelope
@@ -90,6 +91,11 @@ through one tool per verb (`03 §6.3`). The model never writes `request_action` 
   inputs the descriptor requires as its required keys. Every tool also carries the fields every
   request shares: `targets`, `rationale`, `evidence_refs` (required) and `retry_of` (optional).
   There is no nested `parameters` object in the tool.
+- **A target is the entity.** For a type with target types, a target in the tool's schema is its
+  `entity_ref` only. The engine derives the string the tool receives (`§4`, adr/0406), so the model
+  is never asked for it. The loop passes no `resolved_identifier` on for such a type. For a type
+  with none (ticket, notify), a target also carries `resolved_identifier`, the destination only
+  the requester can name.
 - **The loop builds the request.** Every action tool runs one handler. It takes `action_type` from
   the tool, puts every key that is not a shared field into `parameters`, drops a `null` value for a
   declared optional input, and sends `request_action`. The engine validates it against `§3` as for
@@ -121,7 +127,8 @@ handler (`04 §5.6`, enforced per `02-persistence.md §2.1`/`§4`). Making the r
 `TargetSpec` (defined in `04 §3.1`) carries both `entity_ref` (stable STIX id) and
 `resolved_identifier` (what the adapter actually sends downstream). Resolution is frozen into the
 `reckon-action` at request time (`04 §8.1`); the write adapter consumes `resolved_identifier`, never
-re-resolves.
+re-resolves. For a typed action the engine derives it from the stored entity (`§4`), and a value
+the requester sent is not used.
 
 ---
 
@@ -135,6 +142,8 @@ type ActionDescriptor interface {
     ActionType() string          // e.g. "host.isolate", "ticket.create"
     Inputs() InputSchema         // schema for request_action.parameters
     Intent() string              // LLM-facing description of effect + when to use
+    TargetTypes() []string       // STIX types the action acts on (04 §3.1); empty for a
+                                 // destination action (ticket, notify)
     // Auth/taxonomy fields below are DECLARED here but OWNED elsewhere:
     DefaultTier() Tier           // T2|T3 — authoritative in 04 §2; see tier/surface
                                  // mapping below (there is no T1 descriptor)
@@ -170,19 +179,82 @@ ActionBinding:
   adapter       string          -- adapter name (e.g. "crowdstrike_falcon", "tines_playbook")
   operation     string          -- concrete write op on that adapter (e.g. "rtr.isolate_host")
   priority      int             -- highest applicable wins (as read side)
+  identifier    map             -- STIX type -> template over target.entity (adr/0406);
+                                   required for a type with target types, absent otherwise
   params        object          -- templated parameter mapping (request params + target -> op inputs)
   external_approval_substitutes_reckon  bool  -- SOAR gate ownership (§7; default false)
 ```
 
+**The identifier rule** (adr/0406). A binding for an action type with target types declares
+`identifier`: for each STIX type it handles, a template that says how the string the tool receives
+is derived from the stored entity. The templates use the read side's engine (`03 §3.3`) under one
+root, `target.entity`, which holds the stored entity's properties.
+
+```yaml
+- action_type: ioc.block
+  adapter: edr
+  operation: add_ioc
+  identifier:
+    ipv4-addr: "${target.entity.value}"
+    domain-name: "${target.entity.value}"
+    file: "${target.entity.hashes.SHA-256}"
+  params:
+    value: "${target.resolved_identifier}"
+```
+
+A rule names a field that means the same thing everywhere, such as a hostname, a login, an
+indicator's value or a file's hash. Or it names a vendor's own id, through `vendor_ids`.
+
+**`vendor_ids`.** When the engine loads a target entity, it adds `vendor_ids` beside its properties:
+a map from vendor to that vendor's id for the entity. The vendor is a source label up to its first
+`:` (the source label contract, `03 §5.5`). A host's ids are the device `uid` of each device object
+naming the host or its alias set, across every record, with contested aliases cut. A device's
+`uid_alt` and its agents' ids are other ids, not vendor ids, so they are not read. A stored object
+keeps only its first source's properties, so a host's own `source_ids` would miss a later source. Any other entity's ids are its stored `source_ids`. A vendor whose ids all agree maps to
+that id. A vendor whose ids disagree, as after a sensor reinstall, is left out, and a refusal names
+the conflict. A tool only takes its own vendor's id, so the vendor is enough to find it. Telling
+apart two tenants of one vendor is left to a later version. A containment binding that takes a Falcon
+device id declares:
+
+```yaml
+identifier:
+  reckon-host: "${target.entity.vendor_ids.falcon}"
+```
+
+**Config load checks the rule.** A binding for a type with target types must have an `identifier`.
+Each key must be one of the type's target types. A binding for a type with none (ticket, notify)
+must not have one. `target.entity` is valid only inside `identifier`, and an identifier reads nothing
+else. So `params` never reads the entity, and dispatch renders only from the frozen request. An
+identifier rule names at least one field, so no two targets get the same literal. It takes no optional marker (`?`), no default (`??`) and no transform that does not give
+text; only `lower`, `trim` and `upper` are allowed. So a rule either renders every field it names, or
+the binding gives way. Every binding needs an adapter and an operation. No two bindings of one action
+type may name the same adapter and operation, because that pair is how dispatch finds the frozen
+binding again. Everything dispatch would refuse for a static reason is refused here, never after
+approval.
+
+**The binding is chosen at request time** (adr/0406). When an action is requested, the engine loads
+each target's entity from the evidence. It walks the usable bindings by priority: adapter configured
+and enabled, scope matching (below). A binding applies when it has a rule for every target's type,
+every rule renders from that target's entity, and its params render. The first that applies is
+chosen. Each target's `resolved_identifier` is set to its rendered rule, and the binding's adapter and
+operation are frozen on `ActionRequested`. A binding that does not apply gives way to the next. That
+is not the dispatch fall-through below, because nothing has been sent. If none applies, or a target's
+entity is not in the evidence, the request is refused with a 422 that names the reason, and nothing
+is recorded. If the install has no write bindings, or a typed action has no evidence store to read its
+targets from, the request is refused with a 503, and nothing is recorded. A ticket or notify action keeps the requester's destination, and its binding is chosen
+and frozen the same way. A binding is identified by its action type, adapter instance and operation;
+priority is not part of it.
+
 **The action resolver** (the dispatch-step analog of the read resolver, `03 §3.2`): given
-`(action_type, reckon-action, tenant)`, pick the highest-priority binding whose preconditions hold
-(adapter enabled, credentials configured, target type applicable), render the parameter template
-against the frozen `TargetSpec`s and `parameters`, and hand off to the adapter operation.
+`(action_type, reckon-action, tenant)`, take the binding frozen on the action, check it is still
+configured, enabled and in scope, render its parameter template against the frozen `TargetSpec`s and
+`parameters`, and hand off to the adapter operation. It never selects another binding. If the frozen
+one can no longer be used, dispatch fails with nothing sent, as a missing binding does.
 
 Unlike the read resolver, the action resolver does **not** fall through to a lower-priority binding on
 a failed call — a partially-executed state change must not be silently re-attempted against a
-different tool. Binding selection is resolved once, before the first outbound attempt; retries
-(`§6`) re-use the same binding.
+different tool. Binding selection is resolved once, at request time; retries (`§6`) re-use the same
+binding.
 
 **Source scope is a write-side precondition** (`03 §3.5`): a binding whose adapter instance is
 scoped to a different organization than the investigation's `source_scope` is *not applicable* —
@@ -299,11 +371,14 @@ send, adapter died mid-call), the per-target result is `UNKNOWN` and the action 
 with `confidence = LOW` and **no success inference** — the analyst re-requests. If the run itself
 stopped after recording the dispatch and before any result, the next run of the workflow finds the
 dispatch with no result and records `OUTCOME_UNKNOWN` instead of calling again; a person checks the
-tool and resolves it (`04 §6.2`). This is the same
-non-inference rule `04 §6.2` already applies to `TIMEOUT`: reckon never pretends to know an effect it
-cannot confirm. Pre-dispatch state reconciliation (a `probe(target)` op that lets the executor skip a
-call when the target is already in the desired state) would shrink this residual but is **not**
-required by this contract — it is noted as a possible per-adapter capability in `§9`.
+tool and resolves it (`04 §6.2`). This is the same non-inference rule `04 §6.2` already applies to
+`TIMEOUT`: reckon never pretends to know an effect it cannot confirm. Pre-dispatch state
+reconciliation (a `probe(target)` op that lets the executor skip a call when the target is already in
+the desired state) would shrink this residual but is **not** required by this contract — it is noted
+as a possible per-adapter capability in `§9`. When the
+first attempt fails before the call, nothing was sent, so the action ends `FAILED` with every target
+`FAIL`, `attempts` 0 and the reason (`04 §6.2`, adr/0384). A later attempt that fails before the call
+is retried as any other failure, because an earlier attempt may have reached the tool.
 
 ---
 
@@ -313,7 +388,8 @@ required by this contract — it is noted as a possible per-adapter capability i
 
 Inside `ActionLifecycle` (`05 §6.2`), on `APPROVED`:
 
-1. Resolve the action binding (`§4`).
+1. Take the binding frozen at request time (`§4`, adr/0406). The dispatched record names its
+   adapter. If it is no longer configured, enabled or in scope, the action fails with nothing sent.
 2. Build the idempotency key (`§6a`); run the dispatch-ledger guard (`§6b`).
 3. `Dispatch(op, params, idempotency_key)`; apply the retry budget — default **3 attempts, 2s/8s/30s
    backoff** (`04 §6.1`, `§6.3`); each attempt is an `Execution.attempts` row.

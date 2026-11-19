@@ -61,23 +61,60 @@ func TestValueChecks(t *testing.T) {
 }
 
 // TestEmailAddress: an address is trimmed, and a mailbox with a display name
-// keeps its address. A value that is still not an addr-spec is not one.
+// keeps its address. Every address is written back in its shortest RFC 5322
+// form, so one mailbox quoted two ways is one value, and a local part holding
+// quotes keeps them (adr/0371). A local part that would start or end with
+// white space is quoted. A value that is still not an addr-spec is not one.
 func TestEmailAddress(t *testing.T) {
 	for in, want := range map[string]string{
-		"alice@corp.example":             "alice@corp.example",
-		"  alice@corp.example\t":         "alice@corp.example",
-		"Alice <alice@corp.example>":     "alice@corp.example",
-		" \"Doe, Jo\" <jo@corp.example>": "jo@corp.example",
-		"<bob@corp.example>":             "bob@corp.example",
-		"":                               "",
-		"   ":                            "",
-		"Undisclosed recipients:;":       "",
-		"a,b@corp.example":               "",
-		"accounts payable":               "",
+		"alice@corp.example":                "alice@corp.example",
+		"  alice@corp.example\t":            "alice@corp.example",
+		"Alice <alice@corp.example>":        "alice@corp.example",
+		" \"Doe, Jo\" <jo@corp.example>":    "jo@corp.example",
+		"<bob@corp.example>":                "bob@corp.example",
+		`"bob@x.example" <alice@x.example>`: "alice@x.example",
+		// Quoted where it need not be: written unquoted.
+		`"alice"@x.example`:         "alice@x.example",
+		`Alice <"alice"@x.example>`: "alice@x.example",
+		`"alerts"@example.com`:      "alerts@example.com",
+		// A local part holding quotes keeps them, escaped.
+		`Alice <"\"alerts\""@example.com>`: `"\"alerts\""@example.com`,
+		`"\"alerts\""@example.com`:         `"\"alerts\""@example.com`,
+		// Quoted because it cannot be a dot-atom.
+		`"a b"@x.example`:  `"a b"@x.example`,
+		`"a@b"@x.example`:  `"a@b"@x.example`,
+		`"a..b"@x.example`: `"a..b"@x.example`,
+		// A quoted pair stands for its character.
+		`"a\b"@x.example`: "ab@x.example",
+		// A local part that would start or end with white space stays
+		// quoted, so the id's trim can't make it another mailbox.
+		"\"\u3000alerts\"@example.com":         "\"\u3000alerts\"@example.com",
+		"\"alerts\u3000\"@example.com":         "\"alerts\u3000\"@example.com",
+		"alerts\u3000@example.com":             "\"alerts\u3000\"@example.com",
+		"\"\u2028a\"@x.example":                "\"\u2028a\"@x.example",
+		"\"\u0085a\"@x.example":                "\"\u0085a\"@x.example",
+		"\"\\\u3000alerts\"@example.com":       "\"\u3000alerts\"@example.com",
+		"Alice <\"\u3000alerts\"@example.com>": "\"\u3000alerts\"@example.com",
+		// A domain that ends in white space parses, but the address it is
+		// written back as is refused.
+		"<a@x.example\u3000>":       "",
+		"Alice <a@x.example\u3000>": "",
+		// The domain and a non-ASCII local part are written as parsed.
+		"user@[192.0.2.1]":         "user@[192.0.2.1]",
+		"josé@example.com":         "josé@example.com",
+		"":                         "",
+		"   ":                      "",
+		"Undisclosed recipients:;": "",
+		"a,b@corp.example":         "",
+		"accounts payable":         "",
 	} {
 		got, ok := EmailAddress(in)
 		if got != want || ok != (want != "") {
 			t.Errorf("EmailAddress(%q) = %q, %v; want %q", in, got, ok, want)
+		}
+		// A stored value cleans up to itself.
+		if again, ok := EmailAddress(got); want != "" && (again != got || !ok) {
+			t.Errorf("EmailAddress(%q) = %q, %v; want it unchanged", got, again, ok)
 		}
 	}
 }

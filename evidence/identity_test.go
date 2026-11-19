@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/sd-strax/reckon/action"
 	"github.com/sd-strax/reckon/capability"
 	"github.com/sd-strax/reckon/identity"
 )
@@ -666,4 +667,121 @@ func TestHostIdentity_DetectionEvidence(t *testing.T) {
 	if !slices.Equal(v.SeenAs.Domains, want.Domains) || !slices.Equal(v.SeenAs.Agents, want.Agents) || !slices.Equal(v.SeenAs.IPs, want.IPs) {
 		t.Errorf("seen as = %+v; want %+v", v.SeenAs, want)
 	}
+}
+
+// TestHostDeviceIDs (adr/0406): a host's device ids are each matched device
+// object's own uid, by source tool. A Falcon record that also carries a
+// different uid_alt and an agent_list yields its uid alone, so two Falcon
+// tools reporting one device read as one id; two Falcon records with
+// different uids yield both. A placeholder uid is no id. SeenAs keeps every
+// id, as before.
+func TestHostDeviceIDs(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	reg := capability.NewRegistry(identity.NewResolver(uuid.MustParse("44444444-4444-4444-8444-444444444444")))
+	ids := reg.Identity()
+	base := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+
+	event := func(tool string, minute int, device map[string]any) capability.OcsfEvent {
+		return capability.OcsfEvent{
+			ID: uuid.Must(uuid.NewV7()), ClassUID: 1007, ClassName: "Process Activity", Time: base.Add(time.Duration(minute) * time.Minute),
+			RecordedAt: base, SourceTool: tool,
+			Payload: map[string]any{"class_uid": 1007, "process": map[string]any{"pid": float64(minute), "name": "a.exe"}, "device": device},
+		}
+	}
+	evts := []capability.OcsfEvent{
+		event("falcon:search_hosts", 1, map[string]any{"hostname": "WIN-FILE01", "uid": "aid-1", "uid_alt": "serial-9",
+			"agent_list": []any{map[string]any{"uid": "sensor-x"}}}),
+		event("falcon:get_host_details", 2, map[string]any{"hostname": "WIN-FILE01", "uid": "aid-1"}),
+		event("fixture:s", 3, map[string]any{"hostname": "WIN-FILE01", "uid": "00000000-0000-0000-0000-000000000000"}),
+		event("falcon:search_hosts", 4, map[string]any{"hostname": "WIN-APP02", "uid": "aid-old"}),
+		event("falcon:search_hosts", 5, map[string]any{"hostname": "WIN-APP02", "uid": "aid-new"}),
+		// A host Falcon names by its device id alone: a weak host minted on
+		// (tool, uid).
+		event("falcon:search_hosts", 6, map[string]any{"uid": "aid-weak"}),
+		// A strong host, and a weak one a person aliased to it and then said
+		// is distinct from it: the cut keeps the weak host's id out.
+		event("falcon:search_hosts", 7, map[string]any{"hostname": "WIN-DC01", "uid": "aid-dc"}),
+		event("falcon:get_host_details", 8, map[string]any{"uid": "aid-other"}),
+	}
+	res := capability.CapabilityResult{Coverage: capability.CoverageComplete, Events: evts}
+	for _, e := range evts {
+		nr, err := reg.Normalize(e)
+		if err != nil {
+			t.Fatal(err)
+		}
+		nr.EventID = e.ID
+		res.Normalized = append(res.Normalized, nr)
+	}
+	inv := uuid.New()
+	persistCall(t, s, Call{ID: uuid.Must(uuid.NewV7()), InvestigationID: &inv, Verb: "v", StartedAt: base}, res)
+
+	file01 := ids.Host(identity.HostIdentity{Hostname: "WIN-FILE01"})
+	got, err := s.HostDeviceIDs(ctx, string(file01))
+	if err != nil {
+		t.Fatalf("HostDeviceIDs: %v", err)
+	}
+	want := []SourceID{{"falcon:get_host_details", "aid-1"}, {"falcon:search_hosts", "aid-1"}}
+	if !slices.Equal(got, want) {
+		t.Errorf("device ids = %+v; want the uid alone, by tool: %+v", got, want)
+	}
+	if vendorIDs, conflicts := action.VendorIDs(asActionIDs(got)); vendorIDs["falcon"] != "aid-1" || len(conflicts) != 0 {
+		t.Errorf("vendor_ids = %v, conflicts %v; want falcon aid-1 and no conflict", vendorIDs, conflicts)
+	}
+	v, err := s.HostIdentity(ctx, string(file01))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range []SourceID{{"falcon:search_hosts", "serial-9"}, {"falcon:search_hosts", "sensor-x"}} {
+		if !slices.Contains(v.SeenAs.Agents, a) {
+			t.Errorf("seen-as agents = %+v; want %+v kept", v.SeenAs.Agents, a)
+		}
+	}
+
+	app02 := ids.Host(identity.HostIdentity{Hostname: "WIN-APP02"})
+	got, err = s.HostDeviceIDs(ctx, string(app02))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = []SourceID{{"falcon:search_hosts", "aid-new"}, {"falcon:search_hosts", "aid-old"}}
+	if !slices.Equal(got, want) {
+		t.Errorf("two Falcon records: device ids = %+v; want %+v", got, want)
+	}
+	if vendorIDs, conflicts := action.VendorIDs(asActionIDs(got)); vendorIDs["falcon"] != nil || len(conflicts["falcon"]) != 2 {
+		t.Errorf("vendor_ids = %v, conflicts %v; want falcon left out as a conflict", vendorIDs, conflicts)
+	}
+
+	weak := ids.Host(identity.HostIdentity{SourceTool: "falcon:search_hosts", SourceUID: "aid-weak"})
+	got, err = s.HostDeviceIDs(ctx, string(weak))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []SourceID{{"falcon:search_hosts", "aid-weak"}}; !slices.Equal(got, want) {
+		t.Errorf("weak host minted on tool and uid: device ids = %+v; want %+v", got, want)
+	}
+
+	dc := ids.Host(identity.HostIdentity{Hostname: "WIN-DC01"})
+	other := ids.Host(identity.HostIdentity{SourceTool: "falcon:get_host_details", SourceUID: "aid-other"})
+	assertEdge(t, relAliases, other, dc, false)
+	assertEdge(t, relDistinctFrom, dc, other, false)
+	got, err = s.HostDeviceIDs(ctx, string(dc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []SourceID{{"falcon:search_hosts", "aid-dc"}}; !slices.Equal(got, want) {
+		t.Errorf("aliased pair cut by distinct-from: device ids = %+v; want %+v, the cut host's id left out", got, want)
+	}
+
+	if _, err := s.HostDeviceIDs(ctx, "not-a-ref"); !errors.Is(err, ErrMalformedRef) {
+		t.Errorf("malformed ref: err = %v; want ErrMalformedRef", err)
+	}
+}
+
+// asActionIDs is device ids as the planner groups them by vendor.
+func asActionIDs(ids []SourceID) []action.SourceID {
+	out := make([]action.SourceID, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, action.SourceID{Label: id.Tool, ID: id.UID})
+	}
+	return out
 }

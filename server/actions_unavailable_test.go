@@ -48,10 +48,13 @@ func (a healthWriteAdapter) Dispatch(context.Context, string, map[string]any, st
 // the adapters' health checks.
 func bindingResolver(healthCalls *int) *action.ActionResolver {
 	return action.NewActionResolver(map[string][]action.ActionBinding{
-		"host.isolate":     {{ActionType: "host.isolate", Adapter: "up", Operation: "op"}},
-		"account.disable":  {{ActionType: "account.disable", Adapter: "down", Operation: "op"}},
-		"ticket.comment":   {{ActionType: "ticket.comment", Adapter: "disabled", Operation: "op"}},
-		"email.quarantine": {{ActionType: "email.quarantine", Adapter: "up", Operation: "op", Scope: "org-b"}},
+		"host.isolate": {{ActionType: "host.isolate", Adapter: "up", Operation: "op",
+			Identifier: map[string]string{"reckon-host": testIdentifierRule}}},
+		"account.disable": {{ActionType: "account.disable", Adapter: "down", Operation: "op",
+			Identifier: map[string]string{"user-account": testIdentifierRule}}},
+		"ticket.comment": {{ActionType: "ticket.comment", Adapter: "disabled", Operation: "op"}},
+		"email.quarantine": {{ActionType: "email.quarantine", Adapter: "up", Operation: "op", Scope: "org-b",
+			Identifier: map[string]string{"email-message": testIdentifierRule}}},
 	}, map[string]action.WriteAdapter{
 		"up":   healthWriteAdapter{name: "up", healthy: true, healthCalls: healthCalls},
 		"down": healthWriteAdapter{name: "down", healthy: false, healthCalls: healthCalls},
