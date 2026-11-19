@@ -618,14 +618,15 @@ func (r *renderer) url(v string) slot {
 // emailAddr shows an address as the record gives it, and binds it through
 // the cleanup the normalizer stored it with (stix.EmailAddress, adr/0357).
 // It folds by that cleaned-up value, so two spellings of one mailbox are one
-// recipient (adr/0371).
+// recipient (adr/0371). A value that isn't an address folds by its trimmed
+// text, ignoring case.
 func (r *renderer) emailAddr(v string) slot {
 	if strings.TrimSpace(v) == "" {
 		return slot{}
 	}
 	value, ok := stix.EmailAddress(v)
 	if !ok {
-		return slot{text: v}
+		return slot{text: v, key: strings.ToLower(strings.TrimSpace(v))}
 	}
 	return slot{text: v, key: strings.ToLower(value), ref: r.bind(identity.TypeEmailAddr, func(p map[string]any) bool { return propEquals(p, "value", value) })}
 }

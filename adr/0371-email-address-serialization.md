@@ -76,7 +76,8 @@ as one address, but they got two ids.
   is written without the quotes.
 - The event view matches by the same cleanup, so it binds the same ids.
 - The event view folds a sender and recipients by the cleaned-up address,
-  so two spellings of one mailbox fold together.
+  so two spellings of one mailbox fold together. A sender or recipient
+  that isn't an address folds by its trimmed text, ignoring case.
 - The email normalizer moves to its next version, since the values it
   stores change.
 - `design/03`'s cleanup sentence for email addresses (§4, the
