@@ -1,6 +1,6 @@
 # 0378 — An auto-approval records the content hash of the policy that fired, and the aggregate refuses one without it
 
-Issue: #378 · PR: #424 · Status: accepted
+Issue: #378 · PRs: #424, #428 · Status: accepted
 
 ## Context
 
