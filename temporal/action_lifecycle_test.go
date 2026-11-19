@@ -1,6 +1,7 @@
 package temporal
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/mock"
@@ -177,6 +178,40 @@ func TestActionLifecycle_FatalDispatch(t *testing.T) {
 	}
 	// DoDispatch is FATAL → called exactly once (no retry).
 	env.AssertNumberOfCalls(t, "DoDispatch", 1)
+}
+
+// TestActionLifecycle_FatalAfterARetry: a FATAL error on a later attempt
+// records the attempt it came on, so the record counts every call made.
+func TestActionLifecycle_FatalAfterARetry(t *testing.T) {
+	ts := &testsuite.WorkflowTestSuite{}
+	env := ts.NewTestWorkflowEnvironment()
+	var a *Activities
+
+	env.OnActivity(a.ActionDispatchState, mock.Anything, mock.Anything).Return(DispatchState{Status: aggregate.ActionStatusApproved}, nil)
+	env.OnActivity(a.EmitDispatched, mock.Anything, mock.Anything).Return(nil)
+	calls := 0
+	env.OnActivity(a.DoDispatch, mock.Anything, mock.Anything).Return(func(context.Context, DispatchInput) (DispatchOutput, error) {
+		calls++
+		if calls == 1 {
+			return DispatchOutput{}, sdktemporal.NewApplicationError("rate limited", "RETRYABLE_ERROR")
+		}
+		return DispatchOutput{}, sdktemporal.NewApplicationError("the tool refused", fatalErrorType, calls)
+	})
+	var got EmitResultedInput
+	env.OnActivity(a.EmitResulted, mock.Anything, mock.Anything).Return(func(_ context.Context, in EmitResultedInput) error {
+		got = in
+		return nil
+	})
+
+	env.ExecuteWorkflow(ActionLifecycle, lifecycleInput())
+
+	if !env.IsWorkflowCompleted() || env.GetWorkflowError() != nil {
+		t.Fatalf("workflow not clean: err=%v", env.GetWorkflowError())
+	}
+	if got.FinalOutcome != "FAILED" || got.PerTargetResults["0"] != "UNKNOWN" || got.Attempts != 2 {
+		t.Errorf("result = %+v; want FAILED, UNKNOWN, attempts 2", got)
+	}
+	env.AssertNumberOfCalls(t, "DoDispatch", 2)
 }
 
 // TestActionLifecycle_RetryExhausted: a RETRYABLE dispatch is retried up to the

@@ -144,4 +144,10 @@ func TestDoDispatch_NotSent(t *testing.T) {
 	if !errors.As(err, &appErr) || appErr.Type() != fatalErrorType || edr.calls != 1 {
 		t.Errorf("adapter fatal error: err = %v (calls %d); want %s, the call made", err, edr.calls, fatalErrorType)
 	}
+	// The attempt rides a FATAL error, so the record counts the calls made.
+	_, err = NewActivities(nil, live, nil, nil).DoDispatch(second, in)
+	var n int
+	if !errors.As(err, &appErr) || appErr.Type() != fatalErrorType || appErr.Details(&n) != nil || n != 2 {
+		t.Errorf("adapter fatal error on attempt 2: err = %v, attempt detail %d; want %s carrying 2", err, n, fatalErrorType)
+	}
 }
