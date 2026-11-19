@@ -29,6 +29,14 @@ lower-priority `AUTO_APPROVE` could approve the action. Two policies could
 also share an id, which leaves a record that names a policy by id
 ambiguous.
 
+The effect had the same gap. Gate 2 acts on three effects, `DENY`,
+`REQUIRE_TWO_PARTY` and `AUTO_APPROVE`, and skips any other. Nothing
+checked the effect when a policy loaded. So a `DENY` policy whose effect
+was misspelt, in the wrong case or missing fired and blocked nothing, and
+a lower-priority `AUTO_APPROVE` could approve the action. A misspelt
+`effect:` key had the same result. The policy file decoder dropped keys it
+did not know, so the effect was left empty.
+
 The hash itself followed the Go struct, not a defined form. It was the
 sha256 of the `Policy` struct marshalled to JSON. Adding a field to the
 struct without `omitempty` changed every policy's hash, with no policy
@@ -53,6 +61,14 @@ ignored, so a policy that failed to encode hashed as empty input.
   that has no id, or with two policies that share one. A policy that
   reuses the baseline's id is refused too, whether it came from a file or
   from code.
+- **Every policy has a known effect, and a policy file has only known
+  keys.** Gate 2 refuses to start with a policy whose effect is missing or
+  is not one of the three. The policy file decoder refuses a key the
+  policy does not have, and names the file. A misspelt key on any field
+  would otherwise leave that field at its default, such as `shadow` left
+  false on a policy meant to run in shadow. A file with a second YAML
+  document is refused too. The decoder read only the first, so a policy
+  written in the second never loaded.
 - **The hash covers an explicit canonical form.** `04 §4.1` defines
   `content_hash` as the sha256 of the policy's canonical form. That form now
   lists each policy field by name, with times in UTC. A field that is empty
@@ -87,8 +103,9 @@ ignored, so a policy that failed to encode hashed as empty input.
   the mode is `AUTO_POLICY`.
 - `design/04 §4.1` states that a policy id is required and unique, and what
   the canonical form is.
-- A policy set with a missing or repeated id stops the backend at startup,
-  as a predicate that fails to compile already does.
+- A policy set with a missing or repeated id, a missing or unknown
+  effect, an unknown key or a second document in a file stops the backend
+  at startup, as a predicate that fails to compile already does.
 - Every policy's hash changes once, with the new canonical form. Two tests
   pin the form, one over a policy with every field set and one over the
   baseline, so a later change to it is deliberate.
