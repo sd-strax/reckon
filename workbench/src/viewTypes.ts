@@ -378,7 +378,7 @@ export interface ActionRecord {
   };
   result?: {
     finalOutcome: string;
-    attempts?: number;
+    attempts: number;
     adapter?: string;
     errorDetail?: string;
     rawResponseRef?: string;

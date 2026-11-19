@@ -39,10 +39,13 @@ the analyst whether the action never went out or failed at the tool.
   failure that happens before the outbound call as one kind of error: the
   frozen binding missing, disabled or out of scope, its params not rendering.
   The dispatch activity treats "no write resolver" the same way. The error
-  names what broke, for example `adapter crowdstrike-falcon is not enabled`.
-- **It isn't retried.** The dispatch activity raises it as a non-retryable
+  names what broke, for example `adapter crowdstrike-falcon is not configured or not enabled`.
+- **On the first attempt, it isn't retried.** The dispatch activity raises it as a non-retryable
   error of its own type. Retrying can't help, because the configuration
   won't change between attempts.
+- **Only the first attempt is recorded as not sent.** A later attempt that
+  fails before the call is retried, and ends `UNKNOWN` like any other
+  failure, because an earlier attempt may have reached the tool.
 - **The record says nothing was sent.** The action ends `FAILED` with
   `attempts` 0, every target `FAIL`, and the reason as `error_detail`. `FAIL`
   is exact here: the tool didn't act on the target. `attempts` 0 is what says
@@ -76,7 +79,7 @@ the analyst whether the action never went out or failed at the tool.
   The re-request picks its binding against the configuration it finds, and
   is refused when no binding can carry it (adr/0406).
 - `04 §6.2` gains the category "approved, but the binding can no longer
-  carry it", and `08 §6(c)` says a failure before the call is never
-  `UNKNOWN`.
+  carry it", and `08 §6(c)` says a failure before the first attempt's
+  call is never `UNKNOWN`.
 - Disabling an adapter while actions that use it wait for approval is still
   allowed. Those actions now fail with a clear reason when they're approved.

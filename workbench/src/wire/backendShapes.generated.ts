@@ -1745,7 +1745,7 @@ const actionTargetResult: Decoder<ActionTargetResult> = object({
 
 export interface ActionResultView {
   final_outcome: string;
-  attempts?: number;
+  attempts: number;
   adapter?: string;
   error_detail?: string;
   raw_response_ref?: string;
@@ -1753,7 +1753,7 @@ export interface ActionResultView {
 }
 const actionResultView: Decoder<ActionResultView> = object({
   final_outcome: str,
-  attempts: optional(num),
+  attempts: num,
   adapter: optional(str),
   error_detail: optional(str),
   raw_response_ref: optional(str),

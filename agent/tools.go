@@ -675,6 +675,9 @@ type actionRow struct {
 	ExpiresAt    *time.Time            `json:"expires_at,omitempty"`
 	EvidenceRefs []string              `json:"evidence_refs,omitempty"`
 	Expired      bool                  `json:"expired"`
+	// ErrorDetail is why a FAILED action failed, so the model can tell the
+	// analyst whether it never went out or failed at the tool (adr/0384).
+	ErrorDetail string `json:"error_detail,omitempty"`
 }
 
 func (s *Session) listActions(ctx context.Context, _ struct{}) (toolResult, error) {
@@ -696,6 +699,7 @@ func (s *Session) listActions(ctx context.Context, _ struct{}) (toolResult, erro
 			ActionID: a.ActionID, ActionType: a.ActionType, Tier: a.Tier, Status: a.Status,
 			RequiredMode: a.RequiredMode, IsReversal: a.IsReversal, Targets: a.Targets,
 			ExpiresAt: a.ExpiresAt, EvidenceRefs: a.EvidenceRefs, Expired: a.ApprovalLapsed(now),
+			ErrorDetail: a.ErrorDetail,
 		})
 	}
 	return contentOf(json.Marshal(map[string]any{

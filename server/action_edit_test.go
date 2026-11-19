@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -190,8 +191,10 @@ func TestEditAction_KeepsTheFrozenBinding(t *testing.T) {
 		t.Fatalf("request: %d", resp.StatusCode)
 	}
 	// description is optional for the type, but this binding needs it.
-	if r, _ := postActionDecision(t, b, human, out.ActionID, "edit", map[string]any{"parameters": map[string]any{"summary": "Reimage"}}); r.StatusCode != http.StatusUnprocessableEntity {
-		t.Errorf("edit that breaks the frozen binding's params: %d; want 422", r.StatusCode)
+	status, body := postRaw(t, b, "/api/actions/"+out.ActionID+"/edit", map[string]any{"parameters": map[string]any{"summary": "Reimage"}})
+	const want = "edit: the binding chosen at request can no longer carry the edited action: operation op on adapter test_write no longer renders: missing parameters.description"
+	if status != http.StatusUnprocessableEntity || !strings.Contains(body, want) {
+		t.Errorf("edit that breaks the frozen binding's params: %d %s; want 422 with %q", status, body, want)
 	}
 	if r, _ := postActionDecision(t, b, human, out.ActionID, "edit", map[string]any{"parameters": map[string]any{"summary": "Reimage", "description": "now"}}); r.StatusCode != http.StatusOK {
 		t.Errorf("edit that still renders: %d; want 200", r.StatusCode)
