@@ -204,10 +204,10 @@ func TestCELParametersAvailable(t *testing.T) {
 // TestBadPredicateRejectedAtBuild: a predicate that doesn't compile / isn't bool
 // is a config error at NewGate2.
 func TestBadPredicateRejectedAtBuild(t *testing.T) {
-	if _, err := NewGate2([]Policy{{ID: "p/bad/1", ActionMatch: []string{"*"}, Predicate: "ctx.action.tier +"}}); err == nil {
+	if _, err := NewGate2([]Policy{{ID: "p/bad/1", ActionMatch: []string{"*"}, Effect: EffectDeny, Predicate: "ctx.action.tier +"}}); err == nil {
 		t.Error("malformed predicate accepted")
 	}
-	if _, err := NewGate2([]Policy{{ID: "p/nonbool/1", ActionMatch: []string{"*"}, Predicate: `ctx.action.type`}}); err == nil {
+	if _, err := NewGate2([]Policy{{ID: "p/nonbool/1", ActionMatch: []string{"*"}, Effect: EffectDeny, Predicate: `ctx.action.type`}}); err == nil {
 		t.Error("non-bool predicate accepted")
 	}
 }
@@ -377,6 +377,25 @@ func TestNewGate2_RefusesDuplicateID(t *testing.T) {
 	} {
 		if _, err := NewGate2(tc.policies); err == nil {
 			t.Errorf("%s: NewGate2 accepted a duplicate id", tc.name)
+		}
+	}
+}
+
+// TestNewGate2_RefusesUnknownEffect: a policy's effect must be one of the
+// three. Evaluate acts on no other, so a DENY written with the effect missing,
+// misspelt or in the wrong case would fire and block nothing, and the
+// AUTO_APPROVE beside it would approve.
+func TestNewGate2_RefusesUnknownEffect(t *testing.T) {
+	auto := Policy{ID: "p/auto/1", ActionMatch: []string{"*"}, Effect: EffectAutoApprove, Predicate: "true"}
+	for _, effect := range []PolicyEffect{"", "deny", "DENNY"} {
+		meantAsDeny := Policy{ID: "p/deny/1", ActionMatch: []string{"*"}, Effect: effect, Predicate: "true"}
+		if _, err := NewGate2([]Policy{meantAsDeny, auto}); err == nil {
+			t.Errorf("effect %q: NewGate2 accepted it", effect)
+		}
+	}
+	for _, effect := range []PolicyEffect{EffectDeny, EffectRequireTwoParty, EffectAutoApprove} {
+		if _, err := NewGate2([]Policy{{ID: "p/x/1", ActionMatch: []string{"*"}, Effect: effect, Predicate: "true", SecondaryApproverPool: []string{"bob"}}}); err != nil {
+			t.Errorf("effect %s: %v", effect, err)
 		}
 	}
 }

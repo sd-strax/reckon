@@ -151,3 +151,47 @@ func TestLoadPolicies_IDsNameTheFiles(t *testing.T) {
 		t.Errorf("shared id: err = %v; want it refused, naming both files", err)
 	}
 }
+
+// TestLoadPolicies_RefusesUnknownKeys: a key the policy does not have is
+// refused, with the file named. A misspelt key would otherwise be dropped and
+// its field left at the default: a misspelt effect as no effect, a misspelt
+// shadow as a live policy.
+func TestLoadPolicies_RefusesUnknownKeys(t *testing.T) {
+	for key, body := range map[string]string{
+		"efect":  "id: p/x/1\naction_match: [\"*\"]\npredicate: \"true\"\nefect: DENY\n",
+		"shadwo": "id: p/x/1\naction_match: [\"*\"]\npredicate: \"true\"\neffect: AUTO_APPROVE\nshadwo: true\n",
+	} {
+		_, err := loadOne(t, body)
+		if err == nil || !strings.Contains(err.Error(), "a.policy.yaml") || !strings.Contains(err.Error(), key) {
+			t.Errorf("key %s: err = %v; want it refused, naming a.policy.yaml and the key", key, err)
+		}
+	}
+}
+
+// TestLoadPolicies_OnePolicyPerFile: a second YAML document in a file is
+// refused, not dropped. A DENY written there would otherwise never load.
+func TestLoadPolicies_OnePolicyPerFile(t *testing.T) {
+	const body = "id: p/a/1\naction_match: [\"*\"]\npredicate: \"true\"\neffect: AUTO_APPROVE\n" +
+		"---\nid: p/b/1\naction_match: [\"*\"]\npredicate: \"true\"\neffect: DENY\n"
+	if _, err := loadOne(t, body); err == nil || !strings.Contains(err.Error(), "a.policy.yaml") || !strings.Contains(err.Error(), "more than one YAML document") {
+		t.Errorf("two documents: err = %v; want it refused as more than one document, naming a.policy.yaml", err)
+	}
+}
+
+// TestLoadPolicies_RefusesEmptyFile: a file with no policy in it, such as one
+// with every line commented out, is refused with the file named.
+func TestLoadPolicies_RefusesEmptyFile(t *testing.T) {
+	if _, err := loadOne(t, "# id: p/x/1\n# effect: DENY\n"); err == nil || !strings.Contains(err.Error(), "a.policy.yaml") || !strings.Contains(err.Error(), "empty file") {
+		t.Errorf("comments only: err = %v; want it refused as an empty file, naming a.policy.yaml", err)
+	}
+}
+
+// loadOne writes body as the one policy file in a fresh directory and loads it.
+func loadOne(t *testing.T, body string) ([]Policy, error) {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.policy.yaml"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return LoadPolicies(dir)
+}

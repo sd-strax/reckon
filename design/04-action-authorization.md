@@ -333,7 +333,8 @@ policy:
                            across the loaded policies
   action_match             list of action_type globs (e.g., "host.isolate")
   predicate                CEL expression returning bool
-  effect                   AUTO_APPROVE | REQUIRE_TWO_PARTY | DENY
+  effect                   AUTO_APPROVE | REQUIRE_TWO_PARTY | DENY;
+                           required
   shadow                   bool, default false (see §4.4 — when true, the
                            policy is evaluated and its decision recorded as
                            would_have_fired in PolicyEvaluated events, but
@@ -360,6 +361,8 @@ policy:
                            and fractional seconds only when non-zero,
                            trailing zeros trimmed (adr/0378)
 ```
+
+The backend refuses to start with a policy that has no effect or an unknown one. A policy file holds one policy, and takes only the fields from `id` to `effective_until`; `content_hash` is computed, not written. A file with any other key is refused, since a misspelt key's field would otherwise be left at its default. So is a file with a second YAML document, which would otherwise be dropped (adr/0378).
 
 Policies are stored in a versioned repo (git is fine for v0; the path doesn't matter for this thread) and loaded into the backend at startup and on signal. Any change requires a signed config commit. The Go backend evaluates policies in priority order: any matching `DENY` wins; else any matching `REQUIRE_TWO_PARTY`; else any matching `AUTO_APPROVE`; else fall through to the default tier flow.
 
