@@ -1,6 +1,6 @@
 # 0433 — The conversation is the investigation's workspace; one panel beside it holds the case state and everything opened on demand
 
-Issue: #433 · PR: — · Status: accepted · Supersedes: the lenses, the stage header, the
+Issue: #433 · PR: #435 · Status: accepted · Supersedes: the lenses, the stage header, the
 companion column and the turn-as-link rule of `0079`; the stage-step bullet of `0342`; the
 home of the action history in `0361`; `ui/00 §2` for the words on screen; the pin control of
 `ui/08 §8.6`
