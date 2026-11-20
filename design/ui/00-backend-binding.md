@@ -51,6 +51,12 @@ exist).
 Analysts learn state words as *meaning* (the design system says so itself). There is exactly
 one vocabulary — the engine's — because the engine's words are what the audit record stores.
 
+> **Words on screen superseded by `adr/0433-conversation-workspace.md`**: the record, the
+> Thread and every inspector's Raw tab keep this one vocabulary. The reading surfaces show
+> plain words through one mapping, the "Words on screen" table of
+> `10-realignment-wireframes.md`. The field bindings below are unchanged. The change lands in
+> steps.
+
 ### 2.1 Investigation fields (the "frontmatter card" data)
 
 | Design field | Engine source |

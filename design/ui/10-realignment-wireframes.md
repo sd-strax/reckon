@@ -1,8 +1,8 @@
 # 10 — Realignment wireframes: the conversation in the centre, the case state beside it
 
-Status: proposal for review (issue #433). This sheet is not yet in force. Until a decision
-record accepts it, `08-investigation-layout.md` describes the investigation document, and
-where the two disagree, `08` stands.
+Status: accepted by `adr/0433-conversation-workspace.md` (issue #433). This sheet is the
+target. The change lands in steps. Until a step lands, `08-investigation-layout.md` describes
+the screen as built.
 
 The wireframes show one change of emphasis. The conversation takes the centre and the width,
 and nothing takes its place. One panel sits on the right. It says where the case stands, and

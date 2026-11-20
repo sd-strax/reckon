@@ -8,6 +8,13 @@ and its alternatives are `adr/0079-investigation-layout.md`; the work queue move
 document into the editor's sidebar in `adr/0342-one-work-queue.md` (§8.3). Reference screens
 for the reference scenario are in `mockups/`; they still draw `0079`'s queue column.
 
+> **Being replaced by `adr/0433-conversation-workspace.md`**, whose screens are
+> `10-realignment-wireframes.md`. That decision supersedes §8.1 (the regions), §8.2 (the
+> stage indicator and the primary action), the stage step of §8.3, §8.4 (the lenses as
+> tabs), §8.5 (the companion column) and the pin of §8.6. It lands in steps. Until a step
+> lands, this sheet describes the screen as built. Each step rewrites the section it
+> replaces.
+
 Binding rules apply unchanged (`00`): the engine is the record, engine words render
 verbatim, every element names its source, and an element with no source is a gap in
 `00 §6`.
