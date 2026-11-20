@@ -25,6 +25,8 @@ binding wins.
 | `15-knowledge-candidates.html` | Knowledge view: candidate procedures drafted from concluded investigations | `ui/09 §9.7` |
 | `16-knowledge-import.html` | Knowledge view: markdown import with per-document outcomes | `ui/09 §9.5` |
 | `17-investigation-knowledge.html` | Inside an investigation: the Knowledge section and a nudge beside Decide (historical: removed by `adr/0129` and `adr/0344`, no section remains) | `ui/09 §9.6` |
+| `18-realignment-conversation.html` | Proposal (issue #433): mid-investigation, the conversation with the case-state panel beside it | `ui/10` screen a |
+| `19-realignment-narrow.html` | Proposal (issue #433): the same case in a narrow window, the panel folded into the case line | `ui/10` screen f |
 
 Data: events, times, process ids, the decoded command, the case ids and the procedure text
 come from the fixture scenario and `demo/knowledge/`. Tenant labels on the queue
@@ -48,3 +50,7 @@ In `12`–`17`, the three procedures, their text, tags and recommendations, and 
 cases come from `demo/knowledge/`. The fourth procedure (added from INC0010042), the
 imported file names and outcomes, the candidate drafts, the relevance bands, the "cited in"
 counts and the Ask answer's wording are illustrative.
+
+`18` and `19` show the proposal of `10-realignment-wireframes.md` (issue #433), which is not
+yet in force. `01`–`17` remain the record of the current layout. The text in `18` and `19` is
+the text of the sheet's screens a and f, and the sheet says which parts are illustrative.
