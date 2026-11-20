@@ -4,10 +4,11 @@ Status: proposal for review (issue #433). This sheet is not yet in force. Until 
 record accepts it, `08-investigation-layout.md` describes the investigation document, and
 where the two disagree, `08` stands.
 
-The wireframes show one change of emphasis. The conversation takes the centre and the width.
-One case-state panel sits on the right and says where the case stands. The lenses of `08 §8.4`
-stop being tabs. Their content stays, one step away. Nothing here changes the engine, the
-record, or anything the agent reads.
+The wireframes show one change of emphasis. The conversation takes the centre and the width,
+and nothing takes its place. One panel sits on the right. It says where the case stands, and
+everything else opens in it: an inspector, the timeline, the reasoning, the report. The lenses
+of `08 §8.4` stop being tabs. Their content stays, one step away. Nothing here changes the
+engine, the record, or anything the agent reads.
 
 ## How to read the diagrams
 
@@ -23,9 +24,10 @@ record, or anything the agent reads.
   "could not check" item are illustrative.
 - `[ Button ]` is a control. `( Conclude )` in parentheses is a disabled control. `▸` is a fold
   that is closed. `▾` is a fold that is open. `◆` needs a person. `○` is not checked yet.
-  `✓` was checked. `✕` could not be checked.
+  `✓` was checked. `✕` could not be checked. `◇` waits on someone outside.
 - The diagrams follow one case through an afternoon. Screen a has one check done. Screens b
-  to e come after a second check.
+  to d come after a second check. Screen e is later still, after an action was approved and
+  a message was sent.
 
 ## Words on screen
 
@@ -34,8 +36,8 @@ Raw tab and the Thread show them unchanged.
 
 | On the record | On screen |
 |---|---|
-| The hypothesis the evidence favours | What I think happened |
-| A rival hypothesis | What else it could be |
+| The hypothesis that leads: the supported one, otherwise the one proposed first | Leading explanation |
+| A rival hypothesis | Other explanations |
 | Hypothesis, as a noun | Explanation |
 | Prediction | Check |
 | `CONFIRMED` / `DISCONFIRMED` | held / did not hold |
@@ -55,8 +57,8 @@ Raw tab and the Thread show them unchanged.
 │ Suspicious interactive RDP logon to WIN-FILE01 by svc_backup       3 open   [Verdict…] (Conclude)│
 │ from INC0010042 · active · no verdict yet                                                        │
 ├────────────────────────────────────────────────────────────────┬─────────────────────────────────┤
-│ [Conversation] Thread         Open: Timeline · Matrix · More ▾ │ VERDICT                         │
-│                                                                │ None recorded yet               │
+│ [Conversation] Thread                                          │ VERDICT                         │
+│                                                                │ None recorded yet      Report › │
 │                                                    You · 14:52 │ Active · opened 14:41           │
 │                   Is this the backup job, or someone using the │                                 │
 │                                               account by hand? │ OPEN ITEMS · 3                  │
@@ -80,13 +82,17 @@ Raw tab and the Thread show them unchanged.
 │   Not checked yet: what 10.0.4.20 is, and where the server     │   Someone used svc_backup by    │
 │   connected after PowerShell started.                          │   hand. One other explanation   │
 │   Needs a person: the backup team, to say whether anyone       │   is still open.                │
-│   worked by hand at 14:32.                                     │                                 │
-│                                                                │ KEY ENTITIES                    │
-│   → Noted 2 explanations and 4 checks · 1 check done           │ svc_backup    account · subject │
-│   ▸ Activity · 4 tool calls, 7 records                         │ WIN-FILE01   host · file server │
+│   worked by hand at 14:32.                                     │                     Reasoning › │
+│                                                                │                                 │
+│   → Noted 2 explanations and 4 checks · 1 check done           │ WHAT HAPPENED                   │
+│   ▸ Activity · 4 tool calls, 7 records                         │ 4 events             Timeline › │
+│                                                                │                                 │
+│ ────────────────────────────────────────────────────────────── │ KEY ENTITIES                    │
+│ Ask, pivot, or tell reckon what to do…                [ Send ] │ svc_backup    account · subject │
+│                                                                │ WIN-FILE01   host · file server │
 │                                                                │ 10.0.4.20           IP · source │
-│ ────────────────────────────────────────────────────────────── │                                 │
-│ Ask, pivot, or tell reckon what to do…                [ Send ] │ PINNED EVIDENCE · 2             │
+│                                                                │                                 │
+│                                                                │ PINNED EVIDENCE · 2             │
 │                                                                │ · Desktop sign-in outside the   │
 │                                                                │   backup pattern                │
 │                                                                │ · Encoded PowerShell 23s after  │
@@ -101,19 +107,24 @@ check" is on the panel without opening anything. 9: event sentences get the wide
 the state summary gets the narrow one.
 
 **Collapsed by default.** The basis of the verdict (**Why**) shows one line. The turn's
-**Activity** (tool calls and records written) is folded. Timeline, matrix, full explanation
-cards and the action history are closed.
+**Activity** (tool calls and records written) is folded. The Timeline, Reasoning and Report
+views are closed.
 
 **What a click opens.**
 
-- Header title: rename, as today. **3 open**: scrolls the panel to Open items. **Verdict…**:
+- Header title: rename, as today. **3 open**: scrolls the panel to Open items. The number is
+  the open items plus the pending approvals. "Could not check" is not counted. **Verdict…**:
   the verdict dialog with its checklist, available now. **( Conclude )**: disabled until a
   verdict is recorded, because a conclusion uses the verdict on record. Its tooltip says so.
 - **Conversation / Thread**: Thread shows the same turns as the full audit record, with every
   act, sequence and tool call.
-- **Open: Timeline · Matrix · More**: opens that view in the centre beside the conversation
-  (screen e). **More** lists Explanations (the full cards), Actions (the action history),
-  Summary and export.
+- **Timeline ›**, **Reasoning ›**, **Report ›** on the panel: each opens that view in the
+  panel, in place of the case state, with **‹ Case state** to go back (screen e). Each link
+  sits on the section it is the longer form of. **Timeline** is the events and the action
+  history on one time axis. **Reasoning** is the full explanation cards and the matrix, with
+  the toggle between them. **Report** is the "what happened" narrative with Draft and Edit,
+  the verdict and its basis as they will read in the export, what is still open, the
+  procedures cited, and the handoff note, the export and the procedure draft.
 - An evidence row: the evidence inspector in the right panel (screen d).
 - An account, host or address inside a sentence: the entity inspector.
 - **→ Noted 2 explanations and 4 checks**: opens **Why** on the panel with the working shown
@@ -133,8 +144,8 @@ cards and the action history are closed.
 │ Suspicious interactive RDP logon to WIN-FILE01 by svc_backup       2 open   [Verdict…] (Conclude)│
 │ from INC0010042 · active · no verdict yet                                                        │
 ├────────────────────────────────────────────────────────────────┬─────────────────────────────────┤
-│ [Conversation] Thread         Open: Timeline · Matrix · More ▾ │ VERDICT                         │
-│                                                                │ None recorded yet               │
+│ [Conversation] Thread                                          │ VERDICT                         │
+│                                                                │ None recorded yet      Report › │
 │                                                    You · 14:58 │ Active · opened 14:41           │
 │                   Check where the server went after PowerShell │                                 │
 │                                                       started. │ OPEN ITEMS · 2                  │
@@ -152,12 +163,12 @@ cards and the action history are closed.
 │                    searched in full, 0 events                  │ PENDING APPROVALS · 0           │
 │                                                                │                                 │
 │   ✓ Checked: WIN-FILE01 contacted an untrusted host after      │ ▾ WHY · 2 of 4 checks done      │
-│   14:33. It held.                                              │ What I think happened           │
+│   14:33. It held.                                              │ Leading explanation             │
 │   Two checks are left. Both would tell the two explanations    │   Someone used the svc_backup   │
 │   apart.                                                       │   password by hand to open a    │
 │                                                                │   desktop session on WIN-FILE01 │
 │   ▸ Activity · 2 tool calls, 2 records                         │   and run PowerShell.           │
-│                                                                │ What else it could be           │
+│                                                                │ Other explanations              │
 │ ────────────────────────────────────────────────────────────── │   Authorised work by the backup │
 │ Ask, pivot, or tell reckon what to do…                [ Send ] │   team. Not ruled out yet.      │
 │                                                                │ ▾ Show the working              │
@@ -177,7 +188,10 @@ cards and the action history are closed.
 │                                                                │   hand at 14:32                 │
 │                                                                │   needs a person · tells the    │
 │                                                                │   two apart                     │
-│                                                                │   Open: Matrix · Full cards     │
+│                                                                │                     Reasoning › │
+│                                                                │                                 │
+│                                                                │ WHAT HAPPENED                   │
+│                                                                │ 5 events             Timeline › │
 │                                                                │                                 │
 │                                                                │ ▸ KEY ENTITIES · 4              │
 │                                                                │                                 │
@@ -185,12 +199,13 @@ cards and the action history are closed.
 └────────────────────────────────────────────────────────────────┴─────────────────────────────────┘
 ```
 
-**Principles shown.** 7: the whole competing set is one fold away, and the matrix and the full
-cards are one more step. 10: this case has a second explanation that is still open, so the
-panel shows it and the checks that would tell the two apart. A case with one explanation and
-every check done shows the one-line basis and nothing else. 8: the "Nothing" row is a cited
-absence. It names the search and its window, and it opens like any other evidence. 6: the
-conversation tells what was just found. The panel holds the current state of every check, once.
+**Principles shown.** 7: the whole competing set is one fold away, and the Reasoning view with
+the matrix and the full cards is one more step. 10: this case has a second explanation that is
+still open, so the panel shows it and the checks that would tell the two apart. A case with one
+explanation and every check done shows the one-line basis and nothing else. 8: the "Nothing"
+row is a cited absence. It names the search and its window, and it opens like any other
+evidence. 6: the conversation tells what was just found. The panel holds the current state of
+every check, once.
 
 **Collapsed by default.** **Why** is closed until the analyst opens it, and **Show the
 working** is closed inside it. Both remember their last state for the investigation. Key
@@ -198,12 +213,11 @@ entities and pinned evidence fold here only to keep the diagram short.
 
 **What a click opens.**
 
-- The text under **What I think happened** or **What else it could be**: the explanation's
+- The text under **Leading explanation** or **Other explanations**: the explanation's
   inspector, with its record and its wording history. Editing the wording is offered there.
 - A check row: the check's inspector, with its evidence and what it decides against.
   **9 evidence** opens the list of evidence for that check.
-- **Open: Matrix · Full cards**: the matrix or the full cards in the centre, beside the
-  conversation.
+- **Reasoning ›**: the Reasoning view in the panel, with the full cards and the matrix.
 - The "Nothing" evidence row: the absence inspector (the search, its window, the sources that
   answered).
 - **✓ Checked: … It held.**: the check's inspector.
@@ -215,8 +229,8 @@ entities and pinned evidence fold here only to keep the diagram short.
 │ Suspicious interactive RDP logon to WIN-FILE01 by svc_backup       3 open   [Verdict…] (Conclude)│
 │ from INC0010042 · active · no verdict yet                                                        │
 ├────────────────────────────────────────────────────────────────┬─────────────────────────────────┤
-│ [Conversation] Thread         Open: Timeline · Matrix · More ▾ │ VERDICT                         │
-│                                                                │ None recorded yet               │
+│ [Conversation] Thread                                          │ VERDICT                         │
+│                                                                │ None recorded yet      Report › │
 │                                                    You · 15:04 │ Active · opened 14:41           │
 │                     Isolate WIN-FILE01 now. Don't wait for the │                                 │
 │                                                   backup team. │ OPEN ITEMS · 2                  │
@@ -239,11 +253,15 @@ entities and pinned evidence fold here only to keep the diagram short.
 │   │                                                          │ │   Someone used svc_backup by    │
 │   │ [ Approve ]  [ Edit… ]  [ Reject… ]            Details ▸ │ │   hand. One other explanation   │
 │   └──────────────────────────────────────────────────────────┘ │   is still open.                │
-│                                                                │                                 │
-│   ▸ Activity · 1 tool call, 1 record                           │ KEY ENTITIES                    │
+│                                                                │                     Reasoning › │
+│   ▸ Activity · 1 tool call, 1 record                           │                                 │
+│                                                                │ WHAT HAPPENED                   │
+│ ────────────────────────────────────────────────────────────── │ 5 events · 1 action  Timeline › │
+│ Ask, pivot, or tell reckon what to do…                [ Send ] │                                 │
+│                                                                │ KEY ENTITIES                    │
 │                                                                │ svc_backup    account · subject │
-│ ────────────────────────────────────────────────────────────── │ WIN-FILE01   host · file server │
-│ Ask, pivot, or tell reckon what to do…                [ Send ] │ 10.0.4.20           IP · source │
+│                                                                │ WIN-FILE01   host · file server │
+│                                                                │ 10.0.4.20           IP · source │
 │                                                                │ 185.220.101.5     IP · outbound │
 │                                                                │                                 │
 │                                                                │ PINNED EVIDENCE · 2             │
@@ -271,7 +289,8 @@ targets, the history) are folded. The turn's Activity is folded.
 - **sign-in 14:32:47**, **PowerShell 14:33:10**, **outbound 14:33:25**: each opens its evidence
   inspector.
 - **[Go to card]** on the panel: scrolls the conversation to the card.
-- **3 open** in the header now counts the approval with the two open items.
+- **3 open** in the header counts the approval with the two open items. The panel keeps the
+  approval in its own section.
 
 ## d. An inspector in the right panel
 
@@ -279,42 +298,46 @@ targets, the history) are folded. The turn's Activity is folded.
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
 │ Suspicious interactive RDP logon to WIN-FILE01 by svc_backup       2 open   [Verdict…] (Conclude)│
 │ from INC0010042 · active · no verdict yet                                                        │
-├────────────────────────────────────────────────────────┬─────────────────────────────────────────┤
-│ [Conversation] Thread Open: Timeline · Matrix · More ▾ │ ‹ Case state                    Pin   ✕ │
-│                                                        │                                         │
-│ reckon · 14:53                                         │ EVIDENCE · SIGN-IN                      │
-│   This does not look like the backup job. svc_backup   │ CONTOSO\svc_backup RDP logon to         │
-│   normally signs in over the network from BKP-01 at    │ WIN-FILE01 from 10.0.4.20               │
-│   02:00. This was a desktop session from 10.0.4.20 in  │ 20 Apr 2026 14:32:47 UTC                │
-│   the afternoon, and PowerShell started 23 seconds     │                                         │
-│   later with an encoded command.                       │ In this case                            │
-│                                                        │ · Check: the sign-in is far outside the │
-│   Evidence · 4 rows                                    │   account's normal pattern (held)       │
-│  02:00 ×7  Sign-in svc_backup network logon to         │ · Pinned: desktop sign-in outside the   │
-│                    WIN-FILE01 from BKP-01 · 7 nights,  │   backup pattern                        │
-│                    13 to 19 Apr · expected             │                                         │
-│ ▶14:32:47  Sign-in CONTOSO\svc_backup RDP logon to     │ [Details]  Provenance  Raw              │
-│                    WIN-FILE01 from 10.0.4.20           │                                         │
-│  14:33:10  Process CONTOSO\svc_backup ran              │ Account       CONTOSO\svc_backup        │
-│                    powershell.exe on WIN-FILE01, child │ Sign-in type  Remote desktop (10)       │
-│                    of mstsc-hijack.exe                 │ From          10.0.4.20                 │
-│  14:33:10  Alert   Suspicious lateral movement via RDP │ To            WIN-FILE01                │
-│                    followed by encoded PowerShell      │ Result        Success                   │
-│                                                        │                                         │
-│   ▸ Activity · 4 tool calls, 7 records                 │ Around it on WIN-FILE01                 │
-│                                                        │ 14:32:47  this sign-in                  │
-│ ────────────────────────────────────────────────────── │ 14:33:10  powershell.exe started        │
-│ Ask, pivot, or tell reckon what to do…        [ Send ] │ 14:33:25  outbound to 185.220.101.5     │
-│                                                        │                                         │
-│                                                        │ Retrieved by enumerate_logons           │
-│                                                        │ Answered in full                        │
-└────────────────────────────────────────────────────────┴─────────────────────────────────────────┘
+├───────────────────────────────────────────────────────────┬──────────────────────────────────────┤
+│ [Conversation] Thread                                     │ ‹ Case state                       ✕ │
+│                                                           │                                      │
+│ reckon · 14:53                                            │ EVIDENCE · SIGN-IN                   │
+│   This does not look like the backup job. svc_backup      │ CONTOSO\svc_backup RDP logon to      │
+│   normally signs in over the network from BKP-01 at       │ WIN-FILE01 from 10.0.4.20            │
+│   02:00. This was a desktop session from 10.0.4.20 in the │ 20 Apr 2026 14:32:47 UTC             │
+│   afternoon, and PowerShell started 23 seconds later with │                                      │
+│   an encoded command.                                     │ In this case                         │
+│                                                           │ · Check: the sign-in is far outside  │
+│   Evidence · 4 rows                                       │   the account's normal pattern       │
+│  02:00 ×7  Sign-in svc_backup network logon to WIN-FILE01 │   (held)                             │
+│                    from BKP-01 · 7 nights, 13 to 19 Apr · │ · Pinned: desktop sign-in outside    │
+│                    expected                               │   the backup pattern                 │
+│ ▶14:32:47  Sign-in CONTOSO\svc_backup RDP logon to        │                                      │
+│                    WIN-FILE01 from 10.0.4.20              │ [Details]  Provenance  Raw           │
+│  14:33:10  Process CONTOSO\svc_backup ran powershell.exe  │                                      │
+│                    on WIN-FILE01, child of                │ Account       CONTOSO\svc_backup     │
+│                    mstsc-hijack.exe                       │ Sign-in type  Remote desktop (10)    │
+│  14:33:10  Alert   Suspicious lateral movement via RDP    │ From          10.0.4.20              │
+│                    followed by encoded PowerShell         │ To            WIN-FILE01             │
+│                                                           │ Result        Success                │
+│   ▸ Activity · 4 tool calls, 7 records                    │                                      │
+│                                                           │ Around it on WIN-FILE01              │
+│ ───────────────────────────────────────────────────────── │ 14:32:47  this sign-in               │
+│ Ask, pivot, or tell reckon what to do…           [ Send ] │ 14:33:10  powershell.exe started     │
+│                                                           │ 14:33:25  outbound to 185.220.101.5  │
+│                                                           │                                      │
+│                                                           │ Retrieved by enumerate_logons        │
+│                                                           │ Answered in full                     │
+└───────────────────────────────────────────────────────────┴──────────────────────────────────────┘
 ```
 
 **Principles shown.** 8: the row's record, the call that produced it and its raw form are one
-click from the sentence that made the claim. 7: nothing was removed from the inspector. It has
-the same frame and the same tabs as `08 §8.6`. 6: the panel shows either the case state or one
-inspector.
+click from the sentence that made the claim. 7: the inspector keeps the frame and the tabs of
+`08 §8.6`. 6: the panel shows either the case state or one inspector.
+
+The inspector is a detail view of one thing, opened when it is wanted. One is open at a time,
+so the pin control of `08 §8.6` is not here. The first record stays readable as its row in
+the conversation while the inspector shows a second.
 
 **Collapsed by default.** The Provenance and Raw tabs. The conversation keeps its place, and
 the row that was clicked is marked.
@@ -324,78 +347,104 @@ the row that was clicked is marked.
 - **‹ Case state**: closes the inspector and returns the panel to the case state. `Esc` does
   the same. When one inspector was reached from another, the back control names that one, and
   Case state is the last step back.
-- **Pin**: keeps this inspector while another opens. Where the second one goes is an open
-  question (see below).
 - **✕**: closes to the case state.
 - A line under **In this case**: the check or the pin it names.
 - **Provenance**: the verb, the adapter, the query sent, coverage, ingest time and content
   hash. **Raw**: the stored record, with the engine's own field and type names.
 - A row under **Around it**: that event's inspector, with back to this one.
 - **Retrieved by enumerate_logons**: the capability call inspector.
-- The panel is wider while an inspector is open: 41 of 100 columns, about 530px, against 33
+- The panel is wider while an inspector is open: 38 of 100 columns, about 495px, against 33
   for the case state. The conversation gives up the difference.
 
-## e. The timeline opened beside the conversation
+## e. The timeline, with the action history in it
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ Suspicious interactive RDP logon to WIN-FILE01 by svc_backup       2 open   [Verdict…] (Conclude)│
+│ Suspicious interactive RDP logon to WIN-FILE01 by svc_backup       3 open   [Verdict…] (Conclude)│
 │ from INC0010042 · active · no verdict yet                                                        │
-├──────────────────────────────┬──────────────────────────────────────┬────────────────────────────┤
-│ [Conversation] Thread        │ TIMELINE · event time        ✕ Close │ VERDICT                    │
-│                              │ All · Sign-in · Process · Network    │ None recorded yet          │
-│                  You · 14:52 │ 5 events · 5 lookups       [x] Group │ Active · opened 14:41      │
-│      Is this the backup job, │                                      │                            │
-│         or someone using the │ 13–19 Apr · 02:00 · ×7               │ OPEN ITEMS · 2             │
-│             account by hand? │   Sign-in  svc_backup network logon  │ ◆ Did anyone on the backup │
-│                              │   to WIN-FILE01 from BKP-01 ·        │   team work by hand at     │
-│ reckon · 14:53               │   expected                           │   14:32?                   │
-│ This does not look like the  │ 20 Apr                               │   needs a person           │
-│ backup job. svc_backup       │ 14:32:47  Sign-in                    │            [Record answer] │
-│ normally signs in over the   │   CONTOSO\svc_backup RDP logon to    │ ○ What is 10.0.4.20, and   │
-│ network from BKP-01 at       │   WIN-FILE01 from 10.0.4.20          │   who was at it?           │
-│ 02:00. This was a desktop    │ 14:33:10  Process                    │   not checked yet  [Check] │
-│ session from 10.0.4.20 in    │   CONTOSO\svc_backup ran             │ ✕ VPN records for          │
-│ the afternoon.               │   powershell.exe on WIN-FILE01,      │   10.0.4.20                │
-│                              │   child of mstsc-hijack.exe          │   could not check: no VPN  │
-│ Evidence · 4 rows ▸          │ 14:33:10  Alert                      │   source is connected      │
-│ ▸ Activity · 4 tool calls    │   Suspicious lateral movement via    │                            │
-│                              │   RDP followed by encoded PowerShell │ PENDING APPROVALS · 0      │
-│ ──────────────────────────── │ 14:33:25  Network                    │                            │
-│ Ask or tell reckon…   [Send] │   WIN-FILE01 connected to            │ ▸ WHY · 2 of 4 checks done │
-│                              │   185.220.101.5 port 443             │   Someone used svc_backup  │
-│                              │   (exfil.example.net) over tcp       │   by hand. One other       │
-│                              │ ── investigation opened 14:41 ──     │   explanation is still     │
-│                              │ Not yet known: what 10.0.4.20 is and │   open.                    │
-│                              │ who was at it.                       │                            │
-│                              │                                      │ ▸ KEY ENTITIES · 4         │
-│                              │                                      │                            │
-│                              │                                      │ ▸ PINNED EVIDENCE · 2      │
-└──────────────────────────────┴──────────────────────────────────────┴────────────────────────────┘
+├────────────────────────────────────────────────────────┬─────────────────────────────────────────┤
+│ [Conversation] Thread                                  │ ‹ Case state                          ✕ │
+│                                                        │                                         │
+│                                            You · 15:10 │ TIMELINE                                │
+│                             What do we still not know? │ [x] Telemetry [x] Actions [ ] Queries   │
+│                                                        │ All · Sign-in · Process · Network ·     │
+│ reckon · 15:10                                         │ Containment · Message                   │
+│   Two things.                                          │ 5 events · 2 actions          [x] Group │
+│   What 10.0.4.20 is and who was at it. Not checked     │                                         │
+│   yet.                                                 │ 13 to 19 Apr · 02:00  Sign-in ×7        │
+│   Whether the backup team worked by hand at 14:32.     │   svc_backup network logon to           │
+│   That needs a person.                                 │   WIN-FILE01 from BKP-01 · expected     │
+│                                                        │ 20 Apr 14:32:47  Sign-in                │
+│   WIN-FILE01 is isolated. The platform team was asked  │   CONTOSO\svc_backup RDP logon to       │
+│   at 15:08 to rotate the svc_backup password and has   │   WIN-FILE01 from 10.0.4.20             │
+│   not answered.                                        │ 14:33:10  Process                       │
+│                                                        │   CONTOSO\svc_backup ran powershell.exe │
+│   Could not check: VPN records for 10.0.4.20. No VPN   │   on WIN-FILE01, child of               │
+│   source is connected.                                 │   mstsc-hijack.exe                      │
+│                                                        │ 14:33:10  Alert                         │
+│   ▸ Activity · no tool calls                           │   Suspicious lateral movement via RDP   │
+│                                                        │   followed by encoded PowerShell        │
+│ ────────────────────────────────────────────────────── │ 14:33:25  Network                       │
+│ Ask, pivot, or tell reckon what to do…        [ Send ] │   WIN-FILE01 connected to 185.220.101.5 │
+│                                                        │   port 443 (exfil.example.net) over tcp │
+│                                                        │ ── investigation opened 14:41 ───────── │
+│                                                        │ 15:04:10  Action                        │
+│                                                        │   Requested: isolate host WIN-FILE01    │
+│                                                        │ 15:06:32  Action                        │
+│                                                        │   Approved by you, run, succeeded:      │
+│                                                        │   isolate host WIN-FILE01 · 3 steps in  │
+│                                                        │   one minute                            │
+│                                                        │ 15:08:05  Action                        │
+│                                                        │   Sent: message to the platform team,   │
+│                                                        │   asking them to rotate the svc_backup  │
+│                                                        │   password                              │
+└────────────────────────────────────────────────────────┴─────────────────────────────────────────┘
 ```
 
-**Principles shown.** 7: the timeline is the Story lens of `08 §8.4` with nothing taken out.
-It opens on demand and closes back to the conversation. 9: the timeline takes the widest
-column while it is open. 1: the conversation stays on screen and the composer stays usable, so
-a question about a row can be asked while looking at it.
+**Principles shown.** 1: the conversation keeps its place and its composer while the timeline
+is open. The analyst asks about a row and reads the answer without leaving it. 6: what
+happened and what was done about it are on one time axis. The action history has no list of
+its own. 7: the timeline is the Story lens of `08 §8.4` with nothing taken out, and the
+action history of `adr/0361` joins it. 9: in the panel a row puts the time and the kind on
+one line and the sentence below, so the sentence gets the panel's full width.
 
-**Collapsed by default.** In the narrowed conversation, a turn's evidence rows fold to one
-line ("Evidence · 4 rows ▸") because the same events are in the timeline beside it. Key
-entities and pinned evidence fold on the panel. The evidence graph and the grouping controls
-are folded inside the timeline, as they are today.
+**How the rows work.**
+
+- A telemetry row sits at the time the event happened. An action row sits at the time the
+  step happened. The line "investigation opened" divides what happened from what was done.
+- Each step of an action is its own row at its own time: requested, edited, approved (or
+  rejected, or expired), run, the result, reversed. Steps of one action that fall in the
+  same minute share a row that names each step. Here the approval, the run and the result
+  came within a minute, so they are one row. The request came two minutes earlier, so it is
+  its own row.
+- **Queries** is off by default. Turned on, it adds one row for each query at the time it
+  ran, with what was asked and what came back. A query that found nothing and a query that
+  could not run each get a row.
+- Grouping of repeats and the merge of an event that several queries returned apply to
+  telemetry rows only.
+- Actions waiting for approval stay on the panel, with their buttons. The timeline shows the
+  request as a row.
+
+**Where it opens.** In the right panel, in place of the case state. The same holds for
+Reasoning and Report, at every window width. The panel is 41 of 100 columns here, about
+530px, and can be dragged wider until the conversation reaches its smallest width. While a
+view is open, the header still shows the verdict status and the open count, and a new
+approval still arrives as a card in the conversation.
+
+**Collapsed by default.** Query rows. The evidence graph and the grouping panel are folded
+inside the timeline, as they are today.
 
 **What a click opens.**
 
-- **✕ Close**: closes the timeline. The conversation takes the centre again.
-- A timeline row: the evidence inspector in the right panel.
+- **‹ Case state** or **✕**: closes the timeline. The panel shows the case state again.
+- **[x] Telemetry**, **[x] Actions**, **[ ] Queries**: turn a kind of row on or off. The
+  next line filters inside the kinds: the telemetry sources and the action groups.
+- A telemetry row: the evidence inspector, in the panel, with **‹ Timeline** to go back.
+- An action row: the action inspector, with every step, the evidence and Reverse. The other
+  steps of the same action are marked on the timeline.
+- A query row: the capability call inspector.
 - The folded row (**×7**): its seven members in place.
-- **All · Sign-in · Process · Network**: filters the rows. **[x] Group**: turns the fold of
-  repeats on or off.
-- **Not yet known**: the open check it names.
-- Matrix, Explanations and Actions open in this same middle column, one at a time.
-
-This screen is the tightest. At 1300px three columns leave the conversation about 390px. See
-the open questions.
+- **[x] Group**: turns the fold of repeats on or off.
 
 ## f. The same case in a narrow window
 
@@ -407,7 +456,7 @@ the open questions.
 ├────────────────────────────────────────────────────────┤
 │ No verdict · 3 open                             Case ▾ │
 │ ────────────────────────────────────────────────────── │
-│ [Conversation] Thread                           Open ▾ │
+│ [Conversation] Thread                                  │
 │                                                        │
 │                                            You · 14:52 │
 │           Is this the backup job, or someone using the │
@@ -451,33 +500,35 @@ evidence rows put the time and kind on one line and the sentence below, so the s
 the full width. 8: the case line under the header keeps the verdict and the open count in
 view.
 
-**Collapsed by default.** The whole case-state panel. It becomes a drawer. Timeline, matrix
-and the other views are behind **Open ▾**.
+**Collapsed by default.** The whole panel. It becomes a drawer. Timeline, Reasoning and Report
+open inside it, as they do in the panel.
 
 **What a click opens.**
 
 - **Case ▾**, or the case line itself: the case-state panel as a drawer over the conversation,
-  with the same sections in the same order. An inspector opens in that drawer, with back to
-  the case state.
-- **Open ▾**: Timeline, Matrix, Explanations, Actions, Summary. At this width the chosen view
-  replaces the conversation, with a control that returns to it.
+  with the same sections in the same order. An inspector or a view opens in that drawer, with
+  back to the case state. The drawer covers the conversation while it is open and closes back
+  to it. This is the one width at which the conversation is covered.
 - Everything else opens what it opens on screen a.
 
-## Open questions for review
+## Settled in review
 
-1. **What the header count counts.** The diagrams count open items and pending approvals
-   together, and leave out "could not check". The other choice is two numbers.
-2. **A home for what the target shape does not name.** The action history, conversations with
-   others, dependencies on others, the "what happened" narrative, the handoff note, the
-   export, the procedure draft and the evidence graph all exist today. The diagrams put the
-   action history and the narrative under **More**, replies awaited and dependencies in Open
-   items, and the graph inside the timeline. None of that is settled.
-3. **Comparing two inspectors.** Today a pinned inspector stays while a second opens beside
-   it. The right panel has room for one. The pinned one could move to the centre column.
-4. **The width below which an opened view replaces the conversation.** Screen e keeps three
-   columns at 1300px. Screen f replaces at 750px. The switch point between them is not chosen.
-5. **Whose voice "What I think happened" is.** The words read as the agent's. Once the analyst
-   has edited the wording, "I" may be the wrong word. "Leading explanation" and "Other
-   explanations" are the neutral pair.
-6. **Which explanation leads.** The record holds a set and no leader. The panel needs a rule:
-   the supported one when there is one, otherwise the one proposed first.
+- The header shows one number: the open items plus the pending approvals. "Could not check"
+  is not counted. The panel keeps the approvals in their own section.
+- One inspector is open at a time. There is no pin control.
+- The labels are "Leading explanation" and "Other explanations". The supported explanation
+  leads when there is one. Otherwise the one proposed first leads.
+- Nothing takes the conversation's place. Timeline, Reasoning and Report open in the right
+  panel, from the section each is the longer form of, with a step back to the case state.
+  There is no tab strip. Nothing sends the analyst to a view, and no stage switches one.
+- The action history is part of the timeline, with each step of an action at its own time.
+  Query rows are off by default.
+- The narrative, the handoff note, the export and the procedure draft share the Report view.
+- Adopting an explanation is not an open item. It stays on the full cards in the Reasoning
+  view.
+- The sidebar row of an open investigation shows the verdict status and the open count, for
+  example "no verdict · 3 open". It no longer shows a stage step. This changes one point of
+  `adr/0342`. The rest of that decision stands.
+- Work that waits on someone outside shows as one kind of open item, "waiting on others". It
+  is fed by the records that exist today. A change to how outside work is tracked would
+  change what feeds it and would not change the screen.
